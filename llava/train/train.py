@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA/HiDe-LLaVA 的训练入口、数据预处理、Trainer 扩展或注意力加速补丁。"""
+
 # Adopted from https://github.com/lm-sys/FastChat. Below is the original copyright:
 # Adopted from tatsu-lab@stanford_alpaca. Below is the original copyright:
 #    Copyright 2023 Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li
@@ -42,12 +44,14 @@ local_rank = None
 
 
 def rank0_print(*args):
+    """作用：执行 rank0_print 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if local_rank == 0:
         print(*args)
 
 
 @dataclass
 class ModelArguments:
+    """作用：ModelArguments 类封装当前模块中的相关状态和操作。"""
     model_name_or_path: Optional[str] = field(default="facebook/opt-125m")
     previous_task_model_path: Optional[str] = field(default=None)
     version: Optional[str] = field(default="v0")
@@ -64,6 +68,7 @@ class ModelArguments:
 
 @dataclass
 class DataArguments:
+    """作用：DataArguments 类封装当前模块中的相关状态和操作。"""
     data_path: str = field(default=None,
                            metadata={"help": "Path to the training data."})
     memory_data_path: str = field(default=None,
@@ -76,6 +81,7 @@ class DataArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
+    """作用：TrainingArguments 类封装当前模块中的相关状态和操作。"""
     cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     remove_unused_columns: bool = field(default=False)
@@ -111,6 +117,7 @@ class TrainingArguments(transformers.TrainingArguments):
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
+    """作用：执行 maybe_zero_3 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     from deepspeed import zero
     from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
     if hasattr(param, "ds_id"):
@@ -126,6 +133,7 @@ def maybe_zero_3(param, ignore_status=False, name=None):
 
 # Borrowed from peft.utils.get_peft_model_state_dict
 def get_peft_state_maybe_zero_3(named_params, bias):
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     if bias == "none":
         to_return = {k: t for k, t in named_params if "lora_" in k}
     elif bias == "all":
@@ -151,6 +159,7 @@ def get_peft_state_maybe_zero_3(named_params, bias):
 
 
 def get_peft_state_non_lora_maybe_zero_3(named_params, require_grad_only=True):
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     to_return = {k: t for k, t in named_params if "lora_" not in k}
     if require_grad_only:
         to_return = {k: t for k, t in to_return.items() if t.requires_grad}
@@ -159,12 +168,14 @@ def get_peft_state_non_lora_maybe_zero_3(named_params, require_grad_only=True):
 
 
 def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     to_return = {k: t for k, t in named_params if any(key_match in k for key_match in keys_to_match)}
     to_return = {k: maybe_zero_3(v, ignore_status=True).cpu() for k, v in to_return.items()}
     return to_return
 
 
 def find_all_linear_names(model):
+    """作用：在模型、路径或数据结构中查找满足条件的目标。"""
     cls = torch.nn.Linear
     lora_module_names = set()
     multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler']
@@ -273,6 +284,7 @@ def _tokenize_fn(strings: Sequence[str],
 
 def _mask_targets(target, tokenized_lens, speakers):
     # cur_idx = 0
+    """作用：执行 _mask_targets 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     cur_idx = tokenized_lens[0]
     tokenized_lens = tokenized_lens[1:]
     target[:cur_idx] = IGNORE_INDEX
@@ -307,6 +319,7 @@ def preprocess_multimodal(
     sources: Sequence[str],
     data_args: DataArguments
 ) -> Dict:
+    """作用：对原始样本进行预处理，生成 tokenizer 或模型可直接消费的输入。"""
     is_multimodal = data_args.is_multimodal
     if not is_multimodal:
         return sources
@@ -332,6 +345,7 @@ def preprocess_llama_2(
     tokenizer: transformers.PreTrainedTokenizer,
     has_image: bool = False
 ) -> Dict:
+    """作用：对原始样本进行预处理，生成 tokenizer 或模型可直接消费的输入。"""
     conv = conversation_lib.default_conversation.copy()
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
 
@@ -414,6 +428,7 @@ def preprocess_v1(
     tokenizer: transformers.PreTrainedTokenizer,
     has_image: bool = False
 ) -> Dict:
+    """作用：对原始样本进行预处理，生成 tokenizer 或模型可直接消费的输入。"""
     conv = conversation_lib.default_conversation.copy()
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
 
@@ -495,6 +510,7 @@ def preprocess_mpt(
     sources,
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
+    """作用：对原始样本进行预处理，生成 tokenizer 或模型可直接消费的输入。"""
     conv = conversation_lib.default_conversation.copy()
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
 
@@ -562,6 +578,7 @@ def preprocess_plain(
     tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
     # add end signal and concatenate together
+    """作用：对原始样本进行预处理，生成 tokenizer 或模型可直接消费的输入。"""
     conversations = []
     for source in sources:
         assert len(source) == 2
@@ -607,6 +624,7 @@ def preprocess(
         conversations.append(conversation)
     # tokenize conversations
     def get_tokenize_len(prompts):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         return [len(tokenizer_image_token(prompt, tokenizer)) for prompt in prompts]
 
     if has_image:
@@ -633,8 +651,16 @@ class LazySupervisedDataset(Dataset):
     def __init__(self, data_path: str,
                  tokenizer: transformers.PreTrainedTokenizer,
                  data_args: DataArguments):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         super(LazySupervisedDataset, self).__init__()
         list_data_dict = json.load(open(data_path, "r"))
+
+        # delete invalid data
+        missing_images_idx_set = set(["OCR-VQA/images/1421539896.jpg","OCR-VQA/images/141393394.jpg","OCR-VQA/images/316881791.jpg","OCR-VQA/images/140445692.jpg","OCR-VQA/images/142153990X.jpg","OCR-VQA/images/689852649.jpg"])
+        print(missing_images_idx_set)
+        breakpoint()
+        list_data_dict = [data for data in list_data_dict if ('image' not in data) or (data['image'] not in missing_images_idx_set)]
+
 
         if data_args.memory_data_path is not None:
             rank0_print("Adding memory data... {}".format(data_args.memory_data_path))
@@ -650,10 +676,12 @@ class LazySupervisedDataset(Dataset):
         self.data_args = data_args
 
     def __len__(self):
+        """作用：实现 Python 特殊方法 __len__，用于配合对象协议或框架调用。"""
         return len(self.list_data_dict)
 
     @property
     def lengths(self):
+        """作用：执行 lengths 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         length_list = []
         for sample in self.list_data_dict:
             img_tokens = 128 if 'image' in sample else 0
@@ -662,6 +690,7 @@ class LazySupervisedDataset(Dataset):
 
     @property
     def modality_lengths(self):
+        """作用：执行 modality_lengths 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         length_list = []
         for sample in self.list_data_dict:
             cur_len = sum(len(conv['value'].split()) for conv in sample['conversations'])
@@ -670,6 +699,7 @@ class LazySupervisedDataset(Dataset):
         return length_list
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
+        """作用：实现 Python 特殊方法 __getitem__，用于配合对象协议或框架调用。"""
         sources = self.list_data_dict[i]
         if isinstance(i, int):
             sources = [sources]
@@ -681,6 +711,7 @@ class LazySupervisedDataset(Dataset):
             image = Image.open(os.path.join(image_folder, image_file)).convert('RGB')
             if self.data_args.image_aspect_ratio == 'pad':
                 def expand2square(pil_img, background_color):
+                    """作用：执行 expand2square 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
                     width, height = pil_img.size
                     if width == height:
                         return pil_img
@@ -726,6 +757,7 @@ class DataCollatorForSupervisedDataset(object):
     tokenizer: transformers.PreTrainedTokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        """作用：实现 Python 特殊方法 __call__，用于配合对象协议或框架调用。"""
         input_ids, labels = tuple([instance[key] for instance in instances]
                                   for key in ("input_ids", "labels"))
         input_ids = torch.nn.utils.rnn.pad_sequence(
@@ -765,6 +797,7 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
                 data_collator=data_collator)
 
 def load_model_from_previous_task(model, previous_task_model_path):
+    """作用：加载外部资源、模型权重、数据或配置，并转换为后续流程需要的结构。"""
     token_num, tokem_dim = model.lm_head.out_features, model.lm_head.in_features
     # if model.lm_head.weight.shape[0] != token_num:
     #     model.lm_head.weight = torch.nn.Parameter(torch.empty(token_num, tokem_dim, device=model.device, dtype=model.dtype))
@@ -777,6 +810,7 @@ def load_model_from_previous_task(model, previous_task_model_path):
         # this is probably from HF Hub
         from huggingface_hub import hf_hub_download
         def load_from_hf(repo_id, filename, subfolder=None):
+            """作用：加载外部资源、模型权重、数据或配置，并转换为后续流程需要的结构。"""
             cache_file = hf_hub_download(
                 repo_id=repo_id,
                 filename=filename,
@@ -796,6 +830,11 @@ def load_model_from_previous_task(model, previous_task_model_path):
     print('Model is loaded...')
 
 def train():
+    """
+    作用：启动 HiDe/LoRA 持续指令微调训练流程。
+    
+    函数负责解析参数、构造模型与数据集、恢复上一任务权重、执行 Trainer 训练，并在训练结束后保存高斯统计量和 adaptive_w_img。
+    """
     global local_rank
 
     parser = transformers.HfArgumentParser(
@@ -861,6 +900,7 @@ def train():
             model.enable_input_require_grads()
         else:
             def make_inputs_require_grad(module, input, output):
+                """作用：创建并返回特定格式的数据模块、模型差分或辅助对象。"""
                 output.requires_grad_(True)
             model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 

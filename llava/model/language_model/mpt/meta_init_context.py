@@ -1,3 +1,5 @@
+"""作用：提供 MPT 语言模型兼容实现，包括配置、注意力、模块结构、初始化和 HuggingFace 适配逻辑。"""
+
 from contextlib import contextmanager
 import torch
 import torch.nn as nn
@@ -58,6 +60,7 @@ def init_on_device(device: torch.device, include_buffers: bool=False):
         old_register_buffer = nn.Module.register_buffer
 
     def register_empty_parameter(module, name, param):
+        """作用：执行 register_empty_parameter 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
         old_register_parameter(module, name, param)
         if param is not None:
             param_cls = type(module._parameters[name])
@@ -65,6 +68,7 @@ def init_on_device(device: torch.device, include_buffers: bool=False):
             module._parameters[name] = param_cls(module._parameters[name].to(device), **kwargs)
 
     def register_empty_buffer(module, name, buffer):
+        """作用：执行 register_empty_buffer 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
         old_register_buffer(module, name, buffer)
         if buffer is not None:
             module._buffers[name] = module._buffers[name].to(device)
@@ -75,7 +79,9 @@ def init_on_device(device: torch.device, include_buffers: bool=False):
 
     def patch_tensor_constructor(fn):
 
+        """作用：执行 patch_tensor_constructor 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
         def wrapper(*args, **kwargs):
+            """作用：执行 wrapper 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
             kwargs['device'] = device
             return fn(*args, **kwargs)
         return wrapper

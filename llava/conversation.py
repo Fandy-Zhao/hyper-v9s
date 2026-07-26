@@ -1,3 +1,5 @@
+"""作用：仓库中的 Python 模块，承担对应路径下的模型、训练、评测或工具辅助逻辑。"""
+
 import dataclasses
 from enum import auto, Enum
 from typing import List, Tuple
@@ -27,6 +29,7 @@ class Conversation:
     skip_next: bool = False
 
     def get_prompt(self):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         messages = self.messages
         if len(messages) > 0 and type(messages[0][1]) is tuple:
             messages = self.messages.copy()
@@ -104,9 +107,11 @@ class Conversation:
         return ret
 
     def append_message(self, role, message):
+        """作用：执行 append_message 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         self.messages.append([role, message])
 
     def get_images(self, return_pil=False):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         images = []
         for i, (role, msg) in enumerate(self.messages[self.offset:]):
             if i % 2 == 0:
@@ -117,6 +122,7 @@ class Conversation:
                     msg, image, image_process_mode = msg
                     if image_process_mode == "Pad":
                         def expand2square(pil_img, background_color=(122, 116, 104)):
+                            """作用：执行 expand2square 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
                             width, height = pil_img.size
                             if width == height:
                                 return pil_img
@@ -157,6 +163,7 @@ class Conversation:
         return images
 
     def to_gradio_chatbot(self):
+        """作用：执行 to_gradio_chatbot 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         ret = []
         for i, (role, msg) in enumerate(self.messages[self.offset:]):
             if i % 2 == 0:
@@ -188,6 +195,7 @@ class Conversation:
         return ret
 
     def copy(self):
+        """作用：执行 copy 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         return Conversation(
             system=self.system,
             roles=self.roles,
@@ -199,6 +207,7 @@ class Conversation:
             version=self.version)
 
     def dict(self):
+        """作用：执行 dict 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if len(self.get_images()) > 0:
             return {
                 "system": self.system,

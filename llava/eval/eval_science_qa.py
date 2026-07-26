@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在对应下游任务上的评测、答案读取、指标计算或结果转换逻辑。"""
+
 import argparse
 import json
 import os
@@ -6,6 +8,7 @@ import random
 
 
 def get_args():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--base-dir', type=str)
     parser.add_argument('--result-file', type=str)
@@ -18,6 +21,7 @@ def get_args():
 
 
 def convert_caps(results):
+    """作用：把输入数据转换为目标评测、提交或训练格式。"""
     fakecaps = []
     for result in results:
         image_id = result['question_id']

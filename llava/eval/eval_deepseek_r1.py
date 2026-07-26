@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在对应下游任务上的评测、答案读取、指标计算或结果转换逻辑。"""
+
 import os
 import argparse
 import json
@@ -8,6 +10,7 @@ from multiprocessing import Pool, cpu_count
 
 
 def get_args():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--annotation-file', type=str, default='./LLaVA/cl_dataset/TextVQA/TextVQA_0.5.1_val.json')
     parser.add_argument('--result-file', type=str, default='./LLaVA/results/Instructions/TextVQA/Zero_shot/merge.jsonl')
@@ -15,6 +18,7 @@ def get_args():
     return parser.parse_args()
 
 def prompt_processor(prompt):
+    """作用：执行 prompt_processor 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if prompt.startswith('OCR tokens:'):
         pattern = r"Question: (.*?) Short answer:"
         match = re.search(pattern, prompt, re.DOTALL)
@@ -33,6 +37,7 @@ def prompt_processor(prompt):
 
 
 def eval_single(annotation_file, result_file):
+    """作用：执行指定任务的评测流程并输出指标或结果文件。"""
     annotations = json.load(open(annotation_file))
     annotations = {annotation['question_id']: annotation for annotation in annotations}
     results = [json.loads(line) for line in open(result_file)]
@@ -66,6 +71,7 @@ def eval_single(annotation_file, result_file):
     return ans_gt_file
 
 def process_batch(api_key, batch):
+    """作用：处理输入数据并转换为模型、评测或可视化流程需要的格式。"""
     message = (
         "You are an expert evaluator assessing the semantic similarity between model-generated responses and ground truth answers. "
         "For each pair, provide a similarity score between 0 and 10 based on meaning, where 10 means the two responses are identical in meaning, "
@@ -103,6 +109,7 @@ def process_batch(api_key, batch):
 
 
 def deepseek_chat_final(api_key, path, batch_size=10):
+    """作用：执行 deepseek_chat_final 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 

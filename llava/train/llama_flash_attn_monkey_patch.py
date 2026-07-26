@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA/HiDe-LLaVA 的训练入口、数据预处理、Trainer 扩展或注意力加速补丁。"""
+
 from typing import Optional, Tuple
 import warnings
 
@@ -22,6 +24,11 @@ def forward(
     output_attentions: bool = False,
     use_cache: bool = False,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    """
+    作用：执行当前模块的前向传播。
+    
+    在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+    """
     if output_attentions:
         warnings.warn(
             "Output attentions is not supported for patched `LlamaAttention`, returning `None` instead."
@@ -99,10 +106,12 @@ def _prepare_decoder_attention_mask(
     self, attention_mask, input_shape, inputs_embeds, past_key_values_length
 ):
     # [bsz, seq_len]
+    """作用：执行 _prepare_decoder_attention_mask 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return attention_mask
 
 
 def replace_llama_attn_with_flash_attn():
+    """作用：执行 replace_llama_attn_with_flash_attn 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     cuda_major, cuda_minor = torch.cuda.get_device_capability()
     if cuda_major < 8:
         warnings.warn(

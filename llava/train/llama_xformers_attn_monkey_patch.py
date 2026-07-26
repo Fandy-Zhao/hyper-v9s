@@ -17,6 +17,7 @@ except ImportError:
 
 
 def replace_llama_attn_with_xformers_attn():
+    """作用：执行 replace_llama_attn_with_xformers_attn 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     transformers.models.llama.modeling_llama.LlamaAttention.forward = xformers_forward
 
 
@@ -30,6 +31,7 @@ def xformers_forward(
     use_cache: bool = False,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
     # pylint: disable=duplicate-code
+    """作用：执行 xformers_forward 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     bsz, q_len, _ = hidden_states.size()
 
     query_states = (

@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA/HiDe-LLaVA 的训练入口、数据预处理、Trainer 扩展或注意力加速补丁。"""
+
 import os
 import torch
 
@@ -16,6 +18,7 @@ from typing import List, Optional
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
+    """作用：执行 maybe_zero_3 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     from deepspeed import zero
     from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
     if hasattr(param, "ds_id"):
@@ -30,6 +33,7 @@ def maybe_zero_3(param, ignore_status=False, name=None):
 
 
 def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     to_return = {k: t for k, t in named_params if any(key_match in k for key_match in keys_to_match)}
     to_return = {k: maybe_zero_3(v, ignore_status=True, name=k).cpu() for k, v in to_return.items()}
     return to_return
@@ -59,6 +63,7 @@ def split_to_even_chunks(indices, lengths, num_chunks):
 
 def get_modality_length_grouped_indices(lengths, batch_size, world_size, generator=None):
     # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     assert all(l != 0 for l in lengths), "Should not have zero length."
     if all(l > 0 for l in lengths) or all(l < 0 for l in lengths):
         # all samples are in the same modality
@@ -87,6 +92,7 @@ def get_modality_length_grouped_indices(lengths, batch_size, world_size, generat
 
 def get_length_grouped_indices(lengths, batch_size, world_size, generator=None, merge=True):
     # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     indices = torch.randperm(len(lengths), generator=generator)
     megabatch_size = world_size * batch_size
     megabatches = [indices[i : i + megabatch_size].tolist() for i in range(0, len(lengths), megabatch_size)]
@@ -110,6 +116,7 @@ class LengthGroupedSampler(Sampler):
         generator=None,
         group_by_modality: bool = False,
     ):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         if lengths is None:
             raise ValueError("Lengths must be provided.")
 
@@ -120,9 +127,11 @@ class LengthGroupedSampler(Sampler):
         self.group_by_modality = group_by_modality
 
     def __len__(self):
+        """作用：实现 Python 特殊方法 __len__，用于配合对象协议或框架调用。"""
         return len(self.lengths)
 
     def __iter__(self):
+        """作用：实现 Python 特殊方法 __iter__，用于配合对象协议或框架调用。"""
         if self.group_by_modality:
             indices = get_modality_length_grouped_indices(self.lengths, self.batch_size, self.world_size, generator=self.generator)
         else:
@@ -132,7 +141,9 @@ class LengthGroupedSampler(Sampler):
 
 class LLaVATrainer(Trainer):
 
+    """作用：LLaVATrainer 类封装当前模块中的相关状态和操作。"""
     def _get_train_sampler(self) -> Optional[torch.utils.data.Sampler]:
+        """作用：执行 _get_train_sampler 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if self.train_dataset is None or not has_length(self.train_dataset):
             return None
 
@@ -237,6 +248,7 @@ class LLaVATrainer(Trainer):
         return self.optimizer
 
     def _save_checkpoint(self, model, trial, metrics=None):
+        """作用：执行 _save_checkpoint 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if getattr(self.args, 'tune_mm_mlp_adapter', False):
             from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
             checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
@@ -258,6 +270,7 @@ class LLaVATrainer(Trainer):
             super(LLaVATrainer, self)._save_checkpoint(model, trial, metrics)
 
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        """作用：执行 _save 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if getattr(self.args, 'tune_mm_mlp_adapter', False):
             pass
         else:

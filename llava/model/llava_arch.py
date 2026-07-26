@@ -1,4 +1,4 @@
-#    Copyright 2023 Haotian Liu
+﻿#    Copyright 2023 Haotian Liu
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
@@ -20,13 +20,15 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 import inspect
+import os
+import json
 
 from .multimodal_encoder.builder import build_vision_tower, build_text_tower
 from .multimodal_projector.builder import build_vision_projector
 
 from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
-from HiDe.peft.tuners import HiDeMOELoraModel
+from Hyper.peft.tuners import HyperMOELoraModel
 from collections import deque
 
 
@@ -98,6 +100,10 @@ class LlavaMetaModel:
 
     def initialize_text_modules(self, model_args, fsdp=None):
         text_tower = model_args.text_tower
+        mm_text_select_layer = getattr(model_args, 'mm_text_select_layer', -1)
+
+        self.config.mm_text_tower = text_tower
+        self.config.mm_text_select_layer = mm_text_select_layer
 
         if self.get_text_tower() is None:
             text_tower = build_text_tower(model_args)
@@ -115,7 +121,6 @@ class LlavaMetaModel:
 
 
 class LlavaMetaForCausalLM(ABC):
-
     @abstractmethod
     def get_model(self):
         pass
@@ -130,6 +135,288 @@ class LlavaMetaForCausalLM(ABC):
         clip_image_features, image_features = self.get_model().get_vision_tower()(images)
         image_features = self.get_model().mm_projector(image_features)
         return clip_image_features.to(self.device), image_features.to(self.device)
+
+    def _infer_valid_task_ids(self):
+        max_tasks = min(self.expert_num, len(self.image_mean), len(self.text_mean))
+        valid_task_ids = []
+        for task_id in range(max_tasks):
+            has_image_stats = self.image_mean[task_id].detach().abs().sum().item() > 1e-6
+            has_text_stats = self.text_mean[task_id].detach().abs().sum().item() > 1e-6
+            if has_image_stats or has_text_stats:
+                valid_task_ids.append(task_id)
+            elif valid_task_ids:
+                break
+        if not valid_task_ids:
+            valid_task_ids = [0]
+        return valid_task_ids
+
+    def _get_prior_img_per_task(self, valid_task_ids, device, dtype):
+        adaptive_w_img = getattr(self.config, "adaptive_w_img", None)
+        values = []
+        for task_id in valid_task_ids:
+            if adaptive_w_img is not None and task_id < len(adaptive_w_img):
+                values.append(float(adaptive_w_img[task_id]))
+            else:
+                values.append(0.5)
+        return torch.tensor(values, device=device, dtype=dtype)
+
+    def _normalized_entropy(self, p):
+        eps = 1e-8
+        num_tasks = max(p.size(-1), 2)
+        denom = torch.log(torch.tensor(float(num_tasks), device=p.device, dtype=p.dtype))
+        return -(p * (p + eps).log()).sum(dim=-1, keepdim=True) / denom
+
+    def _confidence_and_margin(self, p):
+        if p.size(-1) == 1:
+            conf = torch.ones(p.size(0), 1, device=p.device, dtype=p.dtype)
+            return conf, torch.ones_like(conf)
+        top2 = torch.topk(p, k=2, dim=-1).values
+        conf = top2[:, 0:1]
+        margin = top2[:, 0:1] - top2[:, 1:2]
+        return conf, margin
+
+    def _distribution_from_scores(self, scores):
+        if scores.size(-1) == 1:
+            return torch.ones_like(scores)
+        std = torch.std(scores, dim=-1, keepdim=True, unbiased=False)
+        std = torch.where(torch.isnan(std) | (std < 1e-6), torch.ones_like(std), std)
+        return F.softmax(scores / std, dim=-1)
+
+    def _compute_modality_scores(self, image_guide_features, text_guide_features, valid_task_ids, use_hyperbolic=True):
+        img = image_guide_features
+        txt = text_guide_features
+
+        valid_img_vars = [self.image_var[t].detach().sum().item() for t in valid_task_ids]
+        valid_txt_vars = [self.text_var[t].detach().sum().item() for t in valid_task_ids]
+        scale_img = 1.0 / ((sum(valid_img_vars) / len(valid_img_vars)) + 1e-6) if valid_img_vars else 0.007
+        scale_txt = 1.0 / ((sum(valid_txt_vars) / len(valid_txt_vars)) + 1e-6) if valid_txt_vars else 0.003
+
+        z_test_img = map_to_poincare(img, var_sum=None) if use_hyperbolic else None
+        z_test_txt = map_to_poincare(txt, var_sum=None) if use_hyperbolic else None
+
+        image_scores = []
+        text_scores = []
+        for task_id in valid_task_ids:
+            mean_i = self.image_mean[task_id].to(device=img.device, dtype=img.dtype)
+            mean_t = self.text_mean[task_id].to(device=txt.device, dtype=txt.dtype)
+            if use_hyperbolic:
+                var_sum_i = self.image_var[task_id].detach().sum().item()
+                var_sum_t = self.text_var[task_id].detach().sum().item()
+                z_expert_i = map_to_poincare(mean_i, var_sum=var_sum_i, scale=scale_img)
+                z_expert_t = map_to_poincare(mean_t, var_sum=var_sum_t, scale=scale_txt)
+                image_scores.append(-poincare_dist(z_test_img, z_expert_i))
+                text_scores.append(-poincare_dist(z_test_txt, z_expert_t))
+            else:
+                image_scores.append(-(img - mean_i).pow(2).sum(dim=-1))
+                text_scores.append(-(txt - mean_t).pow(2).sum(dim=-1))
+
+        return torch.stack(image_scores, dim=-1), torch.stack(text_scores, dim=-1)
+
+    def compute_modality_route(
+        self,
+        image_guide_features,
+        text_guide_features,
+        valid_task_ids,
+        routing_mode=None,
+        use_hyperbolic=True,
+    ):
+        routing_mode = routing_mode or getattr(self.config, "modality_routing_mode", "task")
+        if routing_mode not in ("task", "sample", "sample_rule"):
+            raise ValueError(f"Unsupported modality routing mode: {routing_mode}")
+
+        image_scores, text_scores = self._compute_modality_scores(
+            image_guide_features,
+            text_guide_features,
+            valid_task_ids,
+            use_hyperbolic=use_hyperbolic,
+        )
+        p_v = self._distribution_from_scores(image_scores)
+        p_s = self._distribution_from_scores(text_scores)
+        prior_img_per_task = self._get_prior_img_per_task(valid_task_ids, p_v.device, p_v.dtype)
+
+        if routing_mode == "task":
+            w_img = prior_img_per_task.unsqueeze(0)
+            alpha = None
+            p_d = w_img * p_v + (1.0 - w_img) * p_s
+        elif routing_mode == "sample_rule":
+            h_v = self._normalized_entropy(p_v)
+            h_s = self._normalized_entropy(p_s)
+            c_v, m_v = self._confidence_and_margin(p_v)
+            c_s, m_s = self._confidence_and_margin(p_s)
+            alpha = torch.softmax(torch.cat([-h_v + c_v + m_v, -h_s + c_s + m_s], dim=-1), dim=-1)
+            p_d = alpha[:, 0:1] * p_v + alpha[:, 1:2] * p_s
+        else:
+            instance_router = getattr(self, "instance_router", None)
+            if instance_router is None:
+                raise ValueError("modality_routing_mode='sample' requires instance_router to be initialized.")
+            q = 0.5 * (p_v.detach() + p_s.detach())
+            prior_img = (q * prior_img_per_task.unsqueeze(0)).sum(dim=-1, keepdim=True)
+            prior_txt = 1.0 - prior_img
+            prior_alpha = torch.cat([prior_img, prior_txt], dim=-1)
+
+            h_v = self._normalized_entropy(p_v)
+            h_s = self._normalized_entropy(p_s)
+            c_v, m_v = self._confidence_and_margin(p_v)
+            c_s, m_s = self._confidence_and_margin(p_s)
+            route_feat = torch.cat([h_v, h_s, c_v, c_s, m_v, m_s, prior_img, prior_txt], dim=-1)
+            router_param = next(instance_router.parameters(), None)
+            router_device = router_param.device if router_param is not None else route_feat.device
+            router_dtype = router_param.dtype if router_param is not None else route_feat.dtype
+            alpha = instance_router(
+                route_feat.detach().to(device=router_device, dtype=router_dtype),
+                prior_alpha.detach().to(device=router_device, dtype=router_dtype),
+            ).to(device=p_v.device, dtype=p_v.dtype)
+            p_d = alpha[:, 0:1] * p_v.detach() + alpha[:, 1:2] * p_s.detach()
+
+        # Keep the final routing distribution normalized in mixed-precision runs.
+        p_d = p_d.float()
+        p_d = p_d / p_d.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+        if os.environ.get("C1_DUMP_ROUTE", "0") == "1":
+            try:
+                dump_path = os.environ.get("C1_DUMP_ROUTE_PATH")
+                if dump_path:
+                    limit = int(os.environ.get("C1_DUMP_ROUTE_LIMIT", "3000"))
+                    dump_count = int(getattr(self, "_c1_dump_route_count", 0))
+                    if dump_count < limit:
+                        target_task_id = os.environ.get("C1_DUMP_TARGET_TASK_ID", "")
+                        branch = os.environ.get("C1_DUMP_BRANCH", "")
+                        task_name = os.environ.get("C1_DUMP_TASK", "")
+                        os.makedirs(os.path.dirname(dump_path), exist_ok=True)
+                        task_ids_tensor = torch.tensor(valid_task_ids, device=p_d.device, dtype=torch.long)
+
+                        def _entropy(prob):
+                            prob_f = prob.float().clamp_min(1e-8)
+                            return (-(prob_f * prob_f.log()).sum(dim=-1)).detach().cpu().tolist()
+
+                        def _top1(prob):
+                            vals, idx = prob.float().max(dim=-1)
+                            ids = task_ids_tensor[idx].detach().cpu().tolist()
+                            return ids, vals.detach().cpu().tolist()
+
+                        p_v_top1, p_v_prob = _top1(p_v)
+                        p_s_top1, p_s_prob = _top1(p_s)
+                        p_d_top1, p_d_prob = _top1(p_d)
+                        p_v_entropy = _entropy(p_v)
+                        p_s_entropy = _entropy(p_s)
+                        p_d_entropy = _entropy(p_d)
+                        alpha_to_dump = alpha
+                        if alpha_to_dump is None:
+                            selected_prior = prior_img_per_task[torch.argmax(p_d, dim=-1)]
+                            alpha_to_dump = torch.stack([selected_prior, 1.0 - selected_prior], dim=-1)
+                        alpha_cpu = alpha_to_dump.detach().float().cpu()
+                        p_v_cpu = p_v.detach().float().cpu()
+                        p_s_cpu = p_s.detach().float().cpu()
+                        p_d_cpu = p_d.detach().float().cpu()
+                        prior_cpu = prior_img_per_task.detach().float().cpu().tolist()
+                        rows = []
+                        for i in range(p_d.size(0)):
+                            if dump_count + len(rows) >= limit:
+                                break
+                            target_int = None
+                            try:
+                                target_int = int(target_task_id)
+                            except Exception:
+                                pass
+                            row = {
+                                "dump_index": dump_count + len(rows),
+                                "branch": branch,
+                                "task": task_name,
+                                "mode": routing_mode,
+                                "target_task_id": target_int if target_int is not None else target_task_id,
+                                "valid_task_ids": list(valid_task_ids),
+                                "alpha_img": float(alpha_cpu[i, 0].item()),
+                                "alpha_text": float(alpha_cpu[i, 1].item()),
+                                "prior_alpha_img_by_task": prior_cpu,
+                                "prior_alpha_text_by_task": [1.0 - x for x in prior_cpu],
+                                "p_v": p_v_cpu[i].tolist() if p_v_cpu.size(-1) <= 16 else None,
+                                "p_s": p_s_cpu[i].tolist() if p_s_cpu.size(-1) <= 16 else None,
+                                "p_d": p_d_cpu[i].tolist() if p_d_cpu.size(-1) <= 16 else None,
+                                "p_v_top1": p_v_top1[i],
+                                "p_s_top1": p_s_top1[i],
+                                "p_d_top1": p_d_top1[i],
+                                "p_v_top1_prob": float(p_v_prob[i]),
+                                "p_s_top1_prob": float(p_s_prob[i]),
+                                "p_d_top1_prob": float(p_d_prob[i]),
+                                "p_v_entropy": float(p_v_entropy[i]),
+                                "p_s_entropy": float(p_s_entropy[i]),
+                                "p_d_entropy": float(p_d_entropy[i]),
+                                "top1_match_pv_ps": bool(p_v_top1[i] == p_s_top1[i]),
+                                "top1_match_pd_target_task": bool(target_int is not None and p_d_top1[i] == target_int),
+                                "selected_expert_or_topk_experts": [p_d_top1[i]],
+                            }
+                            rows.append(row)
+                        with open(dump_path, "a", encoding="utf-8") as f:
+                            for row in rows:
+                                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                        self._c1_dump_route_count = dump_count + len(rows)
+            except Exception as exc:
+                if not getattr(self, "_c1_dump_route_warned", False):
+                    print(f"[C1_ROUTE_DUMP_WARNING] {exc}")
+                    self._c1_dump_route_warned = True
+        return {
+            "p_v": p_v,
+            "p_s": p_s,
+            "p_d": p_d,
+            "alpha": alpha,
+            "prior_img_per_task": prior_img_per_task,
+        }
+
+    def _sample_router_replay_features(
+        self,
+        replay_task_ids,
+        valid_task_ids,
+        samples_per_task,
+        device,
+        dtype,
+    ):
+        image_samples = []
+        text_samples = []
+        targets = []
+        task_to_index = {task_id: index for index, task_id in enumerate(valid_task_ids)}
+
+        for task_id in replay_task_ids:
+            image_mean = self.image_mean[task_id].detach().to(device=device, dtype=torch.float32)
+            image_std = self.image_var[task_id].detach().to(device=device, dtype=torch.float32).clamp_min(1e-6).sqrt()
+            text_mean = self.text_mean[task_id].detach().to(device=device, dtype=torch.float32)
+            text_std = self.text_var[task_id].detach().to(device=device, dtype=torch.float32).clamp_min(1e-6).sqrt()
+
+            image_noise = torch.randn(samples_per_task, image_mean.size(-1), device=device)
+            text_noise = torch.randn(samples_per_task, text_mean.size(-1), device=device)
+            image_samples.append((image_mean + image_noise * image_std).to(dtype=dtype))
+            text_samples.append((text_mean + text_noise * text_std).to(dtype=dtype))
+            targets.append(
+                torch.full(
+                    (samples_per_task,),
+                    task_to_index[task_id],
+                    device=device,
+                    dtype=torch.long,
+                )
+            )
+
+        return (
+            torch.cat(image_samples, dim=0),
+            torch.cat(text_samples, dim=0),
+            torch.cat(targets, dim=0),
+        )
+
+    def _resolve_eval_modality_routing_mode(self):
+        train_mode = getattr(self.config, "modality_routing_mode", "task")
+        eval_mode = getattr(self.config, "eval_modality_routing_mode", "same")
+        return train_mode if eval_mode == "same" else eval_mode
+
+    def _apply_expert_weight(self, expert_weight):
+        compute_expert_weight = expert_weight.detach().float().cpu().tolist()
+        if len(compute_expert_weight) == 1:
+            compute_expert_weight = compute_expert_weight[0]
+        proj_names = ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
+        for proj_name in proj_names:
+            if proj_name in ['q_proj', 'k_proj', 'v_proj', 'o_proj']:
+                proj_layer_list = [getattr(self.model.layers[i].self_attn, proj_name) for i in range(len(self.model.layers))]
+            else:
+                proj_layer_list = [getattr(self.model.layers[i].mlp, proj_name) for i in range(len(self.model.layers))]
+
+            for proj_layer in proj_layer_list:
+                proj_layer.expert_weight = compute_expert_weight
 
     def prepare_inputs_labels_for_multimodal(
         self, input_ids, position_ids, attention_mask, past_key_values, labels, images
@@ -177,57 +464,236 @@ class LlavaMetaForCausalLM(ABC):
 
         # text_guide_features: bs, 768
         text_guide_features = text_tower(clip_text_inputs)
+        self.router_aux_loss = None
+        self.router_replay_loss = None
+        self.router_log_dict = {}
 
+        # 原始代码
+        # region
+        # if self.training:
+
+        #     current_image_features = image_guide_features  # [batch_size, feature_dim]
+        #     current_text_features = text_guide_features  # [batch_size, feature_dim]
+        #     task_id = self.cur_task
+
+        #     image_sum = self.image_anchors[task_id] * self.image_boundary[task_id] + current_image_features.sum(dim=0)
+        #     text_sum = self.text_anchors[task_id] * self.text_boundary[task_id] + current_text_features.sum(dim=0)
+
+        #     self.image_boundary[task_id].data += current_image_features.shape[0]
+        #     self.text_boundary[task_id].data += current_text_features.shape[0]
+
+        #     self.image_anchors[task_id] = image_sum / self.image_boundary[task_id]
+        #     self.text_anchors[task_id] = text_sum / self.text_boundary[task_id]
+        # else:
+        #     image_sim = []
+        #     text_sim = []
+        #     for image_anchor in self.image_anchors:
+        #         image_sims = F.cosine_similarity(image_guide_features.unsqueeze(1), image_anchor, dim=2)
+        #         image_sim.append(image_sims.max().item())
+        #     for text_anchor in self.text_anchors:
+        #         text_sims = F.cosine_similarity(text_guide_features.unsqueeze(1), text_anchor, dim=2)
+        #         text_sim.append(text_sims.max().item())
+
+        #     image_sim = np.array(image_sim[:self.expert_num]) 
+        #     text_sim = np.array(text_sim[:self.expert_num])  
+
+        #     sim = (image_sim + text_sim) / 2
+
+        #     sim_tensor = torch.tensor(sim, dtype=torch.float32)
+
+        #     sim_softmax = F.softmax(sim_tensor / 0.1)
+        #     # breakpoint()
+        #     # compute_expert_weight = torch.sigmoid(shifted_conf).tolist()
+        #     compute_expert_weight = sim_softmax.tolist()
+        #     # print(compute_expert_weight)
+
+        #     proj_names = [
+        #         'q_proj', 'k_proj', 'v_proj', 'o_proj',  # self_attn 
+        #         'gate_proj', 'up_proj', 'down_proj'      # mlp 
+        #     ]
+        #     for proj_name in proj_names:
+        #         if proj_name in ['q_proj', 'k_proj', 'v_proj', 'o_proj']:
+        #             proj_layer = getattr(self.model.layers[-1].self_attn, proj_name)
+        #         else:
+        #             proj_layer = getattr(self.model.layers[-1].mlp, proj_name)
+
+        #         proj_layer.expert_weight = compute_expert_weight
+        #         # print(proj_layer.expert_weight)
+        # endregion
+
+        # =========================
+        # ----- TRAIN MODE --------
+        # =========================
         if self.training:
 
-            current_image_features = image_guide_features  # [batch_size, feature_dim]
-            current_text_features = text_guide_features  # [batch_size, feature_dim]
             task_id = self.cur_task
 
-            image_sum = self.image_anchors[task_id] * self.image_boundary[task_id] + current_image_features.sum(dim=0)
-            text_sum = self.text_anchors[task_id] * self.text_boundary[task_id] + current_text_features.sum(dim=0)
+            img = image_guide_features          # [B, D]
+            txt = text_guide_features           # [B, D]
+            B = img.shape[0]
 
-            self.image_boundary[task_id].data += current_image_features.shape[0]
-            self.text_boundary[task_id].data += current_text_features.shape[0]
+            # --------- image mean/var/count ----------
+            old_count = self.image_count[task_id].item()
+            new_count = old_count + B
 
-            self.image_anchors[task_id] = image_sum / self.image_boundary[task_id]
-            self.text_anchors[task_id] = text_sum / self.text_boundary[task_id]
+            old_mean = self.image_mean[task_id].data
+            old_var  = self.image_var[task_id].data
+
+            batch_mean = img.mean(dim=0, keepdim=True)
+            batch_var  = img.var(dim=0, unbiased=False, keepdim=True)
+
+            new_mean = (old_mean * old_count + batch_mean * B) / new_count
+            new_var  = (
+                old_var * old_count +
+                batch_var * B +
+                (old_mean - batch_mean).pow(2) * (old_count * B / new_count)
+            ) / new_count
+
+            self.image_mean[task_id].data.copy_(new_mean)
+            self.image_var[task_id].data.copy_(new_var)
+            self.image_count[task_id].data.fill_(new_count)
+
+            # -------- text mean/var/count ----------
+            old_count = self.text_count[task_id].item()
+            new_count = old_count + B
+
+            old_mean = self.text_mean[task_id].data
+            old_var  = self.text_var[task_id].data
+
+            batch_mean = txt.mean(dim=0, keepdim=True)
+            batch_var  = txt.var(dim=0, unbiased=False, keepdim=True)
+
+            new_mean = (old_mean * old_count + batch_mean * B) / new_count
+            new_var  = (
+                old_var * old_count +
+                batch_var * B +
+                (old_mean - batch_mean).pow(2) * (old_count * B / new_count)
+            ) / new_count
+
+            self.text_mean[task_id].data.copy_(new_mean)
+            self.text_var[task_id].data.copy_(new_var)
+            self.text_count[task_id].data.fill_(new_count)
+            # breakpoint()
+            # 原 boundary 更新保持不变
+            self.image_boundary[task_id].data += B
+            self.text_boundary[task_id].data += B
+
+            routing_mode = getattr(self.config, "modality_routing_mode", "task")
+            if routing_mode == "sample":
+                valid_task_ids = list(range(min(task_id + 1, self.expert_num)))
+                min_count = getattr(self.config, "router_min_count", 128)
+                image_count = self.image_count[task_id].detach().item()
+                text_count = self.text_count[task_id].detach().item()
+                if len(valid_task_ids) > 1 and image_count >= min_count and text_count >= min_count:
+                    route_out = self.compute_modality_route(
+                        image_guide_features=img.detach(),
+                        text_guide_features=txt.detach(),
+                        valid_task_ids=valid_task_ids,
+                        routing_mode="sample",
+                    )
+                    p_d = route_out["p_d"]
+                    target_index = valid_task_ids.index(task_id)
+                    target = torch.full(
+                        (p_d.size(0),),
+                        fill_value=target_index,
+                        device=p_d.device,
+                        dtype=torch.long,
+                    )
+                    self.router_aux_loss = F.nll_loss(torch.log(p_d + 1e-8), target)
+                    self.router_log_dict = {
+                        "router_aux_loss": self.router_aux_loss.detach(),
+                        "router_alpha": route_out["alpha"].detach() if route_out["alpha"] is not None else None,
+                    }
+
+                    replay_weight = getattr(self.config, "router_replay_weight", 0.0)
+                    replay_samples = getattr(self.config, "router_replay_samples", 4)
+                    replay_task_ids = [
+                        replay_task_id
+                        for replay_task_id in valid_task_ids
+                        if replay_task_id != task_id
+                        and self.image_count[replay_task_id].detach().item() >= min_count
+                        and self.text_count[replay_task_id].detach().item() >= min_count
+                    ]
+                    if replay_weight > 0 and replay_samples > 0 and replay_task_ids:
+                        replay_img, replay_txt, replay_target = self._sample_router_replay_features(
+                            replay_task_ids=replay_task_ids,
+                            valid_task_ids=valid_task_ids,
+                            samples_per_task=replay_samples,
+                            device=img.device,
+                            dtype=img.dtype,
+                        )
+                        replay_out = self.compute_modality_route(
+                            image_guide_features=replay_img,
+                            text_guide_features=replay_txt,
+                            valid_task_ids=valid_task_ids,
+                            routing_mode="sample",
+                        )
+                        self.router_replay_loss = F.nll_loss(
+                            torch.log(replay_out["p_d"] + 1e-8),
+                            replay_target,
+                        )
+                        self.router_log_dict["router_replay_loss"] = self.router_replay_loss.detach()
+
+            # =====================================================================
+            # [新增] 收集并保存 Raw Features，用于 Rebuttal 的高斯假设验证
+            # =====================================================================
+            # 为了防止 OOM，设置采样率，比如只保存 10% 的 batch 特征
+            # sample_rate = 1.0 
+            # if torch.rand(1).item() < sample_rate:
+            #     # 将特征移到 CPU 并转为 float16 节省内存
+            #     if not hasattr(self, "saved_img_features"):
+            #         self.saved_img_features = []
+            #         self.saved_txt_features =[]
+            #         self.feature_save_dir = "./runs/rebuttal_features" # 你可以改成你的 output_dir
+            #         os.makedirs(self.feature_save_dir, exist_ok=True)
+                    
+            #     self.saved_img_features.append(img.detach().cpu().half())
+            #     self.saved_txt_features.append(txt.detach().cpu().half())
+                
+            #     # 当攒够一定数量（例如 50 个 batch）时，落盘保存并清空内存
+            #     if len(self.saved_img_features) >= 25:
+            #         img_tensor = torch.cat(self.saved_img_features, dim=0)
+            #         txt_tensor = torch.cat(self.saved_txt_features, dim=0)
+                    
+            #         # 使用时间戳或随机数避免覆盖
+            #         import uuid
+            #         uid = uuid.uuid4().hex[:6]
+            #         img_path = os.path.join(self.feature_save_dir, f"task_{task_id}_img_{uid}.pt")
+            #         txt_path = os.path.join(self.feature_save_dir, f"task_{task_id}_txt_{uid}.pt")
+                    
+            #         torch.save(img_tensor, img_path)
+            #         torch.save(txt_tensor, txt_path)
+                    
+            #         # 【新增】控制台输出，确认保存成功
+            #         print(f"\n[Feature Save] Success! Task {task_id} saved {img_tensor.shape[0]} samples. Path: {img_path}")
+                    
+            #         self.saved_img_features = []
+            #         self.saved_txt_features =[]
+
+
+        # =========================
+        # ----- TEST MODE ---------
+        # =========================
         else:
-            image_sim = []
-            text_sim = []
-            for image_anchor in self.image_anchors:
-                image_sims = F.cosine_similarity(image_guide_features.unsqueeze(1), image_anchor, dim=2)
-                image_sim.append(image_sims.max().item())
-            for text_anchor in self.text_anchors:
-                text_sims = F.cosine_similarity(text_guide_features.unsqueeze(1), text_anchor, dim=2)
-                text_sim.append(text_sims.max().item())
-
-            image_sim = np.array(image_sim[:self.expert_num]) 
-            text_sim = np.array(text_sim[:self.expert_num])  
-
-            sim = (image_sim + text_sim) / 2
-
-            sim_tensor = torch.tensor(sim, dtype=torch.float32)
-
-            sim_softmax = F.softmax(sim_tensor / 0.1)
-
-            # compute_expert_weight = torch.sigmoid(shifted_conf).tolist()
-            compute_expert_weight = sim_softmax.tolist()
-            # print(compute_expert_weight)
-
-            proj_names = [
-                'q_proj', 'k_proj', 'v_proj', 'o_proj',  # self_attn 
-                'gate_proj', 'up_proj', 'down_proj'      # mlp 
-            ]
-            for proj_name in proj_names:
-                if proj_name in ['q_proj', 'k_proj', 'v_proj', 'o_proj']:
-                    proj_layer = getattr(self.model.layers[-1].self_attn, proj_name)
-                else:
-                    proj_layer = getattr(self.model.layers[-1].mlp, proj_name)
-
-                proj_layer.expert_weight = compute_expert_weight
-                # print(proj_layer.expert_weight)
-
+            valid_task_ids = self._infer_valid_task_ids()
+            routing_mode = self._resolve_eval_modality_routing_mode()
+            route_out = self.compute_modality_route(
+                image_guide_features=image_guide_features,
+                text_guide_features=text_guide_features,
+                valid_task_ids=valid_task_ids,
+                routing_mode=routing_mode,
+            )
+            p_d = route_out["p_d"]
+            top_idx = torch.argmax(p_d, dim=-1)
+            selected_task_ids = torch.tensor(valid_task_ids, device=p_d.device, dtype=torch.long)[top_idx]
+            expert_weight = torch.zeros(
+                p_d.size(0),
+                self.expert_num,
+                device=p_d.device,
+                dtype=p_d.dtype,
+            )
+            expert_weight.scatter_(1, selected_task_ids.unsqueeze(-1), 1.0)
+            self._apply_expert_weight(expert_weight)
 
         # TODO: image start / end is not implemented here to support pretraining.
         if getattr(self.config, 'tune_mm_mlp_adapter', False) and getattr(self.config, 'mm_use_im_start_end', False):
@@ -391,4 +857,54 @@ class LlavaMetaForCausalLM(ABC):
                     p.requires_grad = False
                 for p in self.get_output_embeddings().parameters():
                     p.requires_grad = False
+
+
+# --- 辅助函数定义 (建议放在类外或作为静态方法) ---
+
+def map_to_poincare(vector, var_sum=None, scale=1.0):
+    """
+    将向量映射到庞加莱球内。
+    vector: [1, D] 均值/特征向量
+    var_sum: float, 方差的和 (Expert用). 如果为None (测试样本用), 则默认方差为0
+    scale: float, 控制方差对半径的压缩力度
+    """
+    # 1. 计算方向 (Direction)
+    norm = vector.norm(p=2, dim=-1, keepdim=True) + 1e-6
+    direction = vector / norm
+    
+    # 2. 计算半径 (Radius)
+    if var_sum is None:
+        # 测试样本：方差为0 -> 半径接近边界 (1.0)
+        # 为了数值稳定性，取 0.999
+        radius = 0.999
+    else:
+        # Expert：方差越大，越靠近圆心(0)；方差越小，越靠近边界(1)
+        # r = exp(-scale * sum(var))
+        radius = torch.exp(torch.tensor(-scale * var_sum))
+        # 截断以防数值溢出
+        radius = torch.clamp(radius, min=0.001, max=0.999).item()
+        
+    return direction * radius
+
+def poincare_dist(u, v):
+    """
+    计算两个庞加莱球内点的距离
+    u, v: [1, D]
+    """
+    # 欧氏距离平方 ||u-v||^2
+    sq_dist = (u - v).pow(2).sum(dim=-1)
+    
+    # 模长平方 ||u||^2, ||v||^2
+    u_sq = u.pow(2).sum(dim=-1)
+    v_sq = v.pow(2).sum(dim=-1)
+    
+    # 公式: arccosh( 1 + 2 * ||u-v||^2 / ((1-||u||^2)(1-||v||^2)) )
+    numerator = 2 * sq_dist
+    denominator = (1 - u_sq) * (1 - v_sq)
+    denominator = torch.clamp(denominator, min=1e-7) # 防止除零
+    
+    arg = 1 + numerator / denominator
+    arg = torch.clamp(arg, min=1.0 + 1e-7) # 防止精度误差导致小于1
+    
+    return torch.acosh(arg)
 

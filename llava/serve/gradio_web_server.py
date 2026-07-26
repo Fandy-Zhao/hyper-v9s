@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在线服务组件，包括控制器、worker、CLI 和 Gradio Web 服务。"""
+
 import argparse
 import datetime
 import json
@@ -30,12 +32,14 @@ priority = {
 
 
 def get_conv_log_filename():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     t = datetime.datetime.now()
     name = os.path.join(LOGDIR, f"{t.year}-{t.month:02d}-{t.day:02d}-conv.json")
     return name
 
 
 def get_model_list():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     ret = requests.post(args.controller_url + "/refresh_all_workers")
     assert ret.status_code == 200
     ret = requests.post(args.controller_url + "/list_models")
@@ -56,6 +60,7 @@ function() {
 
 
 def load_demo(url_params, request: gr.Request):
+    """作用：加载外部资源、模型权重、数据或配置，并转换为后续流程需要的结构。"""
     logger.info(f"load_demo. ip: {request.client.host}. params: {url_params}")
 
     dropdown_update = gr.Dropdown.update(visible=True)
@@ -70,6 +75,7 @@ def load_demo(url_params, request: gr.Request):
 
 
 def load_demo_refresh_model_list(request: gr.Request):
+    """作用：加载外部资源、模型权重、数据或配置，并转换为后续流程需要的结构。"""
     logger.info(f"load_demo. ip: {request.client.host}")
     models = get_model_list()
     state = default_conversation.copy()
@@ -81,6 +87,7 @@ def load_demo_refresh_model_list(request: gr.Request):
 
 
 def vote_last_response(state, vote_type, model_selector, request: gr.Request):
+    """作用：执行 vote_last_response 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     with open(get_conv_log_filename(), "a") as fout:
         data = {
             "tstamp": round(time.time(), 4),
@@ -93,24 +100,28 @@ def vote_last_response(state, vote_type, model_selector, request: gr.Request):
 
 
 def upvote_last_response(state, model_selector, request: gr.Request):
+    """作用：执行 upvote_last_response 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     logger.info(f"upvote. ip: {request.client.host}")
     vote_last_response(state, "upvote", model_selector, request)
     return ("",) + (disable_btn,) * 3
 
 
 def downvote_last_response(state, model_selector, request: gr.Request):
+    """作用：执行 downvote_last_response 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     logger.info(f"downvote. ip: {request.client.host}")
     vote_last_response(state, "downvote", model_selector, request)
     return ("",) + (disable_btn,) * 3
 
 
 def flag_last_response(state, model_selector, request: gr.Request):
+    """作用：执行 flag_last_response 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     logger.info(f"flag. ip: {request.client.host}")
     vote_last_response(state, "flag", model_selector, request)
     return ("",) + (disable_btn,) * 3
 
 
 def regenerate(state, image_process_mode, request: gr.Request):
+    """作用：执行 regenerate 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     logger.info(f"regenerate. ip: {request.client.host}")
     state.messages[-1][-1] = None
     prev_human_msg = state.messages[-2]
@@ -121,12 +132,14 @@ def regenerate(state, image_process_mode, request: gr.Request):
 
 
 def clear_history(request: gr.Request):
+    """作用：执行 clear_history 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     logger.info(f"clear_history. ip: {request.client.host}")
     state = default_conversation.copy()
     return (state, state.to_gradio_chatbot(), "", None) + (disable_btn,) * 5
 
 
 def add_text(state, text, image, image_process_mode, request: gr.Request):
+    """作用：执行 add_text 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     logger.info(f"add_text. ip: {request.client.host}. len: {len(text)}")
     if len(text) <= 0 and image is None:
         state.skip_next = True
@@ -154,6 +167,7 @@ def add_text(state, text, image, image_process_mode, request: gr.Request):
 
 
 def http_bot(state, model_selector, temperature, top_p, max_new_tokens, request: gr.Request):
+    """作用：执行 http_bot 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     logger.info(f"http_bot. ip: {request.client.host}")
     start_tstamp = time.time()
     model_name = model_selector
@@ -306,6 +320,7 @@ block_css = """
 """
 
 def build_demo(embed_mode):
+    """作用：根据配置构建模型组件、数据结构或运行时对象。"""
     textbox = gr.Textbox(show_label=False, placeholder="Enter text and press ENTER", container=False)
     with gr.Blocks(title="LLaVA", theme=gr.themes.Default(), css=block_css) as demo:
         state = gr.State()

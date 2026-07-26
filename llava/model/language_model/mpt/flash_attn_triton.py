@@ -49,6 +49,7 @@ import triton_pre_mlir.language as tl
 @triton.heuristics({'EVEN_M': lambda args: args['seqlen_q'] % args['BLOCK_M'] == 0, 'EVEN_N': lambda args: args['seqlen_k'] % args['BLOCK_N'] == 0, 'EVEN_HEADDIM': lambda args: args['headdim'] == args['BLOCK_HEADDIM']})
 @triton.jit
 def _fwd_kernel(Q, K, V, Bias, Out, Lse, TMP, softmax_scale, stride_qb, stride_qh, stride_qm, stride_kb, stride_kh, stride_kn, stride_vb, stride_vh, stride_vn, stride_bb, stride_bh, stride_bm, stride_ob, stride_oh, stride_om, nheads, seqlen_q, seqlen_k, seqlen_q_rounded, headdim, CACHE_KEY_SEQLEN_Q, CACHE_KEY_SEQLEN_K, BIAS_TYPE: tl.constexpr, IS_CAUSAL: tl.constexpr, BLOCK_HEADDIM: tl.constexpr, EVEN_M: tl.constexpr, EVEN_N: tl.constexpr, EVEN_HEADDIM: tl.constexpr, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr):
+    """作用：执行 _fwd_kernel 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     start_m = tl.program_id(0)
     off_hb = tl.program_id(1)
     off_b = off_hb // nheads
@@ -153,6 +154,7 @@ def _fwd_kernel(Q, K, V, Bias, Out, Lse, TMP, softmax_scale, stride_qb, stride_q
 
 @triton.jit
 def _bwd_preprocess_do_o_dot(Out, DO, Delta, stride_ob, stride_oh, stride_om, stride_dob, stride_doh, stride_dom, nheads, seqlen_q, seqlen_q_rounded, headdim, BLOCK_M: tl.constexpr, BLOCK_HEADDIM: tl.constexpr):
+    """作用：执行 _bwd_preprocess_do_o_dot 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     start_m = tl.program_id(0)
     off_hb = tl.program_id(1)
     off_b = off_hb // nheads
@@ -166,6 +168,7 @@ def _bwd_preprocess_do_o_dot(Out, DO, Delta, stride_ob, stride_oh, stride_om, st
 
 @triton.jit
 def _bwd_store_dk_dv(dk_ptrs, dv_ptrs, dk, dv, offs_n, offs_d, seqlen_k, headdim, EVEN_M: tl.constexpr, EVEN_N: tl.constexpr, EVEN_HEADDIM: tl.constexpr):
+    """作用：执行 _bwd_store_dk_dv 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if EVEN_N & EVEN_M:
         if EVEN_HEADDIM:
             tl.store(dv_ptrs, dv)
@@ -182,6 +185,7 @@ def _bwd_store_dk_dv(dk_ptrs, dv_ptrs, dk, dv, offs_n, offs_d, seqlen_k, headdim
 
 @triton.jit
 def _bwd_kernel_one_col_block(start_n, Q, K, V, Bias, DO, DQ, DK, DV, LSE, D, softmax_scale, stride_qm, stride_kn, stride_vn, stride_bm, stride_dom, stride_dqm, stride_dkn, stride_dvn, seqlen_q, seqlen_k, headdim, ATOMIC_ADD: tl.constexpr, BIAS_TYPE: tl.constexpr, IS_CAUSAL: tl.constexpr, BLOCK_HEADDIM: tl.constexpr, EVEN_M: tl.constexpr, EVEN_N: tl.constexpr, EVEN_HEADDIM: tl.constexpr, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr):
+    """作用：执行 _bwd_kernel_one_col_block 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     begin_m = 0 if not IS_CAUSAL else start_n * BLOCK_N // BLOCK_M * BLOCK_M
     offs_qm = begin_m + tl.arange(0, BLOCK_M)
     offs_n = start_n * BLOCK_N + tl.arange(0, BLOCK_N)
@@ -298,12 +302,14 @@ def _bwd_kernel_one_col_block(start_n, Q, K, V, Bias, DO, DQ, DK, DV, LSE, D, so
     _bwd_store_dk_dv(dk_ptrs, dv_ptrs, dk, dv, offs_n, offs_d, seqlen_k, headdim, EVEN_M=EVEN_M, EVEN_N=EVEN_N, EVEN_HEADDIM=EVEN_HEADDIM)
 
 def init_to_zero(name):
+    """作用：执行 init_to_zero 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return lambda nargs: nargs[name].zero_()
 
 @triton.autotune(configs=[triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128, 'SEQUENCE_PARALLEL': False}, num_warps=8, num_stages=1, pre_hook=init_to_zero('DQ')), triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128, 'SEQUENCE_PARALLEL': True}, num_warps=8, num_stages=1, pre_hook=init_to_zero('DQ'))], key=['CACHE_KEY_SEQLEN_Q', 'CACHE_KEY_SEQLEN_K', 'BIAS_TYPE', 'IS_CAUSAL', 'BLOCK_HEADDIM'])
 @triton.heuristics({'EVEN_M': lambda args: args['seqlen_q'] % args['BLOCK_M'] == 0, 'EVEN_N': lambda args: args['seqlen_k'] % args['BLOCK_N'] == 0, 'EVEN_HEADDIM': lambda args: args['headdim'] == args['BLOCK_HEADDIM']})
 @triton.jit
 def _bwd_kernel(Q, K, V, Bias, DO, DQ, DK, DV, LSE, D, softmax_scale, stride_qb, stride_qh, stride_qm, stride_kb, stride_kh, stride_kn, stride_vb, stride_vh, stride_vn, stride_bb, stride_bh, stride_bm, stride_dob, stride_doh, stride_dom, stride_dqb, stride_dqh, stride_dqm, stride_dkb, stride_dkh, stride_dkn, stride_dvb, stride_dvh, stride_dvn, nheads, seqlen_q, seqlen_k, seqlen_q_rounded, headdim, CACHE_KEY_SEQLEN_Q, CACHE_KEY_SEQLEN_K, BIAS_TYPE: tl.constexpr, IS_CAUSAL: tl.constexpr, BLOCK_HEADDIM: tl.constexpr, SEQUENCE_PARALLEL: tl.constexpr, EVEN_M: tl.constexpr, EVEN_N: tl.constexpr, EVEN_HEADDIM: tl.constexpr, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr):
+    """作用：执行 _bwd_kernel 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     off_hb = tl.program_id(1)
     off_b = off_hb // nheads
     off_h = off_hb % nheads
@@ -327,6 +333,7 @@ def _bwd_kernel(Q, K, V, Bias, DO, DQ, DK, DV, LSE, D, softmax_scale, stride_qb,
         _bwd_kernel_one_col_block(start_n, Q, K, V, Bias, DO, DQ, DK, DV, LSE, D, softmax_scale, stride_qm, stride_kn, stride_vn, stride_bm, stride_dom, stride_dqm, stride_dkn, stride_dvn, seqlen_q, seqlen_k, headdim, ATOMIC_ADD=True, BIAS_TYPE=BIAS_TYPE, IS_CAUSAL=IS_CAUSAL, BLOCK_HEADDIM=BLOCK_HEADDIM, EVEN_M=EVEN_M, EVEN_N=EVEN_N, EVEN_HEADDIM=EVEN_HEADDIM, BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N)
 
 def _flash_attn_forward(q, k, v, bias=None, causal=False, softmax_scale=None):
+    """作用：执行 _flash_attn_forward 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     (batch, seqlen_q, nheads, d) = q.shape
     (_, seqlen_k, _, _) = k.shape
     assert k.shape == (batch, seqlen_k, nheads, d)
@@ -364,6 +371,7 @@ def _flash_attn_forward(q, k, v, bias=None, causal=False, softmax_scale=None):
     return (o, lse, softmax_scale)
 
 def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=False, softmax_scale=None):
+    """作用：执行 _flash_attn_backward 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if do.stride(-1) != 1:
         do = do.contiguous()
     (batch, seqlen_q, nheads, d) = q.shape
@@ -400,13 +408,13 @@ def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=Fals
 
 class FlashAttnQKVPackedFunc(torch.autograd.Function):
 
+    """作用：FlashAttnQKVPackedFunc 类封装模型结构、配置或前向传播相关逻辑。"""
     @staticmethod
     def forward(ctx, qkv, bias=None, causal=False, softmax_scale=None):
         """
-            qkv: (batch, seqlen, 3, nheads, headdim)
-            bias: optional, shape broadcastible to (batch, nheads, seqlen, seqlen).
-                For example, ALiBi mask for causal would have shape (1, nheads, 1, seqlen).
-                ALiBi mask for non-causal would have shape (1, nheads, seqlen, seqlen)
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
         """
         if qkv.stride(-1) != 1:
             qkv = qkv.contiguous()
@@ -417,6 +425,7 @@ class FlashAttnQKVPackedFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, do):
+        """作用：执行 backward 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         (qkv, o, lse, bias) = ctx.saved_tensors
         assert not ctx.needs_input_grad[1], 'FlashAttention does not support bias gradient yet'
         with torch.inference_mode():
@@ -427,14 +436,13 @@ flash_attn_qkvpacked_func = FlashAttnQKVPackedFunc.apply
 
 class FlashAttnKVPackedFunc(torch.autograd.Function):
 
+    """作用：FlashAttnKVPackedFunc 类封装模型结构、配置或前向传播相关逻辑。"""
     @staticmethod
     def forward(ctx, q, kv, bias=None, causal=False, softmax_scale=None):
         """
-            q: (batch, seqlen_q, nheads, headdim)
-            kv: (batch, seqlen_k, 2, nheads, headdim)
-            bias: optional, shape broadcastible to (batch, nheads, seqlen_q, seqlen_k).
-                For example, ALiBi mask for causal would have shape (1, nheads, 1, seqlen_k).
-                ALiBi mask for non-causal would have shape (1, nheads, seqlen_q, seqlen_k)
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
         """
         (q, kv) = [x if x.stride(-1) == 1 else x.contiguous() for x in [q, kv]]
         (o, lse, ctx.softmax_scale) = _flash_attn_forward(q, kv[:, :, 0], kv[:, :, 1], bias=bias, causal=causal, softmax_scale=softmax_scale)
@@ -444,6 +452,7 @@ class FlashAttnKVPackedFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, do):
+        """作用：执行 backward 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         (q, kv, o, lse, bias) = ctx.saved_tensors
         if len(ctx.needs_input_grad) >= 3:
             assert not ctx.needs_input_grad[2], 'FlashAttention does not support bias gradient yet'
@@ -456,14 +465,13 @@ flash_attn_kvpacked_func = FlashAttnKVPackedFunc.apply
 
 class FlashAttnFunc(torch.autograd.Function):
 
+    """作用：FlashAttnFunc 类封装模型结构、配置或前向传播相关逻辑。"""
     @staticmethod
     def forward(ctx, q, k, v, bias=None, causal=False, softmax_scale=None):
         """
-            q: (batch_size, seqlen_q, nheads, headdim)
-            k, v: (batch_size, seqlen_k, nheads, headdim)
-            bias: optional, shape broadcastible to (batch, nheads, seqlen_q, seqlen_k).
-                For example, ALiBi mask for causal would have shape (1, nheads, 1, seqlen_k).
-                ALiBi mask for non-causal would have shape (1, nheads, seqlen_q, seqlen_k)
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
         """
         (q, k, v) = [x if x.stride(-1) == 1 else x.contiguous() for x in [q, k, v]]
         (o, lse, ctx.softmax_scale) = _flash_attn_forward(q, k, v, bias=bias, causal=causal, softmax_scale=softmax_scale)
@@ -473,6 +481,7 @@ class FlashAttnFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, do):
+        """作用：执行 backward 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         (q, k, v, o, lse, bias) = ctx.saved_tensors
         assert not ctx.needs_input_grad[3], 'FlashAttention does not support bias gradient yet'
         with torch.inference_mode():

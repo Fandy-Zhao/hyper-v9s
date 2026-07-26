@@ -1,10 +1,15 @@
+"""作用：实现 LLaVA 在对应下游任务上的评测、答案读取、指标计算或结果转换逻辑。"""
+
 import os
 import argparse
 import json
+import numpy as np
 from PIL import Image
+import pandas as pd
 
 
 def get_args():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--test-file', type=str, default='playground/Instructions_slim/Grounding/test.json')
     parser.add_argument('--result-file', type=str,
@@ -14,6 +19,7 @@ def get_args():
 
 
 def expand2square(pil_img, background_color):
+    """作用：执行 expand2square 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     width, height = pil_img.size
     if width == height:
         return pil_img
@@ -28,6 +34,7 @@ def expand2square(pil_img, background_color):
 
 
 def change_bbox(bbox, im_w, im_h):
+    """作用：执行 change_bbox 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     x, y, w, h = bbox
     x1, y1, x2, y2 = x, y, x + w, y + h
     max_wh = max(im_w, im_h)
@@ -44,6 +51,7 @@ def change_bbox(bbox, im_w, im_h):
 
 
 def calculate_iou(bbox1, bbox2):
+    """作用：根据输入数值执行公式计算并返回结果。"""
     x1, y1, x2, y2 = bbox1
     x21, y21, x22, y22 = bbox2
     intersection_area = max(0, min(x2, x22) - max(x1, x21)) * max(0, min(y2, y22) - max(y1, y21))
@@ -53,13 +61,18 @@ def calculate_iou(bbox1, bbox2):
 
 
 def eval_single(test_file, result_file):
+    """作用：执行指定任务的评测流程并输出指标或结果文件。"""
     annotations = json.load(open(test_file))
     annotations = {grounding_test['question_id']: grounding_test for grounding_test in annotations}
     results = [json.loads(line) for line in open(result_file)]
-
+    # breakpoint()
     pred_list = []
     total = len(results)
     right = 0
+    # 收集所有IoU值
+    iou_values = []
+    valid_samples = 0
+    total_samples = len(results)
     for result in results:
         grounding_gt = annotations[result['question_id']]
         bbox_string = grounding_gt['answer_bbox']
@@ -83,13 +96,51 @@ def eval_single(test_file, result_file):
         iou = calculate_iou(bbox_pred, bbox_groundtruth)
         right += iou > 0.5
 
+        iou_values.append(iou)
+        valid_samples += 1
+
+    # 转换为numpy数组便于分析
+    iou_array = np.array(iou_values)
+    
+    # 计算统计指标
+    stats = {
+        'total_samples': total_samples,
+        'valid_samples': valid_samples,
+        'mean_iou': np.mean(iou_array),
+        'median_iou': np.median(iou_array),
+        'std_iou': np.std(iou_array),
+        'min_iou': np.min(iou_array),
+        'max_iou': np.max(iou_array),
+        'accuracy_0.3': np.mean(iou_array > 0.3),
+        'accuracy_0.5': np.mean(iou_array > 0.5),
+        'accuracy_0.7': np.mean(iou_array > 0.7),
+        'accuracy_0.9': np.mean(iou_array > 0.9),
+    }
+    save_detailed_results(iou_values, stats, args.output_dir)
+
     print('Samples: {}\nAccuracy: {:.2f}%\n'.format(total, 100. * right / total))
     
     if args.output_dir is not None:
         output_file = os.path.join(args.output_dir, 'Result.text')
         with open(output_file, 'w') as f:
             f.write('Samples: {}\nAccuracy: {:.2f}%\n'.format(total, 100. * right / total))
+            f.write("IoU统计分析报告\n")
+            f.write("=" * 50 + "\n")
+            for key, value in stats.items():
+                if isinstance(value, float):
+                    f.write(f"{key}: {value:.4f}\n")
+                else:
+                    f.write(f"{key}: {value}\n")
 
+def save_detailed_results(iou_values, stats, output_dir):
+    """保存详细结果到文件"""
+    
+    # 保存每个样本的IoU值
+    iou_df = pd.DataFrame({
+        'sample_id': range(len(iou_values)),
+        'iou': iou_values
+    })
+    iou_df.to_csv(os.path.join(output_dir, 'detailed_iou_values.csv'), index=False)
 
 if __name__ == "__main__":
     args = get_args()

@@ -1,8 +1,8 @@
 """
-Manually register workers.
+作用：手动向 controller 注册 LLaVA worker，用于服务部署时把已有 worker 地址加入调度。
 
-Usage:
-python3 -m fastchat.serve.register_worker --controller http://localhost:21001 --worker-name http://localhost:21002
+用法：
+python3 -m fastchat.serve.register_worker --controller-address http://localhost:21001 --worker-name http://localhost:21002
 """
 
 import argparse

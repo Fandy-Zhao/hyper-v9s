@@ -5,6 +5,7 @@ attn_config_defaults: Dict = {'attn_type': 'multihead_attention', 'attn_pdrop': 
 init_config_defaults: Dict = {'name': 'kaiming_normal_', 'fan_mode': 'fan_in', 'init_nonlinearity': 'relu', 'init_div_is_residual': True, 'emb_init_std': None, 'emb_init_uniform_lim': None, 'init_std': None, 'init_gain': 0.0}
 
 class MPTConfig(PretrainedConfig):
+    """作用：MPTConfig 类封装模型结构、配置或前向传播相关逻辑。"""
     model_type = 'mpt'
 
     def __init__(self, d_model: int=2048, n_heads: int=16, n_layers: int=24, expansion_ratio: int=4, max_seq_len: int=2048, vocab_size: int=50368, resid_pdrop: float=0.0, emb_pdrop: float=0.0, learned_pos_emb: bool=True, attn_config: Dict=attn_config_defaults, init_device: str='cpu', logit_scale: Optional[Union[float, str]]=None, no_bias: bool=False, verbose: int=0, embedding_fraction: float=1.0, norm_type: str='low_precision_layernorm', use_cache: bool=False, init_config: Dict=init_config_defaults, **kwargs):
@@ -88,12 +89,14 @@ class MPTConfig(PretrainedConfig):
         self._validate_config()
 
     def _set_config_defaults(self, config, config_defaults):
+        """作用：执行 _set_config_defaults 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         for (k, v) in config_defaults.items():
             if k not in config:
                 config[k] = v
         return config
 
     def _validate_config(self):
+        """作用：执行 _validate_config 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         self.attn_config = self._set_config_defaults(self.attn_config, attn_config_defaults)
         self.init_config = self._set_config_defaults(self.init_config, init_config_defaults)
         if self.d_model % self.n_heads != 0:

@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在线服务组件，包括控制器、worker、CLI 和 Gradio Web 服务。"""
+
 import argparse
 import json
 
@@ -7,6 +9,7 @@ from llava.conversation import default_conversation
 
 
 def main():
+    """作用：作为脚本入口，串联参数解析、数据准备和核心处理流程。"""
     if args.worker_address:
         worker_addr = args.worker_address
     else:

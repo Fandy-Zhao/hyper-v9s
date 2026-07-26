@@ -1,3 +1,5 @@
+"""作用：仓库中的 Python 模块，承担对应路径下的模型、训练、评测或工具辅助逻辑。"""
+
 from PIL import Image
 from io import BytesIO
 import base64
@@ -8,10 +10,12 @@ from llava.constants import IMAGE_TOKEN_INDEX
 
 
 def load_image_from_base64(image):
+    """作用：加载外部资源、模型权重、数据或配置，并转换为后续流程需要的结构。"""
     return Image.open(BytesIO(base64.b64decode(image)))
 
 
 def expand2square(pil_img, background_color):
+    """作用：执行 expand2square 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     width, height = pil_img.size
     if width == height:
         return pil_img
@@ -26,6 +30,7 @@ def expand2square(pil_img, background_color):
 
 
 def process_images(images, image_processor, model_cfg):
+    """作用：处理输入数据并转换为模型、评测或可视化流程需要的格式。"""
     image_aspect_ratio = getattr(model_cfg, "image_aspect_ratio", None)
     new_images = []
     if image_aspect_ratio == 'pad':
@@ -41,9 +46,11 @@ def process_images(images, image_processor, model_cfg):
 
 
 def tokenizer_image_token(prompt, tokenizer, image_token_index=IMAGE_TOKEN_INDEX, return_tensors=None):
+    """作用：执行 tokenizer_image_token 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     prompt_chunks = [tokenizer(chunk).input_ids for chunk in prompt.split('<image>')]
 
     def insert_separator(X, sep):
+        """作用：执行 insert_separator 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
         return [ele for sublist in zip(X, [sep]*len(X)) for ele in sublist][:-1]
 
     input_ids = []
@@ -63,6 +70,7 @@ def tokenizer_image_token(prompt, tokenizer, image_token_index=IMAGE_TOKEN_INDEX
 
 
 def get_model_name_from_path(model_path):
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     model_path = model_path.strip("/")
     model_paths = model_path.split("/")
     if model_paths[-1].startswith('checkpoint-'):
@@ -71,7 +79,9 @@ def get_model_name_from_path(model_path):
         return model_paths[-1]
 
 class KeywordsStoppingCriteria(StoppingCriteria):
+    """作用：KeywordsStoppingCriteria 类封装当前模块中的相关状态和操作。"""
     def __init__(self, keywords, tokenizer, input_ids):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         self.keywords = keywords
         self.keyword_ids = []
         self.max_keyword_len = 0
@@ -86,6 +96,7 @@ class KeywordsStoppingCriteria(StoppingCriteria):
         self.start_len = input_ids.shape[1]
     
     def call_for_batch(self, output_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+        """作用：执行 call_for_batch 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         offset = min(output_ids.shape[1] - self.start_len, self.max_keyword_len)
         self.keyword_ids = [keyword_id.to(output_ids.device) for keyword_id in self.keyword_ids]
         for keyword_id in self.keyword_ids:
@@ -98,6 +109,7 @@ class KeywordsStoppingCriteria(StoppingCriteria):
         return False
     
     def __call__(self, output_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+        """作用：实现 Python 特殊方法 __call__，用于配合对象协议或框架调用。"""
         outputs = []
         for i in range(output_ids.shape[0]):
             outputs.append(self.call_for_batch(output_ids[i].unsqueeze(0), scores))

@@ -35,9 +35,13 @@ from llava import conversation as conversation_lib
 from llava.model import *
 from llava.mm_utils import tokenizer_image_token
 
-sys.path.append('/mnt/haiyangguo/mywork/CL-MLLM/LLaVA-HiDe')
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from HiDe.peft import PeftModel, TaskType, get_peft_model, HiDeMOELoraConfig, WEIGHTS_NAME, set_peft_model_state_dict
+from Hyper.peft import PeftModel, TaskType, get_peft_model, HyperMOELoraConfig, WEIGHTS_NAME, set_peft_model_state_dict
+
+from compute_routing_weights import compute_current_stage_weights
 
 from PIL import Image, ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -70,6 +74,17 @@ class ModelArguments:
 
     task_embedding_dim: Optional[int] = field(default=64)
     expert_num: Optional[int] = field(default=None)
+    modality_routing_mode: str = field(
+        default="task",
+        metadata={"help": "task | sample | sample_rule"}
+    )
+    eval_modality_routing_mode: str = field(
+        default="same",
+        metadata={"help": "same | task | sample | sample_rule"}
+    )
+    router_hidden_dim: int = field(default=32)
+    router_dropout: float = field(default=0.0)
+    router_residual_scale: float = field(default=1.0)
 
 
 @dataclass
@@ -118,6 +133,10 @@ class TrainingArguments(transformers.TrainingArguments):
     lora_bias: str = "none"
     mm_projector_lr: Optional[float] = None
     group_by_modality_length: bool = field(default=False)
+    router_loss_weight: float = field(default=0.1)
+    router_replay_weight: float = field(default=0.0)
+    router_replay_samples: int = field(default=4)
+    router_min_count: int = field(default=128)
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
@@ -177,7 +196,7 @@ def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
 def find_all_linear_names(model):
     cls = torch.nn.Linear
     lora_module_names = set()
-    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler']
+    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler', 'instance_router']
     for name, module in model.named_modules():
         if any(mm_keyword in name for mm_keyword in multimodal_keywords):
             continue
@@ -646,6 +665,10 @@ class LazySupervisedDataset(Dataset):
         super(LazySupervisedDataset, self).__init__()
         list_data_dict = json.load(open(data_path, "r"))
 
+        # delete invalid data
+        missing_images_idx_set = set(["OCR-VQA/images/1421539896.jpg","OCR-VQA/images/141393394.jpg","OCR-VQA/images/316881791.jpg","OCR-VQA/images/140445692.jpg","OCR-VQA/images/142153990X.jpg","OCR-VQA/images/689852649.jpg"])
+        list_data_dict = [data for data in list_data_dict if ('image' not in data) or (data['image'] not in missing_images_idx_set)]
+
         if data_args.memory_data_path is not None:
             list_memory_data_dict = json.load(open(data_args.memory_data_path, "r"))
 
@@ -796,6 +819,13 @@ def load_model_from_previous_task(model, previous_task_model_path):
     if any(k.startswith('model.model.') for k in non_lora_trainables):
         non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in non_lora_trainables.items()}
 
+    stats_path = os.path.join(previous_task_model_path, "stats.json")
+    if os.path.exists(stats_path):
+        with open(stats_path, "r") as f:
+            stats_data = json.load(f)
+        if "adaptive_w_img" in stats_data:
+            model.config.adaptive_w_img = stats_data["adaptive_w_img"]
+
     model.base_model.model.load_state_dict(non_lora_trainables, strict=False)
 
     from peft import PeftModel
@@ -805,12 +835,35 @@ def load_model_from_previous_task(model, previous_task_model_path):
     load_result = set_peft_model_state_dict(model, adapters_weights, adapter_name="default")
     print('Model is loaded...')
 
+
+def configure_modality_routing(model, model_args, training_args):
+    valid_modes = ["task", "sample", "sample_rule"]
+    valid_eval_modes = ["same", "task", "sample", "sample_rule"]
+    if model_args.modality_routing_mode not in valid_modes:
+        raise ValueError(f"modality_routing_mode must be one of {valid_modes}")
+    if model_args.eval_modality_routing_mode not in valid_eval_modes:
+        raise ValueError(f"eval_modality_routing_mode must be one of {valid_eval_modes}")
+
+    model.config.modality_routing_mode = model_args.modality_routing_mode
+    model.config.eval_modality_routing_mode = model_args.eval_modality_routing_mode
+    model.config.router_hidden_dim = model_args.router_hidden_dim
+    model.config.router_dropout = model_args.router_dropout
+    model.config.router_residual_scale = model_args.router_residual_scale
+    model.config.router_loss_weight = training_args.router_loss_weight
+    model.config.router_replay_weight = training_args.router_replay_weight
+    model.config.router_replay_samples = training_args.router_replay_samples
+    model.config.router_min_count = training_args.router_min_count
+
+    if hasattr(model, "initialize_instance_router"):
+        model.initialize_instance_router()
+
 def train():
     global local_rank
 
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+
     local_rank = training_args.local_rank
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
     
@@ -844,19 +897,37 @@ def train():
                 **bnb_model_from_pretrained_args
             )
         else:
-            model = LlavaLlamaForCausalLM.from_pretrained(
+            if 'mistral' in model_args.model_name_or_path.lower():
+                # 注意：你需要在文件头部导入 LlavaMistralForCausalLM
+                from llava.model.language_model.llava_mistral import LlavaMistralForCausalLM
+                model = LlavaMistralForCausalLM.from_pretrained(
+                    model_args.model_name_or_path,
+                    cache_dir=training_args.cache_dir,
+                    attn_implementation="eager",
+                    **bnb_model_from_pretrained_args,
+                )
+            else:
+                model = LlavaLlamaForCausalLM.from_pretrained(
+                    model_args.model_name_or_path,
+                    cache_dir=training_args.cache_dir,
+                    **bnb_model_from_pretrained_args,
+                )
+    else:
+        if 'mistral' in model_args.model_name_or_path.lower():
+            model = LlavaMistralForCausalLM.from_pretrained(
+                    model_args.model_name_or_path,
+                    cache_dir=training_args.cache_dir,
+                    **bnb_model_from_pretrained_args,
+                )
+        else:
+            model = transformers.LlamaForCausalLM.from_pretrained(
                 model_args.model_name_or_path,
                 cache_dir=training_args.cache_dir,
-                **bnb_model_from_pretrained_args,
+                **bnb_model_from_pretrained_args
             )
-    else:
-        model = transformers.LlamaForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir=training_args.cache_dir,
-            **bnb_model_from_pretrained_args
-        )
     model.config.use_cache = False
     model.training = True
+    configure_modality_routing(model, model_args, training_args)
 
     if model_args.freeze_backbone:
         model.model.requires_grad_(False)
@@ -880,13 +951,13 @@ def train():
                 "expert_num": model_args.expert_num,
                 "cur_task": model_args.cur_task,
             }
-        lora_config = HiDeMOELoraConfig(
+        lora_config = HyperMOELoraConfig(
             r=training_args.lora_r,
             lora_alpha=training_args.lora_alpha,
             target_modules=find_all_linear_names(model),
             lora_dropout=training_args.lora_dropout,
             bias=training_args.lora_bias,
-            task_type=TaskType.CAUSAL_LM_HiDe,
+            task_type=TaskType.CAUSAL_LM_Hyper,
             **kwargs
         )
         if training_args.bits == 16:
@@ -896,13 +967,26 @@ def train():
                 model.to(torch.float16)
         rank0_print("Adding LoRA adapters...")
         model = get_peft_model(model, lora_config)
-
-    if 'mpt' in model_args.model_name_or_path:
+    # breakpoint()
+    if "mistral" in model_args.model_name_or_path.lower() or "mixtral" in model_args.model_name_or_path.lower() or "zephyr" in model_args.model_name_or_path.lower():
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_args.model_name_or_path, cache_dir=training_args.cache_dir, model_max_length=training_args.model_max_length, padding_side="left")
+    elif "qwen" in model_args.model_name_or_path.lower():
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model_args.model_name_or_path, cache_dir=training_args.cache_dir, model_max_length=training_args.model_max_length, padding_side="right")
+    elif (
+        "wizardlm-2" in model_args.model_name_or_path.lower()
+        or "vicuna" in model_args.model_name_or_path.lower()
+        or "llama" in model_args.model_name_or_path.lower()
+        or "yi" in model_args.model_name_or_path.lower()
+        or "nous-hermes" in model_args.model_name_or_path.lower()
+        or "llava" in model_args.model_name_or_path.lower()
+        and "wizard-2" in model_args.model_name_or_path.lower()
+    ):
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             model_args.model_name_or_path,
             cache_dir=training_args.cache_dir,
             model_max_length=training_args.model_max_length,
-            padding_side="right"
+            padding_side="right",
+            use_fast=False,
         )
     else:
         tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -910,9 +994,8 @@ def train():
             cache_dir=training_args.cache_dir,
             model_max_length=training_args.model_max_length,
             padding_side="right",
-            use_fast=True,
+            use_fast=False,
         )
-
     if model_args.version == "v0":
         if tokenizer.pad_token is None:
             smart_tokenizer_and_embedding_resize(
@@ -923,7 +1006,14 @@ def train():
     elif model_args.version == "v0.5":
         tokenizer.pad_token = tokenizer.unk_token
     else:
-        tokenizer.pad_token = tokenizer.unk_token
+        # tokenizer.pad_token = tokenizer.unk_token
+        # 在这里增加防御性代码
+        if tokenizer.pad_token is None:
+            if tokenizer.unk_token is not None:
+                tokenizer.pad_token = tokenizer.unk_token
+            else:
+                # 针对 Mistral 的 Fallback
+                tokenizer.pad_token = tokenizer.eos_token
         if model_args.version in conversation_lib.conv_templates:
             conversation_lib.default_conversation = conversation_lib.conv_templates[model_args.version]
         else:
@@ -996,25 +1086,94 @@ def train():
     model.set_clip_tokenizer(clip_tokenizer)
     model.set_tokenizer(tokenizer)
     model.set_cur_task(model_args.cur_task, model_args.expert_num)
+    if getattr(model.config, "modality_routing_mode", "task") == "sample" and hasattr(model, "instance_router") and model.instance_router is not None:
+        for param in model.instance_router.parameters():
+            param.requires_grad = True
 
     if model_args.previous_task_model_path is not None:
         # load model from previous task
         load_model_from_previous_task(model, model_args.previous_task_model_path)
+    # [新增] 统计并打印模型参数量 (在模型最终定型，Trainer 初始化之前)
+    # =========================================================================
+    def print_trainable_parameters(model):
+        """
+        Prints the number of trainable parameters in the model.
+        """
+        trainable_params = 0
+        all_param = 0
+        for _, param in model.named_parameters():
+            num_params = param.numel()
+            # 如果使用了 DeepSpeed Zero-3，参数可能被分片了，需要用 ds_numel
+            if hasattr(param, "ds_numel"):
+                num_params = param.ds_numel
+            
+            all_param += num_params
+            if param.requires_grad:
+                trainable_params += num_params
+                
+        rank0_print(
+            f"\n"
+            f"==========================================================\n"
+            f"📊 🧮 Model Parameter Statistics:\n"
+            f"  - Trainable params: {trainable_params:,} ({trainable_params / 1e6:.2f} M)\n"
+            f"  - Total params    : {all_param:,} ({all_param / 1e9:.2f} B)\n"
+            f"  - Trainable %     : {100 * trainable_params / all_param:.4f}%\n"
+            f"==========================================================\n"
+        )
 
+    # 调用打印函数
+    print_trainable_parameters(model)
     data_module = make_supervised_data_module(tokenizer=tokenizer,
                                               data_args=data_args)
+
     trainer = LLaVATrainer(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
                     **data_module)
 
-    # if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
-    #     trainer.train(resume_from_checkpoint=True)
-    # else:
     trainer.train()
     trainer.save_state()
 
     model.config.use_cache = True
+    
+    # ===== Calculate and Save Adaptive Weights =====
+    # 1. Collect data for currently learned experts
+    expert_data_list = []
+    current_stage_num = model_args.cur_task + 1 # if cur_task is 0-indexed
+    
+    for t in range(current_stage_num):
+        expert_data_list.append({
+            'img_mean': model.image_mean[t].float().detach().cpu().numpy()[0],
+            'img_var': model.image_var[t].float().detach().cpu().numpy()[0],
+            'txt_mean': model.text_mean[t].float().detach().cpu().numpy()[0],
+            'txt_var': model.text_var[t].float().detach().cpu().numpy()[0],
+        })
+    
+    # 2. Compute weights for the current stage
+    w_img_list = compute_current_stage_weights(expert_data_list, temperature=0.5)
+    
+    # ===== Save Statistical Parameters =====
+    save_dict = {}
+
+    def save_param_list(plist, name):
+        save_dict[name] = [p.detach().cpu().tolist() for p in list(plist)[:current_stage_num]]
+
+    save_param_list(model.image_count, "image_count")
+    save_param_list(model.image_mean, "image_mean")
+    save_param_list(model.image_var,  "image_var")
+    save_param_list(model.text_count, "text_count")
+    save_param_list(model.text_mean,  "text_mean")
+    save_param_list(model.text_var,   "text_var")
+
+    save_dict["adaptive_w_img"] = w_img_list
+    model.config.adaptive_w_img = w_img_list
+
+    if training_args.local_rank == 0 or training_args.local_rank == -1:
+        os.makedirs(training_args.output_dir, exist_ok=True)
+        with open(os.path.join(training_args.output_dir, "stats.json"), "w") as f:
+            json.dump(save_dict, f, indent=2)
+
+    rank0_print(f"Calculated adaptive visual weights for Stage {current_stage_num}: {w_img_list}")
 
     if training_args.lora_enable:
         model.set_boundary_for_save()

@@ -10,6 +10,7 @@ from torch import nn
 from .norm import LPLayerNorm
 
 def _reset_is_causal(num_query_tokens: int, num_key_tokens: int, original_is_causal: bool):
+    """作用：执行 _reset_is_causal 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if original_is_causal and num_query_tokens != num_key_tokens:
         if num_query_tokens != 1:
             raise NotImplementedError('MPT does not support query and key with different number of tokens, unless number of query tokens is 1.')
@@ -18,6 +19,7 @@ def _reset_is_causal(num_query_tokens: int, num_key_tokens: int, original_is_cau
     return original_is_causal
 
 def scaled_multihead_dot_product_attention(query, key, value, n_heads, past_key_value=None, softmax_scale=None, attn_bias=None, key_padding_mask=None, is_causal=False, dropout_p=0.0, training=False, needs_weights=False, multiquery=False):
+    """作用：执行 scaled_multihead_dot_product_attention 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     q = rearrange(query, 'b s (h d) -> b h s d', h=n_heads)
     kv_n_heads = 1 if multiquery else n_heads
     k = rearrange(key, 'b s (h d) -> b h d s', h=kv_n_heads)
@@ -62,6 +64,7 @@ def scaled_multihead_dot_product_attention(query, key, value, n_heads, past_key_
     return (out, None, past_key_value)
 
 def check_valid_inputs(*tensors, valid_dtypes=[torch.float16, torch.bfloat16]):
+    """作用：执行 check_valid_inputs 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     for tensor in tensors:
         if tensor.dtype not in valid_dtypes:
             raise TypeError(f'tensor.dtype={tensor.dtype!r} must be in valid_dtypes={valid_dtypes!r}.')
@@ -69,6 +72,7 @@ def check_valid_inputs(*tensors, valid_dtypes=[torch.float16, torch.bfloat16]):
             raise TypeError(f'Inputs must be cuda tensors (tensor.is_cuda={tensor.is_cuda!r}).')
 
 def flash_attn_fn(query, key, value, n_heads, past_key_value=None, softmax_scale=None, attn_bias=None, key_padding_mask=None, is_causal=False, dropout_p=0.0, training=False, needs_weights=False, multiquery=False):
+    """作用：执行 flash_attn_fn 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     try:
         from flash_attn import bert_padding, flash_attn_interface
     except:
@@ -105,6 +109,7 @@ def flash_attn_fn(query, key, value, n_heads, past_key_value=None, softmax_scale
     return (output, None, past_key_value)
 
 def triton_flash_attn_fn(query, key, value, n_heads, past_key_value=None, softmax_scale=None, attn_bias=None, key_padding_mask=None, is_causal=False, dropout_p=0.0, training=False, needs_weights=False, multiquery=False):
+    """作用：执行 triton_flash_attn_fn 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     try:
         from .flash_attn_triton import flash_attn_func
     except:
@@ -156,6 +161,7 @@ class MultiheadAttention(nn.Module):
     """
 
     def __init__(self, d_model: int, n_heads: int, attn_impl: str='triton', clip_qkv: Optional[float]=None, qk_ln: bool=False, softmax_scale: Optional[float]=None, attn_pdrop: float=0.0, low_precision_layernorm: bool=False, verbose: int=0, device: Optional[str]=None):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         super().__init__()
         self.attn_impl = attn_impl
         self.clip_qkv = clip_qkv
@@ -189,6 +195,11 @@ class MultiheadAttention(nn.Module):
         self.out_proj._is_residual = True
 
     def forward(self, x, past_key_value=None, attn_bias=None, attention_mask=None, is_causal=True, needs_weights=False):
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         qkv = self.Wqkv(x)
         if self.clip_qkv:
             qkv.clamp_(min=-self.clip_qkv, max=self.clip_qkv)
@@ -209,6 +220,7 @@ class MultiQueryAttention(nn.Module):
     """
 
     def __init__(self, d_model: int, n_heads: int, attn_impl: str='triton', clip_qkv: Optional[float]=None, qk_ln: bool=False, softmax_scale: Optional[float]=None, attn_pdrop: float=0.0, low_precision_layernorm: bool=False, verbose: int=0, device: Optional[str]=None):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         super().__init__()
         self.attn_impl = attn_impl
         self.clip_qkv = clip_qkv
@@ -243,6 +255,11 @@ class MultiQueryAttention(nn.Module):
         self.out_proj._is_residual = True
 
     def forward(self, x, past_key_value=None, attn_bias=None, attention_mask=None, is_causal=True, needs_weights=False):
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         qkv = self.Wqkv(x)
         if self.clip_qkv:
             qkv.clamp_(min=-self.clip_qkv, max=self.clip_qkv)
@@ -256,6 +273,7 @@ class MultiQueryAttention(nn.Module):
         return (self.out_proj(context), attn_weights, past_key_value)
 
 def attn_bias_shape(attn_impl, n_heads, seq_len, alibi, prefix_lm, causal, use_sequence_id):
+    """作用：执行 attn_bias_shape 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if attn_impl == 'flash':
         return None
     elif attn_impl in ['torch', 'triton']:
@@ -270,6 +288,7 @@ def attn_bias_shape(attn_impl, n_heads, seq_len, alibi, prefix_lm, causal, use_s
         raise ValueError(f'attn_impl={attn_impl!r} is an invalid setting.')
 
 def build_attn_bias(attn_impl, attn_bias, n_heads, seq_len, causal=False, alibi=False, alibi_bias_max=8):
+    """作用：根据配置构建模型组件、数据结构或运行时对象。"""
     if attn_impl == 'flash':
         return None
     elif attn_impl in ['torch', 'triton']:
@@ -281,6 +300,7 @@ def build_attn_bias(attn_impl, attn_bias, n_heads, seq_len, causal=False, alibi=
         raise ValueError(f'attn_impl={attn_impl!r} is an invalid setting.')
 
 def gen_slopes(n_heads, alibi_bias_max=8, device=None):
+    """作用：执行 gen_slopes 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     _n_heads = 2 ** math.ceil(math.log2(n_heads))
     m = torch.arange(1, _n_heads + 1, dtype=torch.float32, device=device)
     m = m.mul(alibi_bias_max / _n_heads)
@@ -290,6 +310,7 @@ def gen_slopes(n_heads, alibi_bias_max=8, device=None):
     return slopes.view(1, n_heads, 1, 1)
 
 def build_alibi_bias(n_heads, seq_len, full=False, alibi_bias_max=8, device=None, dtype=None):
+    """作用：根据配置构建模型组件、数据结构或运行时对象。"""
     alibi_bias = torch.arange(1 - seq_len, 1, dtype=torch.int32, device=device).view(1, 1, 1, seq_len)
     if full:
         alibi_bias = alibi_bias - torch.arange(1 - seq_len, 1, dtype=torch.int32, device=device).view(1, 1, seq_len, 1)

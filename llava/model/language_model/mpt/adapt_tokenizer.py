@@ -1,3 +1,5 @@
+"""作用：提供 MPT 语言模型兼容实现，包括配置、注意力、模块结构、初始化和 HuggingFace 适配逻辑。"""
+
 from typing import Union
 from transformers import AutoTokenizer, PreTrainedTokenizer, PreTrainedTokenizerFast
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]

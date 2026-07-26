@@ -26,13 +26,16 @@ except:
 Tokenizer = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 
 class MPTPreTrainedModel(PreTrainedModel):
+    """作用：MPTPreTrainedModel 类封装模型结构、配置或前向传播相关逻辑。"""
     config_class = MPTConfig
     base_model_prefix = 'model'
     _no_split_modules = ['MPTBlock']
 
 class MPTModel(MPTPreTrainedModel):
 
+    """作用：MPTModel 类封装模型结构、配置或前向传播相关逻辑。"""
     def __init__(self, config: MPTConfig):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         config._validate_config()
         super().__init__(config)
         self.attn_impl = config.attn_config['attn_impl']
@@ -79,13 +82,16 @@ class MPTModel(MPTPreTrainedModel):
         self.gradient_checkpointing = False
 
     def get_input_embeddings(self):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         return self.wte
 
     def set_input_embeddings(self, value):
+        """作用：设置模型或配置中的运行状态、参数开关或缓存字段。"""
         self.wte = value
 
     @torch.no_grad()
     def _attn_bias(self, device, dtype, attention_mask: Optional[torch.ByteTensor]=None, prefix_mask: Optional[torch.ByteTensor]=None, sequence_id: Optional[torch.LongTensor]=None):
+        """作用：执行 _attn_bias 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if not self._attn_bias_initialized:
             if self.attn_bias_shape:
                 self.attn_bias = torch.zeros(self.attn_bias_shape, device=device, dtype=dtype)
@@ -117,6 +123,7 @@ class MPTModel(MPTPreTrainedModel):
         return (attn_bias, None)
 
     def _apply_prefix_mask(self, attn_bias: torch.Tensor, prefix_mask: torch.Tensor):
+        """作用：执行 _apply_prefix_mask 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         (s_k, s_q) = attn_bias.shape[-2:]
         if s_k != self.config.max_seq_len or s_q != self.config.max_seq_len:
             raise ValueError('attn_bias does not match the expected shape. ' + f'The last two dimensions should both be {self.config.max_length} ' + f'but are {s_k} and {s_q}.')
@@ -132,6 +139,7 @@ class MPTModel(MPTPreTrainedModel):
         return attn_bias
 
     def _apply_sequence_id(self, attn_bias: torch.Tensor, sequence_id: torch.LongTensor):
+        """作用：执行 _apply_sequence_id 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         seq_len = sequence_id.shape[-1]
         if seq_len > self.config.max_seq_len:
             raise ValueError(f'sequence_id sequence length cannot exceed max_seq_len={self.config.max_seq_len}')
@@ -142,6 +150,11 @@ class MPTModel(MPTPreTrainedModel):
         return attn_bias
 
     def forward(self, input_ids: torch.LongTensor, past_key_values: Optional[List[Tuple[torch.FloatTensor]]]=None, attention_mask: Optional[torch.ByteTensor]=None, prefix_mask: Optional[torch.ByteTensor]=None, sequence_id: Optional[torch.LongTensor]=None, return_dict: Optional[bool]=None, output_attentions: Optional[bool]=None, output_hidden_states: Optional[bool]=None, use_cache: Optional[bool]=None, inputs_embeds: Optional[torch.Tensor]=None):
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         return_dict = return_dict if return_dict is not None else self.config.return_dict
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         if attention_mask is not None:
@@ -220,18 +233,23 @@ class MPTModel(MPTPreTrainedModel):
         return BaseModelOutputWithPast(last_hidden_state=x, past_key_values=past_key_values, hidden_states=all_hidden_states, attentions=all_self_attns)
 
     def param_init_fn(self, module):
+        """作用：执行 param_init_fn 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         init_fn_name = self.config.init_config['name']
         MODEL_INIT_REGISTRY[init_fn_name](module=module, n_layers=self.config.n_layers, d_model=self.config.d_model, **self.config.init_config)
 
     def fsdp_wrap_fn(self, module):
+        """作用：执行 fsdp_wrap_fn 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         return isinstance(module, MPTBlock)
 
     def activation_checkpointing_fn(self, module):
+        """作用：执行 activation_checkpointing_fn 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         return isinstance(module, MPTBlock)
 
 class MPTForCausalLM(MPTPreTrainedModel):
 
+    """作用：MPTForCausalLM 类封装模型结构、配置或前向传播相关逻辑。"""
     def __init__(self, config: MPTConfig):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         super().__init__(config)
         if not config.tie_word_embeddings:
             raise ValueError('MPTForCausalLM only supports tied word embeddings')
@@ -253,24 +271,35 @@ class MPTForCausalLM(MPTPreTrainedModel):
             self.logit_scale = logit_scale
 
     def get_input_embeddings(self):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         return self.transformer.wte
 
     def set_input_embeddings(self, value):
+        """作用：设置模型或配置中的运行状态、参数开关或缓存字段。"""
         self.transformer.wte = value
 
     def get_output_embeddings(self):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         return self.transformer.wte
 
     def set_output_embeddings(self, new_embeddings):
+        """作用：设置模型或配置中的运行状态、参数开关或缓存字段。"""
         self.transformer.wte = new_embeddings
 
     def set_decoder(self, decoder):
+        """作用：设置模型或配置中的运行状态、参数开关或缓存字段。"""
         self.transformer = decoder
 
     def get_decoder(self):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         return self.transformer
 
     def forward(self, input_ids: torch.LongTensor, past_key_values: Optional[List[Tuple[torch.FloatTensor]]]=None, attention_mask: Optional[torch.ByteTensor]=None, prefix_mask: Optional[torch.ByteTensor]=None, sequence_id: Optional[torch.LongTensor]=None, labels: Optional[torch.LongTensor]=None, return_dict: Optional[bool]=None, output_attentions: Optional[bool]=None, output_hidden_states: Optional[bool]=None, use_cache: Optional[bool]=None, inputs_embeds: Optional[torch.FloatTensor]=None):
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         return_dict = return_dict if return_dict is not None else self.config.return_dict
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         if inputs_embeds is not None:
@@ -289,16 +318,20 @@ class MPTForCausalLM(MPTPreTrainedModel):
         return CausalLMOutputWithPast(loss=loss, logits=logits, past_key_values=outputs.past_key_values, hidden_states=outputs.hidden_states, attentions=outputs.attentions)
 
     def param_init_fn(self, module):
+        """作用：执行 param_init_fn 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         init_fn_name = self.config.init_config['name']
         MODEL_INIT_REGISTRY[init_fn_name](module=module, n_layers=self.config.n_layers, d_model=self.config.d_model, **self.config.init_config)
 
     def fsdp_wrap_fn(self, module):
+        """作用：执行 fsdp_wrap_fn 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         return isinstance(module, MPTBlock)
 
     def activation_checkpointing_fn(self, module):
+        """作用：执行 activation_checkpointing_fn 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         return isinstance(module, MPTBlock)
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs):
+        """作用：执行 prepare_inputs_for_generation 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if inputs_embeds is not None:
             raise NotImplementedError('inputs_embeds is not implemented for MPT yet')
         attention_mask = kwargs['attention_mask'].bool()

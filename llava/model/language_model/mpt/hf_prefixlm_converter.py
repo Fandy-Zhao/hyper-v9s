@@ -69,9 +69,14 @@ def _convert_gpt_causal_lm_to_prefix_lm(model: CAUSAL_GPT_TYPES) -> CAUSAL_GPT_T
     setattr(model, '_original_generate', getattr(model, 'generate'))
 
     def forward(self: CAUSAL_GPT_TYPES, input_ids: Optional[torch.LongTensor]=None, past_key_values: Optional[Tuple[Tuple[torch.Tensor]]]=None, attention_mask: Optional[torch.FloatTensor]=None, bidirectional_mask: Optional[torch.Tensor]=None, token_type_ids: Optional[torch.LongTensor]=None, position_ids: Optional[torch.LongTensor]=None, head_mask: Optional[torch.FloatTensor]=None, inputs_embeds: Optional[torch.FloatTensor]=None, labels: Optional[torch.LongTensor]=None, use_cache: Optional[bool]=None, output_attentions: Optional[bool]=None, output_hidden_states: Optional[bool]=None, return_dict: Optional[bool]=None):
-        """Wraps original forward to enable PrefixLM attention."""
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
 
         def call_og_forward():
+            """作用：执行 call_og_forward 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
             if isinstance(self, GPTNeoXForCausalLM):
                 return self._original_forward(input_ids=input_ids, past_key_values=past_key_values, attention_mask=attention_mask, head_mask=head_mask, inputs_embeds=inputs_embeds, labels=labels, use_cache=use_cache, output_attentions=output_attentions, output_hidden_states=output_hidden_states, return_dict=return_dict)
             else:
@@ -124,6 +129,7 @@ def _convert_bloom_causal_lm_to_prefix_lm(model: BloomForCausalLM) -> BloomForCa
     assert model.config.add_cross_attention == False, 'Only supports BLOOM decoder-only models'
 
     def _prepare_attn_mask(self: BloomModel, attention_mask: torch.Tensor, bidirectional_mask: Optional[torch.Tensor], input_shape: Tuple[int, int], past_key_values_length: int) -> torch.BoolTensor:
+        """作用：执行 _prepare_attn_mask 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
         combined_attention_mask = None
         device = attention_mask.device
         (_, src_length) = input_shape
@@ -138,6 +144,7 @@ def _convert_bloom_causal_lm_to_prefix_lm(model: BloomForCausalLM) -> BloomForCa
         return combined_attention_mask
 
     def _build_alibi_tensor(self: BloomModel, batch_size: int, query_length: int, key_length: int, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+        """作用：执行 _build_alibi_tensor 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
         num_heads = self.config.n_head
         closest_power_of_2 = 2 ** math.floor(math.log2(num_heads))
         base = torch.tensor(2 ** (-2 ** (-(math.log2(closest_power_of_2) - 3))), device=device, dtype=torch.float32)
@@ -158,6 +165,11 @@ def _convert_bloom_causal_lm_to_prefix_lm(model: BloomForCausalLM) -> BloomForCa
     KeyValueT = Tuple[torch.Tensor, torch.Tensor]
 
     def forward(self: BloomModel, input_ids: Optional[torch.LongTensor]=None, past_key_values: Optional[Tuple[KeyValueT, ...]]=None, attention_mask: Optional[torch.Tensor]=None, bidirectional_mask: Optional[torch.Tensor]=None, head_mask: Optional[torch.LongTensor]=None, inputs_embeds: Optional[torch.LongTensor]=None, use_cache: Optional[bool]=None, output_attentions: Optional[bool]=None, output_hidden_states: Optional[bool]=None, return_dict: Optional[bool]=None, **deprecated_arguments) -> Union[Tuple[torch.Tensor, ...], BaseModelOutputWithPastAndCrossAttentions]:
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         if deprecated_arguments.pop('position_ids', False) is not False:
             warnings.warn('`position_ids` have no functionality in BLOOM and will be removed in v5.0.0. ' + 'You can safely ignore passing `position_ids`.', FutureWarning)
         if len(deprecated_arguments) > 0:
@@ -206,7 +218,9 @@ def _convert_bloom_causal_lm_to_prefix_lm(model: BloomForCausalLM) -> BloomForCa
 
                 def create_custom_forward(module):
 
+                    """作用：执行 create_custom_forward 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
                     def custom_forward(*inputs):
+                        """作用：执行 custom_forward 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
                         return module(*inputs, use_cache=use_cache, output_attentions=output_attentions)
                     return custom_forward
                 outputs = torch.utils.checkpoint.checkpoint(create_custom_forward(block), hidden_states, alibi, causal_mask, head_mask[i])
@@ -231,7 +245,11 @@ def _convert_bloom_causal_lm_to_prefix_lm(model: BloomForCausalLM) -> BloomForCa
     KeyValueT = Tuple[torch.Tensor, torch.Tensor]
 
     def forward(self: BloomForCausalLM, input_ids: Optional[torch.LongTensor]=None, past_key_values: Optional[Tuple[KeyValueT, ...]]=None, attention_mask: Optional[torch.Tensor]=None, bidirectional_mask: Optional[torch.Tensor]=None, head_mask: Optional[torch.Tensor]=None, inputs_embeds: Optional[torch.Tensor]=None, labels: Optional[torch.Tensor]=None, use_cache: Optional[bool]=None, output_attentions: Optional[bool]=None, output_hidden_states: Optional[bool]=None, return_dict: Optional[bool]=None, **deprecated_arguments) -> Union[Tuple[torch.Tensor], CausalLMOutputWithCrossAttentions]:
-        """Replacement forward method for BloomCausalLM."""
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         if deprecated_arguments.pop('position_ids', False) is not False:
             warnings.warn('`position_ids` have no functionality in BLOOM and will be removed ' + 'in v5.0.0. You can safely ignore passing `position_ids`.', FutureWarning)
         if len(deprecated_arguments) > 0:
@@ -253,6 +271,7 @@ def _convert_bloom_causal_lm_to_prefix_lm(model: BloomForCausalLM) -> BloomForCa
         return CausalLMOutputWithCrossAttentions(loss=loss, logits=lm_logits, past_key_values=transformer_outputs.past_key_values, hidden_states=transformer_outputs.hidden_states, attentions=transformer_outputs.attentions)
 
     def prepare_inputs_for_generation(self: BloomForCausalLM, input_ids: torch.LongTensor, past: Optional[torch.Tensor]=None, attention_mask: Optional[torch.Tensor]=None, **kwargs) -> dict:
+        """作用：执行 prepare_inputs_for_generation 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
         if past:
             input_ids = input_ids[:, -1].unsqueeze(-1)
             bidirectional_mask = None
@@ -283,6 +302,7 @@ def _convert_opt_causal_lm_to_prefix_lm(model: OPTForCausalLM) -> OPTForCausalLM
     model.model.decoder.bidirectional_mask = None
 
     def _prepare_decoder_attention_mask(self, attention_mask, input_shape, inputs_embeds, past_key_values_length):
+        """作用：执行 _prepare_decoder_attention_mask 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
         combined_attention_mask = None
         if input_shape[-1] > 1:
             if self.bidirectional_mask == 'g':
@@ -302,7 +322,13 @@ def _convert_opt_causal_lm_to_prefix_lm(model: OPTForCausalLM) -> OPTForCausalLM
 
     def forward(self: OPTForCausalLM, input_ids: Optional[torch.LongTensor]=None, attention_mask: Optional[torch.Tensor]=None, bidirectional_mask: Optional[torch.ByteTensor]=None, head_mask: Optional[torch.Tensor]=None, past_key_values: Optional[List[torch.FloatTensor]]=None, inputs_embeds: Optional[torch.FloatTensor]=None, labels: Optional[torch.LongTensor]=None, use_cache: Optional[bool]=None, output_attentions: Optional[bool]=None, output_hidden_states: Optional[bool]=None, return_dict: Optional[bool]=None):
 
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         def call_og_forward():
+            """作用：执行 call_og_forward 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
             return self._original_forward(input_ids=input_ids, attention_mask=attention_mask, head_mask=head_mask, past_key_values=past_key_values, inputs_embeds=inputs_embeds, labels=labels, use_cache=use_cache, output_attentions=output_attentions, output_hidden_states=output_hidden_states, return_dict=return_dict)
         if bidirectional_mask is None:
             return call_og_forward()

@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在线服务组件，包括控制器、worker、CLI 和 Gradio Web 服务。"""
+
 import argparse
 import torch
 
@@ -16,6 +18,7 @@ from transformers import TextStreamer
 
 
 def load_image(image_file):
+    """作用：加载外部资源、模型权重、数据或配置，并转换为后续流程需要的结构。"""
     if image_file.startswith('http://') or image_file.startswith('https://'):
         response = requests.get(image_file)
         image = Image.open(BytesIO(response.content)).convert('RGB')
@@ -26,6 +29,7 @@ def load_image(image_file):
 
 def main(args):
     # Model
+    """作用：作为脚本入口，串联参数解析、数据准备和核心处理流程。"""
     disable_torch_init()
 
     model_name = get_model_name_from_path(args.model_path)

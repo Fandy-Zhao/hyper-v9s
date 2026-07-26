@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在对应下游任务上的评测、答案读取、指标计算或结果转换逻辑。"""
+
 import os
 import argparse
 import json
@@ -11,9 +13,15 @@ from collections import defaultdict
 
 from pycocotools.coco import COCO
 from pycocoevalcap.eval import COCOEvalCap
+from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
+from pycocoevalcap.bleu.bleu import Bleu
+from pycocoevalcap.meteor.meteor import Meteor
+from pycocoevalcap.rouge.rouge import Rouge
+from pycocoevalcap.cider.cider import Cider
 
 
 def get_args():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--annotation-file', type=str, default='./playground/Instructions_slim/VizWiz/val_new.json')
     parser.add_argument('--result-file', type=str, default='./results/CoIN_slim_new/VizWiz/Zero_shot/merge.jsonl')
@@ -21,6 +29,7 @@ def get_args():
     return parser.parse_args()
 
 def create_coco_type(annotation_file, result_file, output_dir):
+    """作用：执行 create_coco_type 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     results = [json.loads(line) for line in open(result_file)]
 
     pred_list = []
@@ -49,6 +58,7 @@ def load_json(file_path):
 
 def merge_captions(pred_file, val_file, output_file):
     # 加载预测文件和验证文件
+    """作用：执行 merge_captions 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     pred_data = load_json(pred_file)
     val_data = load_json(val_file)
 
@@ -76,13 +86,75 @@ def merge_captions(pred_file, val_file, output_file):
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(merged_data, f, indent=4, ensure_ascii=False)
 
+def prepare_coco_caption_annotation(annotation_file, output_dir):
+    """作用：执行 prepare_coco_caption_annotation 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
+    with open(annotation_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    changed = False
+    if 'categories' not in data:
+        data['categories'] = [{'id': 1, 'name': 'captioning'}]
+        changed = True
+
+    for ann in data.get('annotations', []):
+        if 'category_id' not in ann:
+            ann['category_id'] = 1
+            changed = True
+
+    if not changed:
+        return annotation_file
+
+    os.makedirs(output_dir, exist_ok=True)
+    normalized_file = os.path.join(output_dir, 'annotation_coco_eval.json')
+    with open(normalized_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
+    return normalized_file
+
+def evaluate_caption_metrics(coco_eval):
+    """作用：执行 evaluate_caption_metrics 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
+    img_ids = coco_eval.params['image_id']
+    gts = {}
+    res = {}
+    for img_id in img_ids:
+        gts[img_id] = coco_eval.coco.imgToAnns[img_id]
+        res[img_id] = coco_eval.cocoRes.imgToAnns[img_id]
+
+    print('tokenization...')
+    tokenizer = PTBTokenizer()
+    gts = tokenizer.tokenize(gts)
+    res = tokenizer.tokenize(res)
+
+    print('setting up scorers...')
+    scorers = [
+        (Bleu(4), ["Bleu_1", "Bleu_2", "Bleu_3", "Bleu_4"]),
+        (Meteor(), "METEOR"),
+        (Rouge(), "ROUGE_L"),
+        (Cider(), "CIDEr"),
+    ]
+
+    for scorer, method in scorers:
+        print('computing %s score...' % scorer.method())
+        score, scores = scorer.compute_score(gts, res)
+        if isinstance(method, list):
+            for sc, scs, metric_name in zip(score, scores, method):
+                coco_eval.setEval(sc, metric_name)
+                coco_eval.setImgToEvalImgs(scs, gts.keys(), metric_name)
+                print('%s: %0.3f' % (metric_name, sc))
+        else:
+            coco_eval.setEval(score, method)
+            coco_eval.setImgToEvalImgs(scores, gts.keys(), method)
+            print('%s: %0.3f' % (method, score))
+    coco_eval.setEvalImgs()
+
 def eval_single(output_file, annotation_file, total):
+    """作用：执行指定任务的评测流程并输出指标或结果文件。"""
+    annotation_file = prepare_coco_caption_annotation(annotation_file, args.output_dir or os.path.dirname(output_file))
     coco = COCO(annotation_file)  # Ground truth JSON file
     coco_res = coco.loadRes(output_file)  # Prediction JSON file
 
     coco_eval = COCOEvalCap(coco, coco_res)
 
-    coco_eval.evaluate()
+    evaluate_caption_metrics(coco_eval)
 
     metrics_to_print = ["Bleu_1", "Bleu_2", "Bleu_3", "Bleu_4", "METEOR", "ROUGE_L", "CIDEr"]
     results = []

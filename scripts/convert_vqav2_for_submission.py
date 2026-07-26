@@ -1,3 +1,5 @@
+"""作用：提供数据集或评测结果格式转换脚本，服务训练、评测或提交流程。"""
+
 import os
 import argparse
 import json
@@ -6,6 +8,7 @@ from llava.eval.m4c_evaluator import EvalAIAnswerProcessor
 
 
 def parse_args():
+    """作用：执行 parse_args 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--dir', type=str, default="./results/CoIN/VQAv2/OCRVQA")
     parser.add_argument('--test-split', type=str, default='./playground/Instructions/VQAv2/test.json')

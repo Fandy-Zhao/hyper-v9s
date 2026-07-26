@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA/HiDe-LLaVA 的训练入口、数据预处理、Trainer 扩展或注意力加速补丁。"""
+
 # Adopted from https://github.com/lm-sys/FastChat. Below is the original copyright:
 # Adopted from tatsu-lab@stanford_alpaca. Below is the original copyright:
 # Make it more memory efficient by monkey patching the LLaMA model with FlashAttn.

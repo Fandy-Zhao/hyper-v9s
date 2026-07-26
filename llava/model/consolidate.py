@@ -11,6 +11,7 @@ from llava.model.utils import auto_upgrade
 
 
 def consolidate_ckpt(src_path, dst_path):
+    """作用：执行 consolidate_ckpt 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     print("Loading model")
     auto_upgrade(src_path)
     src_model = AutoModelForCausalLM.from_pretrained(src_path, torch_dtype=torch.float16, low_cpu_mem_usage=True)

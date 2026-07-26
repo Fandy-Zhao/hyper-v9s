@@ -1,9 +1,12 @@
+"""作用：实现 LLaVA 在对应下游任务上的评测、答案读取、指标计算或结果转换逻辑。"""
+
 import os
 import argparse
 import json
 
 
 def get_args():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--annotation-file', type=str, default='./playground/Instructions_slim/VizWiz/val_new.json')
     parser.add_argument('--result-file', type=str, default='./results/CoIN_slim_new/VizWiz/Zero_shot/merge.jsonl')
@@ -12,6 +15,7 @@ def get_args():
 
 
 def eval_single(annotation_file, result_file):
+    """作用：执行指定任务的评测流程并输出指标或结果文件。"""
     annotations = json.load(open(annotation_file))
     annotations = {annotation['question_id']: annotation for annotation in annotations}
     results = [json.loads(line) for line in open(result_file)]

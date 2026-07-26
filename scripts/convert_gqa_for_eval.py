@@ -1,3 +1,5 @@
+"""作用：提供数据集或评测结果格式转换脚本，服务训练、评测或提交流程。"""
+
 import os
 import json
 import argparse

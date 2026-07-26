@@ -10,7 +10,7 @@ from llava.conversation import conv_templates, SeparatorStyle
 from llava.model.builder import load_pretrained_model
 from llava.utils import disable_torch_init
 from llava.mm_utils import tokenizer_image_token, process_images, KeywordsStoppingCriteria
-from llava.eval.CoIN.coin_utils import get_model_name_from_path
+from llava.mm_utils import get_model_name_from_path
 
 from PIL import Image
 import math
@@ -32,7 +32,14 @@ def eval_model(args):
     disable_torch_init()
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
-    tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, args.model_base, model_name)
+    print(f"Loading model {model_name} from {model_path}")
+    tokenizer, model, image_processor, context_len = load_pretrained_model(
+        model_path,
+        args.model_base,
+        model_name,
+        text_tower=args.text_tower,
+        eval_modality_routing_mode=args.eval_modality_routing_mode,
+    )
 
     questions = json.load(open(os.path.expanduser(args.question_file), "r"))
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
@@ -144,6 +151,8 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--answer-prompter", action="store_true")
     parser.add_argument("--single-pred-prompt", action="store_true")
+    parser.add_argument("--text-tower", type=str, default=None)
+    parser.add_argument("--eval-modality-routing-mode", type=str, default=None, choices=["same", "task", "sample", "sample_rule"])
     args = parser.parse_args()
 
     eval_model(args)

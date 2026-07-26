@@ -1,3 +1,5 @@
+"""作用：仓库中的 Python 模块，承担对应路径下的模型、训练、评测或工具辅助逻辑。"""
+
 CONTROLLER_HEART_BEAT_EXPIRATION = 30
 WORKER_HEART_BEAT_INTERVAL = 15
 

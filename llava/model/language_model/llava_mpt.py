@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA/HiDe-LLaVA 模型加载、结构封装、多模态输入整理和权重转换工具。"""
+
 #    Copyright 2023 Haotian Liu
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,25 +30,31 @@ from llava.model.llava_arch import LlavaMetaModel, LlavaMetaForCausalLM
 
 
 class LlavaMPTConfig(MPTConfig):
+    """作用：LlavaMPTConfig 类封装模型结构、配置或前向传播相关逻辑。"""
     model_type = "llava_mpt"
 
 
 class LlavaMPTModel(LlavaMetaModel, MPTModel):
+    """作用：LlavaMPTModel 类封装模型结构、配置或前向传播相关逻辑。"""
     config_class = LlavaMPTConfig
 
     def __init__(self, config: MPTConfig):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         config.hidden_size = config.d_model
         super(LlavaMPTModel, self).__init__(config)
     
     def embed_tokens(self, x):
+        """作用：执行 embed_tokens 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         return self.wte(x)
 
 
 class LlavaMPTForCausalLM(MPTForCausalLM, LlavaMetaForCausalLM):
+    """作用：LlavaMPTForCausalLM 类封装模型结构、配置或前向传播相关逻辑。"""
     config_class = LlavaMPTConfig
     supports_gradient_checkpointing = True
 
     def __init__(self, config):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         super(MPTForCausalLM, self).__init__(config)
 
         if not config.tie_word_embeddings:
@@ -63,13 +71,20 @@ class LlavaMPTForCausalLM(MPTForCausalLM, LlavaMetaForCausalLM):
             self.logit_scale = logit_scale
 
     def get_model(self):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         return self.transformer
 
     def _set_gradient_checkpointing(self, module, value=False):
+        """作用：执行 _set_gradient_checkpointing 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if isinstance(module, LlavaMPTModel):
             module.gradient_checkpointing = value
 
     def forward(self, input_ids: torch.LongTensor, past_key_values: Optional[List[Tuple[torch.FloatTensor]]]=None, attention_mask: Optional[torch.ByteTensor]=None, prefix_mask: Optional[torch.ByteTensor]=None, sequence_id: Optional[torch.LongTensor]=None, labels: Optional[torch.LongTensor]=None, return_dict: Optional[bool]=None, output_attentions: Optional[bool]=None, output_hidden_states: Optional[bool]=None, use_cache: Optional[bool]=None, images=None):
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         return_dict = return_dict if return_dict is not None else self.config.return_dict
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
@@ -89,6 +104,7 @@ class LlavaMPTForCausalLM(MPTForCausalLM, LlavaMetaForCausalLM):
         return CausalLMOutputWithPast(loss=loss, logits=logits, past_key_values=outputs.past_key_values, hidden_states=outputs.hidden_states)
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs):
+        """作用：执行 prepare_inputs_for_generation 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if inputs_embeds is not None:
             raise NotImplementedError('inputs_embeds is not implemented for MPT yet')
         attention_mask = kwargs['attention_mask'].bool()

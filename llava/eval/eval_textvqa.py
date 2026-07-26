@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在对应下游任务上的评测、答案读取、指标计算或结果转换逻辑。"""
+
 import os
 import argparse
 import json
@@ -7,6 +9,7 @@ from llava.eval.m4c_evaluator import TextVQAAccuracyEvaluator
 
 
 def get_args():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--annotation-file', type=str, default='./cl_dataset/TextVQA/TextVQA_0.5.1_val.json')
     parser.add_argument('--result-file', type=str, default='./results/CoIN/MiniGPTv2/TextVQA/Zero_Shot/merge.jsonl')
@@ -14,6 +17,7 @@ def get_args():
     return parser.parse_args()
 
 def prompt_processor(prompt):
+    """作用：执行 prompt_processor 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if prompt.startswith('OCR tokens:'):
         pattern = r"Question: (.*?) Short answer:"
         match = re.search(pattern, prompt, re.DOTALL)
@@ -32,14 +36,15 @@ def prompt_processor(prompt):
 
 
 def eval_single(annotation_file, result_file):
+    """作用：执行指定任务的评测流程并输出指标或结果文件。"""
     experiment_name = os.path.splitext(os.path.basename(result_file))[0]
     annotations = json.load(open(annotation_file))['data']
-    annotations = {str(annotation['question_id']): annotation for annotation in annotations}
+    annotations = {annotation['question_id']: annotation for annotation in annotations}
     results = [json.loads(line) for line in open(result_file)]
 
     pred_list = []
     for result in results:
-        annotation = annotations[str(result['question_id'])]
+        annotation = annotations[result['question_id']]
         pred_list.append({
             "pred_answer": result['text'],
             "gt_answers": annotation['answers'],

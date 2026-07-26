@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在对应下游任务上的评测、答案读取、指标计算或结果转换逻辑。"""
+
 from collections import defaultdict
 from tqdm import tqdm
 import argparse
@@ -42,6 +44,7 @@ if not args.grounding:
 
 def loadFile(name):
     # load standard json file
+    """作用：执行 loadFile 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if os.path.isfile(name):
         with open(name) as file:
             data = json.load(file)
@@ -59,7 +62,7 @@ def loadFile(name):
 
 # Load questions
 print("Loading questions...")
-questions = loadFile(os.path.join(args.question_dir, args.questions.format(tier=args.tier)))
+questions = loadFile(os.path.join('/home/zhangyanqin/project/Hide/instructions/GQA',args.questions.format(tier = args.tier)))
 
 # Load predictions and turn them into a dictionary
 print("Loading predictions...")
@@ -79,17 +82,20 @@ if args.grounding:
 
 # book to float
 def toScore(b):
+    """作用：执行 toScore 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return float(1 if b else 0)
 
 
 # Compute average of a list
 def avg(l):
+    """作用：执行 avg 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if len(l) == 0:
         return 0
     return float(sum(l)) / len(l)
 
 
 def wavg(l, w):
+    """作用：执行 wavg 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if sum(w) == 0:
         return None
     return float(sum(l[i] * w[i] for i in range(len(l)))) / sum(w)
@@ -126,11 +132,13 @@ dist = {
 
 # Compute question length (words number)
 def getWordsNum(question):
+    """作用：执行 getWordsNum 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return len(question["question"].split())
 
 
 # Compute number of reasoning steps (excluding the final "querying" step which doesn't increase effective reasoning length)
 def getStepsNum(question):
+    """作用：执行 getStepsNum 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return len([c for c in question["semantic"] if not (any([o in "{}: {}".format(c["operation"], c["argument"])
                                                              for o in ["exist", "query: name", "choose name"]]))])
 
@@ -140,11 +148,13 @@ def getStepsNum(question):
 
 # Utility function for converting question annotations string keys to slices
 def toSlice(strSlice):
+    """作用：执行 toSlice 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     sliceLims = (int(n) for n in strSlice.split(':'))
     return apply(slice, sliceLims)
 
 
 def intsFromSlice(strSlice):
+    """作用：执行 intsFromSlice 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     slice_obj = get_slice_obj(slicearg)
     return (range(slice_obj.start or 0, slice_obj.stop or -1, slice_obj.step or 1))
 
@@ -154,6 +164,7 @@ def intsFromSlice(strSlice):
 
 def belongs(element, group, question):
     # normalization ()
+    """作用：执行 belongs 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if "Common" in question["types"]["detailed"]:
         group = ["color", "material", "shape"]
 
@@ -164,6 +175,7 @@ def belongs(element, group, question):
 ##########################################################################################
 
 def updateConsistency(questionId, question, questions):
+    """作用：执行 updateConsistency 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     inferredQuestions = [eid for eid in question["entailed"] if eid != questionId]
 
     if correct and len(inferredQuestions) > 0:
@@ -182,24 +194,29 @@ def updateConsistency(questionId, question, questions):
 ##########################################################################################
 
 def yrange(c):
+    """作用：执行 yrange 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return (c[1], c[3])
 
 
 def xrange(c):
+    """作用：执行 xrange 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return (c[0], c[2])
 
 
 def length(r):
+    """作用：执行 length 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if r is None:
         return 0
     return float(r[1] - r[0])
 
 
 def size(c):
+    """作用：执行 size 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return length(xrange(c)) * length(yrange(c))
 
 
 def intersection(r1, r2):
+    """作用：执行 intersection 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     ir = (max(r1[0], r2[0]), min(r1[1], r2[1]))
     if ir[1] > ir[0]:
         return ir
@@ -207,21 +224,25 @@ def intersection(r1, r2):
 
 
 def intersectionSize(c1, c2):
+    """作用：执行 intersectionSize 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return length(intersection(xrange(c1), xrange(c2))) * length(intersection(yrange(c1), yrange(c2)))
 
 
 def intersectionRate(c1, c2):
+    """作用：执行 intersectionRate 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return float(intersectionSize(c1, c2)) / size(c1)
 
 
 # Get spatial cell
 def getCell(i, j):
+    """作用：执行 getCell 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     edge = float(1) / args.mapSize
     return (edge * i, edge * j, edge * (i + 1), edge * (j + 1))
 
 
 # Get bounding box of objectId in sceneGraph
 def getRegion(sceneGraph, objectId):
+    """作用：执行 getRegion 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     obj = sceneGraph["objects"][objectId]
     x0 = float(obj["x"]) / sceneGraph["width"]
     y0 = float(obj["y"]) / sceneGraph["height"]
@@ -234,6 +255,7 @@ def getRegion(sceneGraph, objectId):
 # the question and answers refer to.
 def computeGroundingScore(question, sceneGraph, attentionMap):
     ## prepare gold regions
+    """作用：执行 computeGroundingScore 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     regions = []
     # add question regions
     regions += [getRegion(sceneGraph, pointer) for pointer in question["annotations"]["question"].values()]
@@ -263,6 +285,7 @@ def computeGroundingScore(question, sceneGraph, attentionMap):
 # Compute chi square statistic of gold distribution vs predicted distribution,
 # averaged over all question groups
 def chiSquare(goldDist, predictedDist):
+    """作用：执行 chiSquare 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     sumScore, sumOverall = 0, 0
 
     for group in goldDist:

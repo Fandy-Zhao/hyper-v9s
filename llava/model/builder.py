@@ -22,9 +22,7 @@ import torch
 from llava.model import *
 from llava.constants import DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 
-sys.path.append('/mnt/haiyangguo/mywork/CL-MLLM/LLaVA-HiDe')
-
-def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, load_4bit=False, device_map="auto", device="cuda", text_tower=None, **kwargs):
+def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, load_4bit=False, device_map="auto", device="cuda", text_tower=None, eval_modality_routing_mode=None, **kwargs):
     kwargs = {"device_map": device_map, **kwargs}
 
     if device != "cuda":
@@ -63,6 +61,8 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
 
             model.set_clip_tokenizer(clip_tokenizer)
             model.set_tokenizer(tokenizer)
+            if hasattr(model, "initialize_instance_router"):
+                model.initialize_instance_router()
             token_num, tokem_dim = model.lm_head.out_features, model.lm_head.in_features
             if model.lm_head.weight.shape[0] != token_num:
                 model.lm_head.weight = torch.nn.Parameter(torch.empty(token_num, tokem_dim, device=model.device, dtype=model.dtype))
@@ -71,6 +71,20 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
             print('Loading additional LLaVA weights...')
             if os.path.exists(os.path.join(model_path, 'non_lora_trainables.bin')):
                 non_lora_trainables = torch.load(os.path.join(model_path, 'non_lora_trainables.bin'), map_location='cpu')
+                # [NEW] Load adaptive weights from stats.json
+                stats_path = os.path.join(model_path, "stats.json")
+                if os.path.exists(stats_path):
+                    import json
+                    with open(stats_path, 'r') as f:
+                        stats_data = json.load(f)
+                    if "adaptive_w_img" in stats_data:
+                        model.config.adaptive_w_img = stats_data["adaptive_w_img"]
+                        print(f"Loaded adaptive weights from stats.json: {model.config.adaptive_w_img}")
+                    else:
+                        print("Warning: 'adaptive_w_img' not found in stats.json. Falling back to static fusion.")
+                else:
+                    print(f"Warning: stats.json not found at {stats_path}. Falling back to static fusion.")
+                
             else:
                 # this is probably from HF Hub
                 from huggingface_hub import hf_hub_download
@@ -86,7 +100,7 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
                 non_lora_trainables = {(k[6:] if k.startswith('model.') else k): v for k, v in non_lora_trainables.items()}
             model.load_state_dict(non_lora_trainables, strict=False)
 
-            from HiDe.peft import PeftModel, TaskType, get_peft_model, HiDeMOELoraConfig, WEIGHTS_NAME, set_peft_model_state_dict
+            from Hyper.peft import PeftModel, TaskType, get_peft_model, HyperMOELoraConfig, WEIGHTS_NAME, set_peft_model_state_dict
             # else:
             #     from peft import PeftModel
             print('Loading LoRA weights...')
@@ -139,6 +153,12 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
             else:
                 tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
                 model = AutoModelForCausalLM.from_pretrained(model_path, low_cpu_mem_usage=True, **kwargs)
+
+    if eval_modality_routing_mode is not None and hasattr(model, "config"):
+        valid_eval_modes = ["same", "task", "sample", "sample_rule"]
+        if eval_modality_routing_mode not in valid_eval_modes:
+            raise ValueError(f"eval_modality_routing_mode must be one of {valid_eval_modes}")
+        model.config.eval_modality_routing_mode = eval_modality_routing_mode
 
     image_processor = None
 

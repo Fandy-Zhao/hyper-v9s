@@ -11,6 +11,7 @@ from llava import LlavaLlamaForCausalLM
 
 
 def apply_delta(base_model_path, target_model_path, delta_path):
+    """作用：执行 apply_delta 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     print("Loading base model")
     base = AutoModelForCausalLM.from_pretrained(
         base_model_path, torch_dtype=torch.float16, low_cpu_mem_usage=True)

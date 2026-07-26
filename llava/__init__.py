@@ -1,1 +1,3 @@
+"""作用：仓库中的 Python 模块，承担对应路径下的模型、训练、评测或工具辅助逻辑。"""
+
 from .model import LlavaLlamaForCausalLM

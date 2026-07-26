@@ -74,10 +74,18 @@ def eval_model(args):
     disable_torch_init()
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
-    tokenizer, model, image_processor, context_len = load_pretrained_model(model_path, args.model_base, model_name)
+    tokenizer, model, image_processor, context_len = load_pretrained_model(
+        model_path,
+        args.model_base,
+        model_name,
+        text_tower=args.text_tower,
+        eval_modality_routing_mode=args.eval_modality_routing_mode,
+    )
 
     with open(os.path.expanduser(args.question_file), "r") as f:
         questions = json.load(f)
+    missing_images_idx_set = set(["OCR-VQA/images/1421539896.jpg","OCR-VQA/images/141393394.jpg","OCR-VQA/images/316881791.jpg","OCR-VQA/images/140445692.jpg","OCR-VQA/images/142153990X.jpg","OCR-VQA/images/689852649.jpg"])
+    questions = [data for data in questions if ('image' not in data) or (data['image'] not in missing_images_idx_set)]
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     answers_file = os.path.expanduser(args.answers_file)
     os.makedirs(os.path.dirname(answers_file), exist_ok=True)
@@ -94,7 +102,7 @@ def eval_model(args):
         cur_prompt = line["text"]
 
         input_ids = input_ids.to(device='cuda', non_blocking=True)
-
+        # breakpoint()
         with torch.inference_mode():
             output_ids = model.generate(
                 input_ids,
@@ -137,6 +145,8 @@ if __name__ == "__main__":
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--max_new_tokens", type=int, default=128)
+    parser.add_argument("--text-tower", type=str)
+    parser.add_argument("--eval-modality-routing-mode", type=str, default=None, choices=["same", "task", "sample", "sample_rule"])
     args = parser.parse_args()
 
     eval_model(args)

@@ -1,3 +1,5 @@
+"""作用：提供 MPT 语言模型兼容实现，包括配置、注意力、模块结构、初始化和 HuggingFace 适配逻辑。"""
+
 import math
 import warnings
 from collections.abc import Sequence
@@ -8,6 +10,7 @@ from torch import nn
 from .norm import NORM_CLASS_REGISTRY
 
 def torch_default_param_init_fn_(module: nn.Module, verbose: int=0, **kwargs):
+    """作用：执行 torch_default_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     del kwargs
     if verbose > 1:
         warnings.warn(f"Initializing network using module's reset_parameters attribute")
@@ -15,6 +18,7 @@ def torch_default_param_init_fn_(module: nn.Module, verbose: int=0, **kwargs):
         module.reset_parameters()
 
 def fused_init_helper_(module: nn.Module, init_fn_):
+    """作用：执行 fused_init_helper_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     _fused = getattr(module, '_fused', None)
     if _fused is None:
         raise RuntimeError(f'Internal logic error')
@@ -26,6 +30,7 @@ def fused_init_helper_(module: nn.Module, init_fn_):
         init_fn_(module.weight[slice_indices])
 
 def generic_param_init_fn_(module: nn.Module, init_fn_, n_layers: int, d_model: Optional[int]=None, init_div_is_residual: Union[int, float, str, bool]=True, emb_init_std: Optional[float]=None, emb_init_uniform_lim: Optional[Union[Tuple[float, float], float]]=None, verbose: int=0, **kwargs):
+    """作用：执行 generic_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     del kwargs
     if verbose > 1:
         warnings.warn(f'If model has bias parameters they are initialized to 0.')
@@ -119,9 +124,11 @@ def generic_param_init_fn_(module: nn.Module, init_fn_, n_layers: int, d_model: 
             raise NotImplementedError(f'{module.__class__.__name__} parameters are not initialized by param_init_fn.')
 
 def _normal_init_(std, mean=0.0):
+    """作用：执行 _normal_init_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return partial(torch.nn.init.normal_, mean=mean, std=std)
 
 def _normal_param_init_fn_(module: nn.Module, std: float, n_layers: int, d_model: Optional[int]=None, init_div_is_residual: Union[int, float, str, bool]=True, emb_init_std: Optional[float]=None, emb_init_uniform_lim: Optional[Union[Tuple[float, float], float]]=None, verbose: int=0, **kwargs):
+    """作用：执行 _normal_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     del kwargs
     init_fn_ = _normal_init_(std=std)
     if verbose > 1:
@@ -129,12 +136,14 @@ def _normal_param_init_fn_(module: nn.Module, std: float, n_layers: int, d_model
     generic_param_init_fn_(module=module, init_fn_=init_fn_, d_model=d_model, n_layers=n_layers, init_div_is_residual=init_div_is_residual, emb_init_std=emb_init_std, emb_init_uniform_lim=emb_init_uniform_lim, verbose=verbose)
 
 def baseline_param_init_fn_(module: nn.Module, init_std: float, n_layers: int, d_model: Optional[int]=None, init_div_is_residual: Union[int, float, str, bool]=True, emb_init_std: Optional[float]=None, emb_init_uniform_lim: Optional[Union[Tuple[float, float], float]]=None, verbose: int=0, **kwargs):
+    """作用：执行 baseline_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     del kwargs
     if init_std is None:
         raise ValueError("You must set model.init_config['init_std'] to a float value to use the default initialization scheme.")
     _normal_param_init_fn_(module=module, std=init_std, d_model=d_model, n_layers=n_layers, init_div_is_residual=init_div_is_residual, emb_init_std=emb_init_std, emb_init_uniform_lim=emb_init_uniform_lim, verbose=verbose)
 
 def small_param_init_fn_(module: nn.Module, n_layers: int, d_model: int, init_div_is_residual: Union[int, float, str, bool]=True, emb_init_std: Optional[float]=None, emb_init_uniform_lim: Optional[Union[Tuple[float, float], float]]=None, verbose: int=0, **kwargs):
+    """作用：执行 small_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     del kwargs
     std = math.sqrt(2 / (5 * d_model))
     _normal_param_init_fn_(module=module, std=std, d_model=d_model, n_layers=n_layers, init_div_is_residual=init_div_is_residual, emb_init_std=emb_init_std, emb_init_uniform_lim=emb_init_uniform_lim, verbose=verbose)
@@ -153,6 +162,7 @@ def neox_param_init_fn_(module: nn.Module, n_layers: int, d_model: int, emb_init
     small_param_init_fn_(module=module, d_model=d_model, n_layers=n_layers, init_div_is_residual=residual_div, emb_init_std=emb_init_std, emb_init_uniform_lim=emb_init_uniform_lim, verbose=verbose)
 
 def kaiming_uniform_param_init_fn_(module: nn.Module, n_layers: int, d_model: Optional[int]=None, init_div_is_residual: Union[int, float, str, bool]=True, emb_init_std: Optional[float]=None, emb_init_uniform_lim: Optional[Union[Tuple[float, float], float]]=None, init_gain: float=0, fan_mode: str='fan_in', init_nonlinearity: str='leaky_relu', verbose: int=0, **kwargs):
+    """作用：执行 kaiming_uniform_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     del kwargs
     if verbose > 1:
         warnings.warn(f'Using nn.init.kaiming_uniform_ init fn with parameters: ' + f'a={init_gain}, mode={fan_mode}, nonlinearity={init_nonlinearity}')
@@ -160,6 +170,7 @@ def kaiming_uniform_param_init_fn_(module: nn.Module, n_layers: int, d_model: Op
     generic_param_init_fn_(module=module, init_fn_=kaiming_uniform_, d_model=d_model, n_layers=n_layers, init_div_is_residual=init_div_is_residual, emb_init_std=emb_init_std, emb_init_uniform_lim=emb_init_uniform_lim, verbose=verbose)
 
 def kaiming_normal_param_init_fn_(module: nn.Module, n_layers: int, d_model: Optional[int]=None, init_div_is_residual: Union[int, float, str, bool]=True, emb_init_std: Optional[float]=None, emb_init_uniform_lim: Optional[Union[Tuple[float, float], float]]=None, init_gain: float=0, fan_mode: str='fan_in', init_nonlinearity: str='leaky_relu', verbose: int=0, **kwargs):
+    """作用：执行 kaiming_normal_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     del kwargs
     if verbose > 1:
         warnings.warn(f'Using nn.init.kaiming_normal_ init fn with parameters: ' + f'a={init_gain}, mode={fan_mode}, nonlinearity={init_nonlinearity}')
@@ -167,6 +178,7 @@ def kaiming_normal_param_init_fn_(module: nn.Module, n_layers: int, d_model: Opt
     generic_param_init_fn_(module=module, init_fn_=kaiming_normal_, d_model=d_model, n_layers=n_layers, init_div_is_residual=init_div_is_residual, emb_init_std=emb_init_std, emb_init_uniform_lim=emb_init_uniform_lim, verbose=verbose)
 
 def xavier_uniform_param_init_fn_(module: nn.Module, n_layers: int, d_model: Optional[int]=None, init_div_is_residual: Union[int, float, str, bool]=True, emb_init_std: Optional[float]=None, emb_init_uniform_lim: Optional[Union[Tuple[float, float], float]]=None, init_gain: float=0, verbose: int=0, **kwargs):
+    """作用：执行 xavier_uniform_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     del kwargs
     xavier_uniform_ = partial(torch.nn.init.xavier_uniform_, gain=init_gain)
     if verbose > 1:
@@ -174,6 +186,7 @@ def xavier_uniform_param_init_fn_(module: nn.Module, n_layers: int, d_model: Opt
     generic_param_init_fn_(module=module, init_fn_=xavier_uniform_, d_model=d_model, n_layers=n_layers, init_div_is_residual=init_div_is_residual, emb_init_std=emb_init_std, emb_init_uniform_lim=emb_init_uniform_lim, verbose=verbose)
 
 def xavier_normal_param_init_fn_(module: nn.Module, n_layers: int, d_model: Optional[int]=None, init_div_is_residual: Union[int, float, str, bool]=True, emb_init_std: Optional[float]=None, emb_init_uniform_lim: Optional[Union[Tuple[float, float], float]]=None, init_gain: float=0, verbose: int=0, **kwargs):
+    """作用：执行 xavier_normal_param_init_fn_ 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     xavier_normal_ = partial(torch.nn.init.xavier_normal_, gain=init_gain)
     if verbose > 1:
         warnings.warn(f'Using torch.nn.init.xavier_normal_ init fn with parameters: ' + f'gain={init_gain}')

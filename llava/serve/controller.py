@@ -26,11 +26,13 @@ logger = build_logger("controller", "controller.log")
 
 
 class DispatchMethod(Enum):
+    """作用：DispatchMethod 类封装当前模块中的相关状态和操作。"""
     LOTTERY = auto()
     SHORTEST_QUEUE = auto()
 
     @classmethod
     def from_str(cls, name):
+        """作用：执行 from_str 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if name == "lottery":
             return cls.LOTTERY
         elif name == "shortest_queue":
@@ -41,6 +43,7 @@ class DispatchMethod(Enum):
 
 @dataclasses.dataclass
 class WorkerInfo:
+    """作用：WorkerInfo 类封装当前模块中的相关状态和操作。"""
     model_names: List[str]
     speed: int
     queue_length: int
@@ -49,14 +52,17 @@ class WorkerInfo:
 
 
 def heart_beat_controller(controller):
+    """作用：执行 heart_beat_controller 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     while True:
         time.sleep(CONTROLLER_HEART_BEAT_EXPIRATION)
         controller.remove_stable_workers_by_expiration()
 
 
 class Controller:
+    """作用：Controller 类封装当前模块中的相关状态和操作。"""
     def __init__(self, dispatch_method: str):
         # Dict[str -> WorkerInfo]
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         self.worker_info = {}
         self.dispatch_method = DispatchMethod.from_str(dispatch_method)
 
@@ -68,6 +74,7 @@ class Controller:
 
     def register_worker(self, worker_name: str, check_heart_beat: bool,
                         worker_status: dict):
+        """作用：执行 register_worker 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if worker_name not in self.worker_info:
             logger.info(f"Register a new worker: {worker_name}")
         else:
@@ -86,6 +93,7 @@ class Controller:
         return True
 
     def get_worker_status(self, worker_name: str):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         try:
             r = requests.post(worker_name + "/worker_get_status", timeout=5)
         except requests.exceptions.RequestException as e:
@@ -99,9 +107,11 @@ class Controller:
         return r.json()
 
     def remove_worker(self, worker_name: str):
+        """作用：执行 remove_worker 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         del self.worker_info[worker_name]
 
     def refresh_all_workers(self):
+        """作用：执行 refresh_all_workers 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         old_info = dict(self.worker_info)
         self.worker_info = {}
 
@@ -110,6 +120,7 @@ class Controller:
                 logger.info(f"Remove stale worker: {w_name}")
 
     def list_models(self):
+        """作用：执行 list_models 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         model_names = set()
 
         for w_name, w_info in self.worker_info.items():
@@ -118,6 +129,7 @@ class Controller:
         return list(model_names)
 
     def get_worker_address(self, model_name: str):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         if self.dispatch_method == DispatchMethod.LOTTERY:
             worker_names = []
             worker_speeds = []
@@ -171,6 +183,7 @@ class Controller:
             raise ValueError(f"Invalid dispatch method: {self.dispatch_method}")
 
     def receive_heart_beat(self, worker_name: str, queue_length: int):
+        """作用：执行 receive_heart_beat 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if worker_name not in self.worker_info:
             logger.info(f"Receive unknown heart beat. {worker_name}")
             return False
@@ -181,6 +194,7 @@ class Controller:
         return True
 
     def remove_stable_workers_by_expiration(self):
+        """作用：执行 remove_stable_workers_by_expiration 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         expire = time.time() - CONTROLLER_HEART_BEAT_EXPIRATION
         to_delete = []
         for worker_name, w_info in self.worker_info.items():
@@ -191,6 +205,7 @@ class Controller:
             self.remove_worker(worker_name)
 
     def worker_api_generate_stream(self, params):
+        """作用：执行 worker_api_generate_stream 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         worker_addr = self.get_worker_address(params["model"])
         if not worker_addr:
             logger.info(f"no worker: {params['model']}")
@@ -218,6 +233,7 @@ class Controller:
     # Let the controller act as a worker to achieve hierarchical
     # management. This can be used to connect isolated sub networks.
     def worker_api_get_status(self):
+        """作用：执行 worker_api_get_status 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         model_names = set()
         speed = 0
         queue_length = 0
@@ -241,6 +257,7 @@ app = FastAPI()
 
 @app.post("/register_worker")
 async def register_worker(request: Request):
+    """作用：执行 register_worker 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     data = await request.json()
     controller.register_worker(
         data["worker_name"], data["check_heart_beat"],
@@ -249,17 +266,20 @@ async def register_worker(request: Request):
 
 @app.post("/refresh_all_workers")
 async def refresh_all_workers():
+    """作用：执行 refresh_all_workers 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     models = controller.refresh_all_workers()
 
 
 @app.post("/list_models")
 async def list_models():
+    """作用：执行 list_models 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     models = controller.list_models()
     return {"models": models}
 
 
 @app.post("/get_worker_address")
 async def get_worker_address(request: Request):
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     data = await request.json()
     addr = controller.get_worker_address(data["model"])
     return {"address": addr}
@@ -267,6 +287,7 @@ async def get_worker_address(request: Request):
 
 @app.post("/receive_heart_beat")
 async def receive_heart_beat(request: Request):
+    """作用：执行 receive_heart_beat 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     data = await request.json()
     exist = controller.receive_heart_beat(
         data["worker_name"], data["queue_length"])
@@ -275,6 +296,7 @@ async def receive_heart_beat(request: Request):
 
 @app.post("/worker_generate_stream")
 async def worker_api_generate_stream(request: Request):
+    """作用：执行 worker_api_generate_stream 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     params = await request.json()
     generator = controller.worker_api_generate_stream(params)
     return StreamingResponse(generator)
@@ -282,6 +304,7 @@ async def worker_api_generate_stream(request: Request):
 
 @app.post("/worker_get_status")
 async def worker_api_get_status(request: Request):
+    """作用：执行 worker_api_get_status 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     return controller.worker_api_get_status()
 
 

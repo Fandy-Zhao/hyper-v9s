@@ -1,3 +1,5 @@
+"""作用：仓库中的 Python 模块，承担对应路径下的模型、训练、评测或工具辅助逻辑。"""
+
 import datetime
 import logging
 import logging.handlers
@@ -15,6 +17,7 @@ handler = None
 
 
 def build_logger(logger_name, logger_filename):
+    """作用：根据配置构建模型组件、数据结构或运行时对象。"""
     global handler
 
     formatter = logging.Formatter(
@@ -62,15 +65,18 @@ class StreamToLogger(object):
     Fake file-like stream object that redirects writes to a logger instance.
     """
     def __init__(self, logger, log_level=logging.INFO):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         self.terminal = sys.stdout
         self.logger = logger
         self.log_level = log_level
         self.linebuf = ''
 
     def __getattr__(self, attr):
+        """作用：实现 Python 特殊方法 __getattr__，用于配合对象协议或框架调用。"""
         return getattr(self.terminal, attr)
 
     def write(self, buf):
+        """作用：执行 write 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         temp_linebuf = self.linebuf + buf
         self.linebuf = ''
         for line in temp_linebuf.splitlines(True):
@@ -85,6 +91,7 @@ class StreamToLogger(object):
                 self.linebuf += line
 
     def flush(self):
+        """作用：执行 flush 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         if self.linebuf != '':
             self.logger.log(self.log_level, self.linebuf.rstrip())
         self.linebuf = ''
@@ -121,6 +128,7 @@ def violates_moderation(text):
 
 
 def pretty_print_semaphore(semaphore):
+    """作用：执行 pretty_print_semaphore 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     if semaphore is None:
         return "None"
     return f"Semaphore(value={semaphore._value}, locked={semaphore.locked()})"

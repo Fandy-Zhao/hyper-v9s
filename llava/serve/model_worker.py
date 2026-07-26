@@ -36,16 +36,19 @@ model_semaphore = None
 
 def heart_beat_worker(controller):
 
+    """作用：执行 heart_beat_worker 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     while True:
         time.sleep(WORKER_HEART_BEAT_INTERVAL)
         controller.send_heart_beat()
 
 
 class ModelWorker:
+    """作用：ModelWorker 类封装模型结构、配置或前向传播相关逻辑。"""
     def __init__(self, controller_addr, worker_addr,
                  worker_id, no_register,
                  model_path, model_base, model_name,
                  load_8bit, load_4bit, device):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         self.controller_addr = controller_addr
         self.worker_addr = worker_addr
         self.worker_id = worker_id
@@ -73,6 +76,7 @@ class ModelWorker:
             self.heart_beat_thread.start()
 
     def register_to_controller(self):
+        """作用：执行 register_to_controller 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         logger.info("Register to controller")
 
         url = self.controller_addr + "/register_worker"
@@ -85,6 +89,7 @@ class ModelWorker:
         assert r.status_code == 200
 
     def send_heart_beat(self):
+        """作用：执行 send_heart_beat 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         logger.info(f"Send heart beat. Models: {[self.model_name]}. "
                     f"Semaphore: {pretty_print_semaphore(model_semaphore)}. "
                     f"global_counter: {global_counter}")
@@ -106,6 +111,7 @@ class ModelWorker:
             self.register_to_controller()
 
     def get_queue_length(self):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         if model_semaphore is None:
             return 0
         else:
@@ -113,6 +119,7 @@ class ModelWorker:
                 model_semaphore._waiters) if model_semaphore._waiters is not None else 0)
 
     def get_status(self):
+        """作用：读取、筛选或组装指定对象并返回给调用方。"""
         return {
             "model_names": [self.model_name],
             "speed": 1,
@@ -121,6 +128,7 @@ class ModelWorker:
 
     @torch.inference_mode()
     def generate_stream(self, params):
+        """作用：执行 generate_stream 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         tokenizer, model, image_processor = self.tokenizer, self.model, self.image_processor
 
         prompt = params["prompt"]
@@ -192,6 +200,7 @@ class ModelWorker:
             yield json.dumps({"text": generated_text, "error_code": 0}).encode() + b"\0"
 
     def generate_stream_gate(self, params):
+        """作用：执行 generate_stream_gate 方法对应的模块内部逻辑，通常由训练、推理或服务流程间接调用。"""
         try:
             for x in self.generate_stream(params):
                 yield x
@@ -222,6 +231,7 @@ app = FastAPI()
 
 
 def release_model_semaphore(fn=None):
+    """作用：执行 release_model_semaphore 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     model_semaphore.release()
     if fn is not None:
         fn()
@@ -229,6 +239,7 @@ def release_model_semaphore(fn=None):
 
 @app.post("/worker_generate_stream")
 async def generate_stream(request: Request):
+    """作用：执行 generate_stream 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     global model_semaphore, global_counter
     global_counter += 1
     params = await request.json()
@@ -245,6 +256,7 @@ async def generate_stream(request: Request):
 
 @app.post("/worker_get_status")
 async def get_status(request: Request):
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     return worker.get_status()
 
 

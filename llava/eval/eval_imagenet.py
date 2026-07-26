@@ -1,3 +1,5 @@
+"""作用：实现 LLaVA 在对应下游任务上的评测、答案读取、指标计算或结果转换逻辑。"""
+
 import os
 import argparse
 import json
@@ -6,6 +8,7 @@ from tqdm import tqdm
 
 
 def get_args():
+    """作用：读取、筛选或组装指定对象并返回给调用方。"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--test-file', type=str, default='./playground/Instructions_slim/ImageNet/test.json')
     parser.add_argument('--result-file', type=str, default='./results/CoIN_normaltrain_testslim/ImageNet/OCRVQA/merge.jsonl')
@@ -14,6 +17,10 @@ def get_args():
 
 
 def eval_single(test_file, result_file):
+    # print('Evaluating results in {}'.format(result_file))
+    # print('Using ground truth from {}'.format(test_file))
+    # breakpoint()
+    """作用：执行指定任务的评测流程并输出指标或结果文件。"""
     annotations = json.load(open(test_file))
     answers = [test['answer'] for test in annotations]
     results = [json.loads(line) for line in open(result_file)]
@@ -24,7 +31,8 @@ def eval_single(test_file, result_file):
     for index in tqdm(range(total)):
         text = answers[index]
         label = results[index]
-        if (text in label['text']) or (label['text'] in text):
+        label['text'] = label['text'].strip('.')
+        if (text.upper() in label['text'].upper()) or (label['text'].upper() in text.upper()):
             right += 1
         else:
             label['ground_truth'] = text

@@ -7,7 +7,9 @@ from .norm import NORM_CLASS_REGISTRY
 
 class MPTMLP(nn.Module):
 
+    """作用：MPTMLP 类封装模型结构、配置或前向传播相关逻辑。"""
     def __init__(self, d_model: int, expansion_ratio: int, device: Optional[str]=None):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         super().__init__()
         self.up_proj = nn.Linear(d_model, expansion_ratio * d_model, device=device)
         self.act = nn.GELU(approximate='none')
@@ -15,11 +17,18 @@ class MPTMLP(nn.Module):
         self.down_proj._is_residual = True
 
     def forward(self, x):
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         return self.down_proj(self.act(self.up_proj(x)))
 
 class MPTBlock(nn.Module):
 
+    """作用：MPTBlock 类封装模型结构、配置或前向传播相关逻辑。"""
     def __init__(self, d_model: int, n_heads: int, expansion_ratio: int, attn_config: Dict={'attn_type': 'multihead_attention', 'attn_pdrop': 0.0, 'attn_impl': 'triton', 'qk_ln': False, 'clip_qkv': None, 'softmax_scale': None, 'prefix_lm': False, 'attn_uses_sequence_id': False, 'alibi': False, 'alibi_bias_max': 8}, resid_pdrop: float=0.0, norm_type: str='low_precision_layernorm', verbose: int=0, device: Optional[str]=None, **kwargs):
+        """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         del kwargs
         super().__init__()
         norm_class = NORM_CLASS_REGISTRY[norm_type.lower()]
@@ -32,6 +41,11 @@ class MPTBlock(nn.Module):
         self.resid_ffn_dropout = nn.Dropout(resid_pdrop)
 
     def forward(self, x: torch.Tensor, past_key_value: Optional[Tuple[torch.Tensor]]=None, attn_bias: Optional[torch.Tensor]=None, attention_mask: Optional[torch.ByteTensor]=None, is_causal: bool=True) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor]]]:
+        """
+        作用：执行当前模块的前向传播。
+        
+        在训练模式下通常只使用当前任务 expert；在推理模式下会根据外部写入的 expert_weight 选择或融合对应 LoRA expert。
+        """
         a = self.norm_1(x)
         (b, attn_weights, past_key_value) = self.attn(a, past_key_value=past_key_value, attn_bias=attn_bias, attention_mask=attention_mask, is_causal=is_causal)
         x = x + self.resid_attn_dropout(b)

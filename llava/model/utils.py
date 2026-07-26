@@ -1,7 +1,10 @@
+"""作用：实现 LLaVA/HiDe-LLaVA 模型加载、结构封装、多模态输入整理和权重转换工具。"""
+
 from transformers import AutoConfig
 
 
 def auto_upgrade(config):
+    """作用：执行 auto_upgrade 函数对应的工具逻辑，供当前脚本或其他模块复用。"""
     cfg = AutoConfig.from_pretrained(config)
     if 'llava' in config and 'llava' not in cfg.model_type:
         assert cfg.model_type == 'llama'
