@@ -1,0 +1,218 @@
+import copy
+import json
+import os
+import random
+from dataclasses import dataclass
+from typing import Dict, Sequence
+
+import torch
+import transformers
+from PIL import Image, ImageFile
+from torch.utils.data import Dataset
+
+from llava import conversation as conversation_lib
+from llava.constants import (
+    DEFAULT_IMAGE_TOKEN,
+    DEFAULT_IM_END_TOKEN,
+    DEFAULT_IM_START_TOKEN,
+    IGNORE_INDEX,
+)
+from llava.mm_utils import tokenizer_image_token
+
+from .arguments import DataArguments
+
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+_KNOWN_MISSING_IMAGES = {
+    "OCR-VQA/images/1421539896.jpg",
+    "OCR-VQA/images/141393394.jpg",
+    "OCR-VQA/images/316881791.jpg",
+    "OCR-VQA/images/140445692.jpg",
+    "OCR-VQA/images/142153990X.jpg",
+    "OCR-VQA/images/689852649.jpg",
+}
+
+
+def preprocess_multimodal(sources: Sequence, data_args: DataArguments):
+    if not data_args.is_multimodal:
+        return sources
+    for source in sources:
+        for sentence in source:
+            if DEFAULT_IMAGE_TOKEN in sentence["value"]:
+                value = sentence["value"].replace(DEFAULT_IMAGE_TOKEN, "").strip()
+                sentence["value"] = (DEFAULT_IMAGE_TOKEN + "\n" + value).strip()
+                if "mmtag" in conversation_lib.default_conversation.version:
+                    sentence["value"] = sentence["value"].replace(
+                        DEFAULT_IMAGE_TOKEN,
+                        "<Image>" + DEFAULT_IMAGE_TOKEN + "</Image>",
+                    )
+            replacement = DEFAULT_IMAGE_TOKEN
+            if data_args.mm_use_im_start_end:
+                replacement = DEFAULT_IM_START_TOKEN + replacement + DEFAULT_IM_END_TOKEN
+            sentence["value"] = sentence["value"].replace(
+                DEFAULT_IMAGE_TOKEN, replacement
+            )
+    return sources
+
+
+def preprocess_v1(sources, tokenizer, has_image: bool = False) -> Dict[str, torch.Tensor]:
+    conv = conversation_lib.default_conversation.copy()
+    roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
+    conversations = []
+    for source_index, source in enumerate(sources):
+        if roles[source[0]["from"]] != conv.roles[0]:
+            source = source[1:]
+        conv.messages = []
+        for message_index, sentence in enumerate(source):
+            role = roles[sentence["from"]]
+            if role != conv.roles[message_index % 2]:
+                raise ValueError("conversation roles are not alternating at {}".format(source_index))
+            conv.append_message(role, sentence["value"])
+        conversations.append(conv.get_prompt())
+
+    if has_image:
+        input_ids = torch.stack(
+            [tokenizer_image_token(prompt, tokenizer, return_tensors="pt") for prompt in conversations]
+        )
+    else:
+        input_ids = tokenizer(
+            conversations,
+            return_tensors="pt",
+            padding="longest",
+            max_length=tokenizer.model_max_length,
+            truncation=True,
+        ).input_ids
+    targets = input_ids.clone()
+    separator = conv.sep + conv.roles[1] + ": "
+    for conversation, target in zip(conversations, targets):
+        total_length = int(target.ne(tokenizer.pad_token_id).sum())
+        current_length = 1
+        target[:current_length] = IGNORE_INDEX
+        for round_text in conversation.split(conv.sep2):
+            if not round_text:
+                break
+            parts = round_text.split(separator)
+            if len(parts) != 2:
+                break
+            instruction = parts[0] + separator
+            if has_image:
+                round_length = len(tokenizer_image_token(round_text, tokenizer))
+                instruction_length = len(tokenizer_image_token(instruction, tokenizer)) - 2
+            else:
+                round_length = len(tokenizer(round_text).input_ids)
+                instruction_length = len(tokenizer(instruction).input_ids) - 2
+            target[current_length : current_length + instruction_length] = IGNORE_INDEX
+            current_length += round_length
+        target[current_length:] = IGNORE_INDEX
+        if current_length < tokenizer.model_max_length and current_length != total_length:
+            target[:] = IGNORE_INDEX
+    return {"input_ids": input_ids, "labels": targets}
+
+
+def preprocess(sources, tokenizer, has_image: bool = False) -> Dict[str, torch.Tensor]:
+    if not conversation_lib.default_conversation.version.startswith("v1"):
+        raise ValueError("Compose foundation currently supports the LLaVA v1 template")
+    return preprocess_v1(sources, tokenizer, has_image=has_image)
+
+
+class LazySupervisedDataset(Dataset):
+    def __init__(self, data_path: str, tokenizer, data_args: DataArguments) -> None:
+        super().__init__()
+        with open(data_path, "r", encoding="utf-8") as handle:
+            records = json.load(handle)
+        self.records = [
+            record
+            for record in records
+            if "image" not in record or record["image"] not in _KNOWN_MISSING_IMAGES
+        ]
+        if data_args.memory_data_path:
+            with open(data_args.memory_data_path, "r", encoding="utf-8") as handle:
+                self.records.extend(json.load(handle))
+            random.shuffle(self.records)
+        self.tokenizer = tokenizer
+        self.data_args = data_args
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    @property
+    def lengths(self):
+        return [
+            sum(len(message["value"].split()) for message in sample["conversations"])
+            + (128 if "image" in sample else 0)
+            for sample in self.records
+        ]
+
+    @property
+    def modality_lengths(self):
+        lengths = []
+        for sample in self.records:
+            length = sum(
+                len(message["value"].split()) for message in sample["conversations"]
+            )
+            lengths.append(length if "image" in sample else -length)
+        return lengths
+
+    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+        sample = self.records[index]
+        sources = [copy.deepcopy(sample["conversations"])]
+        if "image" in sample:
+            image_path = os.path.join(self.data_args.image_folder, sample["image"])
+            image = Image.open(image_path).convert("RGB")
+            processor = self.data_args.image_processor
+            if self.data_args.image_aspect_ratio == "pad":
+                width, height = image.size
+                size = max(width, height)
+                square = Image.new(
+                    image.mode,
+                    (size, size),
+                    tuple(int(value * 255) for value in processor.image_mean),
+                )
+                square.paste(image, ((size - width) // 2, (size - height) // 2))
+                image = square
+            image = processor.preprocess(image, return_tensors="pt")["pixel_values"][0]
+            sources = preprocess_multimodal(sources, self.data_args)
+        data = preprocess(sources, self.tokenizer, has_image="image" in sample)
+        item = {"input_ids": data["input_ids"][0], "labels": data["labels"][0]}
+        if "image" in sample:
+            item["image"] = image
+        elif self.data_args.is_multimodal:
+            crop = self.data_args.image_processor.crop_size
+            item["image"] = torch.zeros(3, crop["height"], crop["width"])
+        return item
+
+
+@dataclass
+class DataCollatorForSupervisedDataset:
+    tokenizer: transformers.PreTrainedTokenizer
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        input_ids = [instance["input_ids"] for instance in instances]
+        labels = [instance["labels"] for instance in instances]
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
+        )[:, : self.tokenizer.model_max_length]
+        labels = torch.nn.utils.rnn.pad_sequence(
+            labels, batch_first=True, padding_value=IGNORE_INDEX
+        )[:, : self.tokenizer.model_max_length]
+        batch = {
+            "input_ids": input_ids,
+            "labels": labels,
+            "attention_mask": input_ids.ne(self.tokenizer.pad_token_id),
+        }
+        if "image" in instances[0]:
+            images = [instance["image"] for instance in instances]
+            batch["images"] = (
+                torch.stack(images)
+                if all(image.shape == images[0].shape for image in images)
+                else images
+            )
+        return batch
+
+
+def make_supervised_data_module(tokenizer, data_args: DataArguments) -> Dict:
+    return {
+        "train_dataset": LazySupervisedDataset(data_args.data_path, tokenizer, data_args),
+        "eval_dataset": None,
+        "data_collator": DataCollatorForSupervisedDataset(tokenizer),
+    }

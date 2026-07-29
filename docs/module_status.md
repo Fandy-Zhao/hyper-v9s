@@ -1,7 +1,7 @@
 # Module Status
 
 ## Overview
-Status of each module in the HiDe-LLaVA project as of 2026-07-26.
+Status of each module in the HiDe-LLaVA project as of 2026-07-29.
 
 ## Modules
 
@@ -13,6 +13,7 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-26.
 | LLaVA Serve | `llava/serve/` | Gradio web UI, controller, worker | Stable | Manual | Not needed for research; inherited from LLaVA |
 | Hyper PEFT | `Hyper/peft/` | Custom PEFT framework | Active | Import test | Modified from HuggingFace PEFT; adds HyperMOELora |
 | HyperMOELora | `Hyper/peft/tuners/clitmoelora.py` | CLIP-guided multi-expert LoRA with task routing | Active | Integration test only | Core innovation; Gaussian stats + expert management |
+| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Foundation complete | 10 unit tests + 2-step GPU smoke | No Hyper PEFT, Gaussian/Poincare, instance router, or task-ID binding |
 | Instance Router | `llava/model/routing/instance_router.py` | Modality-aware per-instance fusion | Active | Integration test only | MLP-based router with Gaussian prior initialization |
 | Scripts - Train | `scripts/Hyper/Train_*/` | Shell scripts for sequential task training | Stable | `bash -n` syntax | Multiple training orders: UCIT, UCIT_AIRFCV, UCIT_IFRCAV, UCIT_LlaVANext, CoIN |
 | Scripts - Eval | `scripts/Hyper/Eval_*/` | Shell scripts for evaluation | Stable | `bash -n` syntax | Per-task eval scripts + aggregated Eval_all.sh |
@@ -49,6 +50,14 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-26.
 - `Eval_UCIT/` — 6-task UCIT evaluation
 - `Eval_UCIT_AIRFCV/` — Alternative order A evaluation
 - `Eval_UCIT_IFRCAV/` — Alternative order B evaluation
+
+### compose/ (Compose Foundation)
+- `model/` — clean Compose LLaVA config/model and vision-only multimodal preparation
+- `adapters/` — independent LoRA experts, injection, context-local sample selection, and manager
+- `experts/` — ExpertPool metadata and adapter-only checkpoint manifests/weights
+- `train/` — clean v1/UCIT preprocessing, Compose Trainer save hook, and standalone entry
+- `scripts/Compose/Train_UCIT/` — full Task1 and bounded two-step smoke launchers
+- `tests/compose/` — top-1/top-2 math, injection, lifecycle, checkpoint, and import-isolation tests
 
 ## Risks
 - `llava/model/llava_arch copy.py` is a stale copy — archived to deprecated

@@ -1,3 +1,15 @@
-"""作用：仓库中的 Python 模块，承担对应路径下的模型、训练、评测或工具辅助逻辑。"""
+"""Top-level LLaVA exports.
 
-from .model import LlavaLlamaForCausalLM
+The model export is lazy so utility modules such as ``llava.constants`` and
+``llava.conversation`` do not initialize the Hyper-LLaVA model stack.
+"""
+
+__all__ = ["LlavaLlamaForCausalLM"]
+
+
+def __getattr__(name):
+    if name == "LlavaLlamaForCausalLM":
+        from .model import LlavaLlamaForCausalLM
+
+        return LlavaLlamaForCausalLM
+    raise AttributeError("module {!r} has no attribute {!r}".format(__name__, name))
