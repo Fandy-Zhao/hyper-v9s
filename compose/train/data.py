@@ -2,8 +2,8 @@ import copy
 import json
 import os
 import random
-from dataclasses import dataclass
-from typing import Dict, Sequence
+from dataclasses import dataclass, field
+from typing import Dict, Optional, Sequence
 
 import torch
 import transformers
@@ -173,7 +173,11 @@ class LazySupervisedDataset(Dataset):
             image = processor.preprocess(image, return_tensors="pt")["pixel_values"][0]
             sources = preprocess_multimodal(sources, self.data_args)
         data = preprocess(sources, self.tokenizer, has_image="image" in sample)
-        item = {"input_ids": data["input_ids"][0], "labels": data["labels"][0]}
+        item = {
+            "input_ids": data["input_ids"][0],
+            "labels": data["labels"][0],
+            "sample_id": str(sample.get("id", index)),
+        }
         if "image" in sample:
             item["image"] = image
         elif self.data_args.is_multimodal:
@@ -185,6 +189,25 @@ class LazySupervisedDataset(Dataset):
 @dataclass
 class DataCollatorForSupervisedDataset:
     tokenizer: transformers.PreTrainedTokenizer
+    sample_count: int = field(default=0, init=False)
+    supervised_token_total: int = field(default=0, init=False)
+    supervised_token_min: Optional[int] = field(default=None, init=False)
+    supervised_token_max: int = field(default=0, init=False)
+    zero_supervision_count: int = field(default=0, init=False)
+
+    def supervision_summary(self) -> Dict[str, object]:
+        mean = (
+            float(self.supervised_token_total) / self.sample_count
+            if self.sample_count
+            else 0.0
+        )
+        return {
+            "samples": self.sample_count,
+            "min": self.supervised_token_min if self.supervised_token_min is not None else 0,
+            "mean": mean,
+            "max": self.supervised_token_max,
+            "zero_supervision": self.zero_supervision_count,
+        }
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
         input_ids = [instance["input_ids"] for instance in instances]
@@ -195,6 +218,30 @@ class DataCollatorForSupervisedDataset:
         labels = torch.nn.utils.rnn.pad_sequence(
             labels, batch_first=True, padding_value=IGNORE_INDEX
         )[:, : self.tokenizer.model_max_length]
+        supervised_counts = labels.ne(IGNORE_INDEX).sum(dim=1)
+        count_values = [int(value) for value in supervised_counts.tolist()]
+        self.sample_count += len(count_values)
+        self.supervised_token_total += sum(count_values)
+        self.supervised_token_min = min(
+            count_values
+            + ([self.supervised_token_min] if self.supervised_token_min is not None else [])
+        )
+        self.supervised_token_max = max([self.supervised_token_max] + count_values)
+        zero_positions = [index for index, value in enumerate(count_values) if value == 0]
+        self.zero_supervision_count += len(zero_positions)
+        if zero_positions:
+            details = [
+                {
+                    "batch_position": position,
+                    "sample_id": str(instances[position].get("sample_id", "unknown")),
+                    "original_length": int(instances[position]["labels"].numel()),
+                    "truncated_length": int(labels.shape[1]),
+                }
+                for position in zero_positions
+            ]
+            raise ValueError(
+                "samples have zero supervised tokens after truncation: {}".format(details)
+            )
         batch = {
             "input_ids": input_ids,
             "labels": labels,

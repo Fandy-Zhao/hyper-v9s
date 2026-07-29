@@ -6,10 +6,14 @@ import transformers
 
 from llava import conversation as conversation_lib
 
-from compose.adapters import ExpertManager, inject_compose_adapters
+from compose.adapters import (
+    ExpertManager,
+    inject_compose_adapters,
+    validate_compose_injection,
+)
 from compose.config import ComposeAdapterConfig
 from compose.experts import ExpertPool, load_expert_checkpoint, save_expert_checkpoint
-from compose.model import ComposeLlavaConfig, ComposeLlavaForCausalLM
+from compose.model import ComposeLlavaForCausalLM, load_compose_config
 
 from .arguments import DataArguments, ModelArguments, TrainingArguments
 from .data import make_supervised_data_module
@@ -36,7 +40,7 @@ def train() -> None:
     if model_args.vision_tower is None:
         raise ValueError("Compose foundation requires --vision_tower")
 
-    config = ComposeLlavaConfig.from_pretrained(
+    config = load_compose_config(
         model_args.model_name_or_path, cache_dir=training_args.cache_dir
     )
     config.mm_vision_tower = model_args.vision_tower
@@ -66,6 +70,7 @@ def train() -> None:
         ],
     )
     injected = inject_compose_adapters(model, adapter_config)
+    injection_summary = validate_compose_injection(model, injected)
     manager = ExpertManager(model)
     pool = ExpertPool(manager)
     selected_experts = _csv_ints(model_args.compose_expert_ids)
@@ -74,12 +79,28 @@ def train() -> None:
         raise ValueError("Compose foundation trains one or two fixed experts")
 
     if model_args.compose_checkpoint:
-        load_expert_checkpoint(pool, model_args.compose_checkpoint)
+        load_summary = load_expert_checkpoint(pool, model_args.compose_checkpoint)[
+            "load_summary"
+        ]
+        if training_args.local_rank in (-1, 0):
+            print("Compose checkpoint load summary: {}".format(load_summary))
     for expert_id in selected_experts:
         if expert_id not in pool.expert_ids():
             pool.register(expert_id, name="task1-expert-{}".format(expert_id))
     pool.train_only(selected_experts)
     manager.set_default_selection(selected_experts, gates)
+    if training_args.local_rank in (-1, 0):
+        print("Compose core config: {}".format({
+            "model_type": config.model_type,
+            "hidden_size": config.hidden_size,
+            "intermediate_size": config.intermediate_size,
+            "num_hidden_layers": config.num_hidden_layers,
+            "num_attention_heads": config.num_attention_heads,
+            "num_key_value_heads": config.num_key_value_heads,
+        }))
+        print("Compose injection summary: {}".format(injection_summary))
+        print("Compose expert count: {}".format(len(pool.expert_ids())))
+        print("Trainable expert IDs: {}".format(sorted(selected_experts)))
 
     if model_args.tune_mm_mlp_adapter:
         model.get_model().mm_projector.requires_grad_(True)
@@ -130,6 +151,13 @@ def train() -> None:
         model.config.save_pretrained(training_args.output_dir)
         save_expert_checkpoint(pool, training_args.output_dir)
     if training_args.local_rank in (-1, 0):
+        print("Compose supervision summary: {}".format(
+            data_module["data_collator"].supervision_summary()
+        ))
+        print("Trainable LoRA-B count: {}".format(trainer.trainable_lora_b_count))
+        print("Finite-gradient LoRA-B count: {}".format(
+            trainer.max_finite_gradient_lora_b_count
+        ))
         print("Injected {} Compose layers; experts={}".format(len(injected), pool.expert_ids()))
 
 
