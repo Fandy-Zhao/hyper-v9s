@@ -1,18 +1,16 @@
 import unittest
 
 import torch
-import torch.nn as nn
 
 from compose.adapters import ExpertManager, inject_compose_adapters
 from compose.config import ComposeAdapterConfig
 from compose.experts import ExpertPool, ExpertStatus
+from test_injection import TinyModel
 
 
 def _pool():
-    model = nn.Sequential(nn.Linear(2, 2, bias=False))
-    inject_compose_adapters(
-        model, ComposeAdapterConfig(rank=1, alpha=1, target_modules=["0"])
-    )
+    model = TinyModel(layer_count=1)
+    inject_compose_adapters(model, ComposeAdapterConfig(rank=1, alpha=1))
     manager = ExpertManager(model)
     return model, manager, ExpertPool(manager)
 
