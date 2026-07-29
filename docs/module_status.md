@@ -13,7 +13,7 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-29.
 | LLaVA Serve | `llava/serve/` | Gradio web UI, controller, worker | Stable | Manual | Not needed for research; inherited from LLaVA |
 | Hyper PEFT | `Hyper/peft/` | Custom PEFT framework | Active | Import test | Modified from HuggingFace PEFT; adds HyperMOELora |
 | HyperMOELora | `Hyper/peft/tuners/clitmoelora.py` | CLIP-guided multi-expert LoRA with task routing | Active | Integration test only | Core innovation; Gaussian stats + expert management |
-| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Foundation complete | 10 unit tests + 2-step GPU smoke | No Hyper PEFT, Gaussian/Poincare, instance router, or task-ID binding |
+| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Post-review fixes validated | 16 unit tests + 2-step GPU smoke + strict reload | Decoder-only 224-layer boundary; no Hyper PEFT, Gaussian/Poincare, instance router, or task-ID binding |
 | Instance Router | `llava/model/routing/instance_router.py` | Modality-aware per-instance fusion | Active | Integration test only | MLP-based router with Gaussian prior initialization |
 | Scripts - Train | `scripts/Hyper/Train_*/` | Shell scripts for sequential task training | Stable | `bash -n` syntax | Multiple training orders: UCIT, UCIT_AIRFCV, UCIT_IFRCAV, UCIT_LlaVANext, CoIN |
 | Scripts - Eval | `scripts/Hyper/Eval_*/` | Shell scripts for evaluation | Stable | `bash -n` syntax | Per-task eval scripts + aggregated Eval_all.sh |
