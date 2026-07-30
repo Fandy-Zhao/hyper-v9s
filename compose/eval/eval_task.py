@@ -62,6 +62,8 @@ def main() -> None:
     parser.add_argument("--answers-file", required=True)
     parser.add_argument("--run-summary-file", required=True)
     parser.add_argument("--expert-id", type=int, default=0)
+    parser.add_argument("--expert-ids")
+    parser.add_argument("--gates")
     parser.add_argument("--gate", type=float, default=1.0)
     parser.add_argument("--normalization", choices=("none", "l1", "l2"), default="none")
     parser.add_argument("--conv-mode", default="vicuna_v1")
@@ -88,12 +90,36 @@ def main() -> None:
         model_max_length=args.model_max_length,
     )
     if args.adapter_kind == "compose":
-        bundle = load_compose_model(
-            expert_id=args.expert_id,
-            gate=args.gate,
-            normalization=args.normalization,
-            **common
-        )
+        if args.expert_ids is None:
+            bundle = load_compose_model(
+                expert_id=args.expert_id,
+                gate=args.gate,
+                normalization=args.normalization,
+                **common
+            )
+        else:
+            bundle = load_compose_model(expert_id=None, **common)
+            expert_ids = [
+                int(value.strip()) for value in args.expert_ids.split(",") if value.strip()
+            ]
+            gates = (
+                [float(value.strip()) for value in args.gates.split(",") if value.strip()]
+                if args.gates is not None
+                else [1.0] * len(expert_ids)
+            )
+            if len(expert_ids) not in (0, 1, 2) or len(gates) != len(expert_ids):
+                raise ValueError("explicit selection requires zero, one, or two experts")
+            if expert_ids:
+                bundle.expert_pool.manager.set_default_selection(
+                    expert_ids, gates, normalization=args.normalization
+                )
+            else:
+                bundle.expert_pool.manager.clear_default_selection()
+            bundle.load_summary["evaluation_selection"] = {
+                "expert_ids": expert_ids,
+                "gates": gates,
+                "normalization": args.normalization,
+            }
     else:
         bundle = load_peft_model(**common)
 
