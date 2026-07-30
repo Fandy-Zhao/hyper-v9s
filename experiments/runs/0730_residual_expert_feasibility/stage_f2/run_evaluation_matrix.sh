@@ -38,7 +38,9 @@ python_module="/home/zhaozhuofan/miniconda3/envs/hyper/bin/python"
   --evaluation-root "${STAGE}/evaluation" \
   --output-file "${STAGE}/final_summary.json" \
   --failure-file "${STAGE}/failure_cases.json" \
+  --marginal-file "${STAGE}/per_sample_marginal_contributions.jsonl" \
   > "${STAGE}/summarize.log" 2>&1
 sha256sum "${STAGE}/final_summary.json" "${STAGE}/failure_cases.json" \
+  "${STAGE}/per_sample_marginal_contributions.jsonl" \
   > "${STAGE}/evaluation_SHA256SUMS"
 date -u +%FT%TZ > "${STAGE}/evaluation/matrix_complete_utc.txt"

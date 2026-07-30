@@ -171,6 +171,7 @@ def main() -> None:
     parser.add_argument("--evaluation-root", required=True)
     parser.add_argument("--output-file", required=True)
     parser.add_argument("--failure-file", required=True)
+    parser.add_argument("--marginal-file", required=True)
     args = parser.parse_args()
     root = Path(args.evaluation_root)
     seeds = [_seed_metrics(root, seed) for seed in SEEDS]
@@ -220,6 +221,24 @@ def main() -> None:
     with failure_path.open("w", encoding="utf-8") as handle:
         json.dump(failures[:200], handle, indent=2, sort_keys=True)
         handle.write("\n")
+    marginal_path = Path(args.marginal_file)
+    with marginal_path.open("w", encoding="utf-8") as handle:
+        for seed in SEEDS:
+            comparisons = (
+                ("B_only", "base", "residual_b", "base_minus_residual"),
+                ("A_plus_B", "expert_a", "a_residual_b", "old_minus_old_residual"),
+                ("B_plus_C", "expert_c", "residual_b_c", "c_minus_residual_c"),
+            )
+            for dataset, reference_name, residual_name, metric_name in comparisons:
+                reference = _indexed(root, seed, dataset, reference_name)
+                residual = _indexed(root, seed, dataset, residual_name)
+                for sample_id in sorted(reference):
+                    handle.write(json.dumps({
+                        "seed": seed, "dataset": dataset, "sample_id": sample_id,
+                        "metric": metric_name,
+                        "marginal_nll_contribution": float(reference[sample_id]["nll"])
+                            - float(residual[sample_id]["nll"]),
+                    }, sort_keys=True) + "\n")
     print(json.dumps({"stage_f2_passed": passed, "condition_counts": condition_counts}, sort_keys=True))
 
 
