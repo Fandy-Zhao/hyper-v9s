@@ -4,7 +4,7 @@ import torch
 import transformers
 
 from llava import conversation as conversation_lib
-from llava.train.llava_trainer import LLaVATraine
+from llava.train.llava_trainer import LLaVATrainer
 
 from compose.adapters import decoder_projection_names
 from compose.model import ComposeLlavaForCausalLM, load_compose_config
@@ -45,7 +45,7 @@ class PeftBaselineTrainer(LLaVATrainer):
     def training_step(self, model, inputs):
         loss = super().training_step(model, inputs)
         lora_b_parameters = [
-            paramete
+            parameter
             for name, parameter in model.named_parameters()
             if "lora_B" in name and parameter.requires_grad
         ]
@@ -59,7 +59,7 @@ class PeftBaselineTrainer(LLaVATrainer):
         return loss
 
     def _save(self, output_dir=None, state_dict=None) -> None:
-        output_dir = output_dir or self.args.output_di
+        output_dir = output_dir or self.args.output_dir
         if not self.args.should_save:
             return
         os.makedirs(output_dir, exist_ok=True)
@@ -79,10 +79,10 @@ def train() -> None:
         raise ValueError("PEFT parity baseline requires --vision_tower")
 
     config = load_compose_config(
-        model_args.model_name_or_path, cache_dir=training_args.cache_di
+        model_args.model_name_or_path, cache_dir=training_args.cache_dir
     )
-    config.mm_vision_tower = model_args.vision_towe
-    config.mm_vision_select_layer = model_args.mm_vision_select_laye
+    config.mm_vision_tower = model_args.vision_tower
+    config.mm_vision_select_layer = model_args.mm_vision_select_layer
     config.mm_vision_select_feature = model_args.mm_vision_select_feature
     config.mm_projector_type = model_args.mm_projector_type
     model = ComposeLlavaForCausalLM.from_pretrained(
@@ -149,7 +149,7 @@ def train() -> None:
     conversation_lib.default_conversation = conversation_lib.conv_templates.get(
         model_args.version, conversation_lib.conv_templates["vicuna_v1"]
     )
-    data_args.image_processor = vision_tower.image_processo
+    data_args.image_processor = vision_tower.image_processor
     data_args.is_multimodal = True
     data_args.mm_use_im_start_end = model_args.mm_use_im_start_end
     model.config.image_aspect_ratio = data_args.image_aspect_ratio
@@ -157,7 +157,7 @@ def train() -> None:
     model.config.tokenizer_model_max_length = tokenizer.model_max_length
     model.config.mm_use_im_start_end = model_args.mm_use_im_start_end
     model.config.mm_use_im_patch_token = model_args.mm_use_im_patch_token
-    model.config.mm_projector_lr = training_args.mm_projector_l
+    model.config.mm_projector_lr = training_args.mm_projector_lr
     training_args.use_im_start_end = model_args.mm_use_im_start_end
     model.base_model.model.initialize_vision_tokenizer(model_args, tokenizer)
 
