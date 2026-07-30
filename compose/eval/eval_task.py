@@ -20,6 +20,8 @@ from llava.constants import (
 from llava.conversation import conv_templates
 from llava.mm_utils import process_images, tokenizer_image_token
 
+from compose.data.records import question_text
+
 from .load_compose import load_compose_model, load_peft_model
 
 
@@ -40,7 +42,7 @@ def _git_commit() -> str:
 
 
 def _prompt(record, model_config, conv_mode):
-    question = str(record["text"])
+    question = question_text(record)
     image_token = DEFAULT_IMAGE_TOKEN
     if model_config.mm_use_im_start_end:
         image_token = DEFAULT_IM_START_TOKEN + image_token + DEFAULT_IM_END_TOKEN
@@ -158,7 +160,7 @@ def main() -> None:
                 json.dumps(
                     {
                         "question_id": str(record["question_id"]),
-                        "prompt": str(record["text"]),
+                        "prompt": question_text(record),
                         "text": text,
                         "model_id": args.adapter_kind,
                         "metadata": {

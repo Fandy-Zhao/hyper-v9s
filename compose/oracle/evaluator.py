@@ -18,6 +18,7 @@ from llava.conversation import conv_templates
 from llava.mm_utils import process_images
 
 from compose.eval.load_compose import load_compose_model
+from compose.data.records import answer_text, question_text
 from compose.train.data import preprocess, preprocess_multimodal
 
 from .cache import config_hash
@@ -37,21 +38,10 @@ def _chunk(records: Sequence[Dict[str, object]], count: int, index: int):
     return records[index * size : (index + 1) * size]
 
 
-def _answer(record: Dict[str, object]) -> str:
-    if "answer" in record:
-        return str(record["answer"])
-    conversations = record.get("conversations")
-    if isinstance(conversations, list):
-        for message in reversed(conversations):
-            if message.get("from") == "gpt":
-                return str(message["value"])
-    raise ValueError("record has no teacher answer")
-
-
 def _instance(record, tokenizer, data_args):
     source = [[
-        {"from": "human", "value": DEFAULT_IMAGE_TOKEN + "\n" + str(record["text"])},
-        {"from": "gpt", "value": _answer(record)},
+        {"from": "human", "value": DEFAULT_IMAGE_TOKEN + "\n" + question_text(record)},
+        {"from": "gpt", "value": answer_text(record)},
     ]]
     source = preprocess_multimodal(copy.deepcopy(source), data_args)
     encoded = preprocess(source, tokenizer, has_image=True)

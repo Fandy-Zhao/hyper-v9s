@@ -2,6 +2,8 @@ import argparse
 import json
 from typing import Dict, Iterable, List
 
+from compose.data.records import answer_text
+
 
 def imagenet_r_exact_match(
     annotations: Iterable[Dict[str, object]],
@@ -9,7 +11,7 @@ def imagenet_r_exact_match(
 ) -> Dict[str, object]:
     """Replicate the effective UCIT Task1 exact-match metric deterministically."""
 
-    answers = {str(item["question_id"]): str(item["answer"]) for item in annotations}
+    answers = {str(item["question_id"]): answer_text(item) for item in annotations}
     rows: List[Dict[str, object]] = []
     correct = 0
     for prediction in predictions:
