@@ -1,0 +1,9 @@
+{
+  "conda_default_env": null,
+  "git_head": "731135bf4992342beab169c63e7d0434d1bef1ba",
+  "gpu_used": false,
+  "python": "/home/zhaozhuofan/miniconda3/envs/hyper/bin/python",
+  "python_version": "3.10.20",
+  "seed": null,
+  "started_utc": "2026-07-30T15:12:56.592549+00:00"
+}
