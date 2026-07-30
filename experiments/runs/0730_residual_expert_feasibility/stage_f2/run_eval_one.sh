@@ -7,6 +7,7 @@ dataset="$3"
 gpu="$4"
 eval_variant="${EVAL_VARIANT:-evaluation}"
 max_samples="${MAX_SAMPLES:-}"
+batch_size="${BATCH_SIZE:-8}"
 case "${seed}" in 42|43|44) ;; *) echo "Unsupported seed: ${seed}" >&2; exit 2 ;; esac
 case "${dataset}" in A_only|B_only|C_only|A_plus_B|B_plus_C) ;; *) echo "Unsupported dataset: ${dataset}" >&2; exit 2 ;; esac
 
@@ -58,7 +59,7 @@ args=(
   --image-folder "/data/dataset/zhaozhuofan/Hyper-LlaVA"
   --output-dir "${RESULT_ROOT}" --selection-name "${model_name}"
   --expert-ids "${expert_ids}" --gates "${gates}"
-  --normalization none --batch-size 8 --max-new-tokens 16
+  --normalization none --batch-size "${batch_size}" --max-new-tokens 16
   --experiment-seed "${seed}" --device cuda:0
 )
 if [[ -n "${max_samples}" ]]; then
