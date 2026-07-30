@@ -8,8 +8,8 @@
 
 ## Active Work
 - **Compose foundation**: Independent LLaVA model, LoRA expert composition, ExpertPool, adapter checkpoints, and UCIT Task1 entry are implemented on `feat/0729-compose-foundation`.
-- **Compose validation**: 16 unit tests pass and the post-review two-step single-GPU ZeRO-2 Task1 smoke completed with 224 decoder-only adapters and finite loss (`2.3188`, `0.8274`).
-- **Compose Stage A**: Gate normalization is explicit (`none`, `l1`, or `l2`), and heterogeneous selections execute each expert only on active batch rows. All 30 unit tests and a bf16 CUDA forward/backward reference check pass.
+- **Compose validation**: Stages A--E are complete. The suite has 42 passing unit tests, grouped bf16 CUDA execution matches its reference, and full Task1 Compose/PEFT parity, expert isolation, deterministic Oracle, and rank-matched controls are recorded.
+- **Compose experiment decision**: The 6,000-sample Oracle is reproducible, but mean/median synergy are negative and the L2 pair underperforms the exactly parameter-matched rank-16 adapter in NLL and accuracy. Stop condition C is active; no Set Router is implemented.
 - **Project governance initialization**: Creating AGENTS.md, directory structure, archiving deprecated files, moving analysis tools to `tools/`
 - **Branch `zzf`**: Active development branch for Hyper-LLaVA experiments
 
@@ -18,12 +18,13 @@
 - **Symlinked directories**: `instructions/`, `runs/`, `ucit_instructions/` are symlinks to external paths (`/data/ckpt/`, `/data/dataset/`) — repository portability depends on these paths existing
 - **Partial test coverage**: Compose has focused unit tests, while the retained LLaVA/Hyper paths still rely primarily on full training/eval runs
 - **Checkpoint compatibility**: The earlier 296-layer Compose smoke checkpoint is intentionally rejected by the strict decoder-only loader and must not be used as a valid expert checkpoint.
+- **Composition generality**: The negative stop decision is based on two task-trained functional proxies; it does not establish a universal result for other decompositions or larger pools.
 - **`gaussian.py`**: Contains non-runnable code snippets extracted from model implementation — kept for reference only
 - **`compute_routing_weights.py`**: Must remain in root — imported by `llava/train/train_MOE.py` at line 44
 
 ## Validation Status
 - [x] Compose Python import isolation and syntax smoke test
-- [x] Compose unit tests (16 tests)
+- [x] Compose unit tests (42 tests)
 - [x] Compose UCIT Task1 two-step DeepSpeed smoke run
 - [x] Explicit LLaVA-to-Compose config conversion and core-dimension validation
 - [x] Compose shell script `bash -n` check
@@ -31,10 +32,14 @@
 - [x] Strict 448-tensor checkpoint reload and output-equality validation
 - [x] Explicit gate-normalization contract and active-row grouped execution
 - [x] Mixed top-1/top-2 CPU and bf16 CUDA forward/backward equivalence
-- [ ] Full UCIT benchmark evaluation (requires GPU cluster + dataset)
+- [x] Full UCIT Task1 Compose and matched PEFT training/evaluation
+- [x] Two-expert isolation and strict pool reload
+- [x] Deterministic 6,000-sample empty/single/pair Oracle audit
+- [x] Exactly parameter-matched rank-16 NLL and generation control
+- [ ] Full six-task UCIT benchmark (outside this task)
 
 ## Next Steps
-1. Run the Stage B Task1 smoke, full Compose and rank-matched PEFT training, strict reload, and common evaluation.
-2. Continue to independent multi-expert and Oracle experiments only after Stage B parity is explained.
-3. Run the rank-16 capacity control before deciding whether a Set Router is justified.
+1. Do not implement the Compose Set Router for the current expert pool; stop condition C is recorded in ADR-0730.
+2. If composition is revisited, first produce a new deterministic fixed-set audit that beats an exactly parameter-matched single adapter on NLL and accuracy.
+3. Extend beyond two functional proxies only as a separately governed experiment with the same isolation and capacity controls.
 4. Move or `.gitignore` the existing large `.whl` and `nohup.out` files in a separate cleanup task.

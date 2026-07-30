@@ -5,6 +5,10 @@
 - Changed mixed-sample Compose execution to run each expert only on rows with a positive gate and scatter weighted deltas back with autograd-safe `index_add_`.
 - Added normalization, validation, mixed top-1/top-2 execution, inactive-expert, gradient, rank-2 input, and bf16 coverage, bringing the Compose suite to 30 passing unit tests.
 - Validated grouped bf16 forward/backward execution against a per-sample reference on an RTX 4090 with zero observed output and input-gradient difference.
+- Added a strict standalone Compose/PEFT evaluation path, supervision and reload audits, and matched full UCIT Task1 training; Compose reaches 90.2000% versus PEFT 90.1667% with identical adapter parameter counts.
+- Trained and strictly reloaded a two-expert functional-proxy pool while proving all pre-existing Expert 0 tensors and fixed-input logits remain exactly unchanged.
+- Added fp32 per-sample teacher-forced NLL, stable empty/single/pair candidate enumeration, deterministic Oracle caching, and matched selection scoring/evaluation controls; the Compose suite now has 42 passing tests.
+- Completed the 6,000-sample Oracle and exactly parameter-matched rank-16 control. Negative mean/median synergy and stronger rank-16 NLL/accuracy trigger stop condition C, so Set Router development is stopped for this pool.
 
 ## 2026-07-29
 - Restricted Compose adapter injection to the seven LLaMA decoder projections per layer (224 for the 32-layer foundation model), with duplicate and excluded-module validation.

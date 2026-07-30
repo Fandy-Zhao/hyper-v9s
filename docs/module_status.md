@@ -13,7 +13,9 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-30.
 | LLaVA Serve | `llava/serve/` | Gradio web UI, controller, worker | Stable | Manual | Not needed for research; inherited from LLaVA |
 | Hyper PEFT | `Hyper/peft/` | Custom PEFT framework | Active | Import test | Modified from HuggingFace PEFT; adds HyperMOELora |
 | HyperMOELora | `Hyper/peft/tuners/clitmoelora.py` | CLIP-guided multi-expert LoRA with task routing | Active | Integration test only | Core innovation; Gaussian stats + expert management |
-| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Stage A validated | 30 unit tests + bf16 CUDA grouped-execution smoke + prior 2-step model smoke/strict reload | Explicit none/l1/l2 gates; active-row grouped top-1/top-2 execution; decoder-only 224-layer boundary |
+| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Stages A--E validated | 42 unit tests + bf16 CUDA grouped execution + full Task1/PEFT parity + strict reloads | Explicit none/l1/l2 gates; active-row grouped execution; decoder-only 224-layer boundary |
+| Compose Oracle | `compose/oracle/` | Per-sample NLL, fixed empty/single/pair audit, cache, and matched controls | Validated | Deterministic repeated smoke + 6,000-sample formal audit | Stop condition C triggered after rank-16 capacity control |
+| Compose Set Router | not implemented | Future set selection for Compose experts | Stopped | No implementation by design | Requires a future fixed-set audit that beats a parameter-matched single adapter |
 | Instance Router | `llava/model/routing/instance_router.py` | Modality-aware per-instance fusion | Active | Integration test only | MLP-based router with Gaussian prior initialization |
 | Scripts - Train | `scripts/Hyper/Train_*/` | Shell scripts for sequential task training | Stable | `bash -n` syntax | Multiple training orders: UCIT, UCIT_AIRFCV, UCIT_IFRCAV, UCIT_LlaVANext, CoIN |
 | Scripts - Eval | `scripts/Hyper/Eval_*/` | Shell scripts for evaluation | Stable | `bash -n` syntax | Per-task eval scripts + aggregated Eval_all.sh |
@@ -56,8 +58,10 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-30.
 - `adapters/` — independent LoRA experts, explicit gate normalization, active-row grouped execution, context-local sample selection, and manager
 - `experts/` — ExpertPool metadata and adapter-only checkpoint manifests/weights
 - `train/` — clean v1/UCIT preprocessing, Compose Trainer save hook, and standalone entry
-- `scripts/Compose/Train_UCIT/` — full Task1 and bounded two-step smoke launchers
-- `tests/compose/` — normalization, grouped top-1/top-2 math and gradients, injection, lifecycle, checkpoint, and import-isolation tests
+- `eval/` - strict Compose/PEFT loading, fixed-selection generation, metrics, and run summaries
+- `oracle/` - per-sample NLL, stable candidate sets, cache, deterministic evaluator, and capacity comparison
+- `scripts/Compose/` - full/smoke training, evaluation, Oracle, and matched baseline launchers
+- `tests/compose/` - 42 tests covering normalization, grouped execution, strict loading, supervision, Oracle invariants, checkpoints, and import isolation
 
 ## Risks
 - `llava/model/llava_arch copy.py` is a stale copy — archived to deprecated
