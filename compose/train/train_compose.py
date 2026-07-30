@@ -176,9 +176,14 @@ def train() -> None:
         model.config.save_pretrained(training_args.output_dir)
         save_expert_checkpoint(pool, training_args.output_dir)
     if training_args.local_rank in (-1, 0):
-        print("Compose supervision summary: {}".format(
-            data_module["data_collator"].supervision_summary()
-        ))
+        supervision_summary = data_module["data_collator"].supervision_summary()
+        if training_args.dataloader_num_workers:
+            supervision_summary["scope"] = "main-process-only"
+            supervision_summary["note"] = (
+                "worker collators enforce zero-supervision errors but do not share counters; "
+                "use compose.train.audit_supervision for dataset-wide statistics"
+            )
+        print("Compose supervision summary: {}".format(supervision_summary))
         print("Trainable LoRA-B count: {}".format(trainer.trainable_lora_b_count))
         print("Finite-gradient LoRA-B count: {}".format(
             trainer.max_finite_gradient_lora_b_count
