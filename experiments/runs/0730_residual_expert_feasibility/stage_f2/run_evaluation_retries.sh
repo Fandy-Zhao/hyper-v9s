@@ -6,7 +6,8 @@ PRIMARY="evaluation_v2"
 RETRY="evaluation_retry_v1"
 MERGED="evaluation_merged"
 RUNNER="${STAGE}/run_eval_one.sh"
-read -r -a gpu_ids <<< "${GPU_IDS:-0 1 2 3 4 5 6 7}"
+gpu_ids_raw="${GPU_IDS:-0,1,2,3,4,5,6,7}"
+read -r -a gpu_ids <<< "${gpu_ids_raw//,/ }"
 [[ "${#gpu_ids[@]}" -gt 0 ]] || { echo "GPU_IDS must name at least one GPU" >&2; exit 2; }
 
 is_complete() {
