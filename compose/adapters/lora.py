@@ -56,6 +56,7 @@ class ComposeLinear(nn.Module):
         self.experts = nn.ModuleDict()
         self._default_expert_ids = None  # type: Optional[Sequence[int]]
         self._default_gates = None  # type: Optional[Sequence[float]]
+        self._default_normalization = "none"
 
     @property
     def in_features(self) -> int:
@@ -91,20 +92,25 @@ class ComposeLinear(nn.Module):
         return expert
 
     def set_default_selection(
-        self, expert_ids: Sequence[int], gates: Optional[Sequence[float]] = None
+        self,
+        expert_ids: Sequence[int],
+        gates: Optional[Sequence[float]] = None,
+        normalization: str = "none",
     ) -> None:
         if len(expert_ids) not in (1, 2):
             raise ValueError("default selection supports one or two experts")
         if gates is None:
-            gates = [1.0 / len(expert_ids)] * len(expert_ids)
+            gates = [1.0] * len(expert_ids)
         if len(gates) != len(expert_ids):
             raise ValueError("gates must match expert_ids")
         self._default_expert_ids = tuple(int(value) for value in expert_ids)
         self._default_gates = tuple(float(value) for value in gates)
+        self._default_normalization = normalization
 
     def clear_default_selection(self) -> None:
         self._default_expert_ids = None
         self._default_gates = None
+        self._default_normalization = "none"
 
     def _selection_for(self, inputs: torch.Tensor) -> Optional[ComposeSelection]:
         selection = get_current_selection()
@@ -119,7 +125,7 @@ class ComposeLinear(nn.Module):
         gates = torch.tensor(
             self._default_gates, device=inputs.device, dtype=inputs.dtype
         ).unsqueeze(0).expand(batch_size, -1)
-        return ComposeSelection(ids, gates)
+        return ComposeSelection(ids, gates, normalization=self._default_normalization)
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         result = self.base_layer(inputs)
@@ -136,21 +142,23 @@ class ComposeLinear(nn.Module):
             )
 
         delta = torch.zeros_like(result)
-        gate_shape = [selection.batch_size] + [1] * (result.ndim - 1)
         for expert_id_tensor in torch.unique(selection.expert_ids):
             expert_id = int(expert_id_tensor.item())
             key = str(expert_id)
             if key not in self.experts:
                 raise KeyError("expert {} is not registered".format(expert_id))
-            sample_gates = torch.where(
-                selection.expert_ids == expert_id_tensor,
-                selection.gates,
-                torch.zeros_like(selection.gates),
-            ).sum(dim=1)
-            if not torch.any(sample_gates > 0):
+            active_slots = selection.expert_ids.eq(expert_id_tensor) & selection.gates.gt(0)
+            sample_indices = torch.where(active_slots.any(dim=1))[0]
+            if sample_indices.numel() == 0:
                 continue
-            expert_delta = self.experts[key](inputs).to(result.dtype)
-            delta = delta + expert_delta * sample_gates.to(result.dtype).reshape(gate_shape)
+            selected_inputs = inputs.index_select(0, sample_indices)
+            expert_delta = self.experts[key](selected_inputs).to(result.dtype)
+            sample_gates = (
+                selection.gates * active_slots.to(selection.gates.dtype)
+            ).sum(dim=1).index_select(0, sample_indices)
+            gate_shape = [sample_indices.shape[0]] + [1] * (result.ndim - 1)
+            weighted_delta = expert_delta * sample_gates.to(result.dtype).reshape(gate_shape)
+            delta.index_add_(0, sample_indices, weighted_delta)
         return result + delta
 
     def expert_ids(self) -> Iterable[int]:
