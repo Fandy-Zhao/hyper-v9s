@@ -1,0 +1,2037 @@
+{
+  "checkpoint": "/data/ckpt/zhaozhuofan/compose/residual_feasibility_v1/seed44/residual_b",
+  "expert_id": 1,
+  "layers": [
+    {
+      "A_plus_B_rms": 1.2631013305508532e-05,
+      "B_only_rms": 1.2664747373491991e-05,
+      "B_plus_C_rms": 1.3251593372842763e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9987203478813171,
+      "cosine_B_only_A_plus_B": 0.999453604221344,
+      "cosine_B_only_B_plus_C": 0.9971745610237122,
+      "layer": "model.layers.0.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00012382876593619585,
+      "B_only_rms": 0.00012907595373690128,
+      "B_plus_C_rms": 0.00012596674787346274,
+      "cosine_A_plus_B_B_plus_C": 0.9940503835678101,
+      "cosine_B_only_A_plus_B": 0.9893586039543152,
+      "cosine_B_only_B_plus_C": 0.9890075922012329,
+      "layer": "model.layers.0.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00012652810255531222,
+      "B_only_rms": 0.00012940769374836236,
+      "B_plus_C_rms": 0.00014128682960290462,
+      "cosine_A_plus_B_B_plus_C": 0.9866460561752319,
+      "cosine_B_only_A_plus_B": 0.9959855079650879,
+      "cosine_B_only_B_plus_C": 0.9841160774230957,
+      "layer": "model.layers.0.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0004466699028853327,
+      "B_only_rms": 0.000466787489131093,
+      "B_plus_C_rms": 0.00039236678276211023,
+      "cosine_A_plus_B_B_plus_C": 0.9993124604225159,
+      "cosine_B_only_A_plus_B": 0.9999563694000244,
+      "cosine_B_only_B_plus_C": 0.9992888569831848,
+      "layer": "model.layers.0.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 7.6729578722734e-05,
+      "B_only_rms": 8.04828669060953e-05,
+      "B_plus_C_rms": 7.097319030435756e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9979567527770996,
+      "cosine_B_only_A_plus_B": 0.9997549653053284,
+      "cosine_B_only_B_plus_C": 0.9988765120506287,
+      "layer": "model.layers.0.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00019650717149488628,
+      "B_only_rms": 0.0002034600474871695,
+      "B_plus_C_rms": 0.00019215659995097667,
+      "cosine_A_plus_B_B_plus_C": 0.998432457447052,
+      "cosine_B_only_A_plus_B": 0.9992327690124512,
+      "cosine_B_only_B_plus_C": 0.9960950016975403,
+      "layer": "model.layers.0.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005023551057092845,
+      "B_only_rms": 0.0005213983240537345,
+      "B_plus_C_rms": 0.0004657078243326396,
+      "cosine_A_plus_B_B_plus_C": 0.9998785257339478,
+      "cosine_B_only_A_plus_B": 0.9999279379844666,
+      "cosine_B_only_B_plus_C": 0.9996321201324463,
+      "layer": "model.layers.0.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003522290789987892,
+      "B_only_rms": 0.0003588699037209153,
+      "B_plus_C_rms": 0.0003282719699200243,
+      "cosine_A_plus_B_B_plus_C": 0.9999947547912598,
+      "cosine_B_only_A_plus_B": 0.9999997615814209,
+      "cosine_B_only_B_plus_C": 0.9999940395355225,
+      "layer": "model.layers.1.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0002524069859646261,
+      "B_only_rms": 0.00022678691311739385,
+      "B_plus_C_rms": 0.00023874854377936572,
+      "cosine_A_plus_B_B_plus_C": 0.9899280071258545,
+      "cosine_B_only_A_plus_B": 0.9973114132881165,
+      "cosine_B_only_B_plus_C": 0.9858648180961609,
+      "layer": "model.layers.1.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00016942423826549202,
+      "B_only_rms": 0.00018045130127575248,
+      "B_plus_C_rms": 0.0001748507347656414,
+      "cosine_A_plus_B_B_plus_C": 0.9679675698280334,
+      "cosine_B_only_A_plus_B": 0.9880458116531372,
+      "cosine_B_only_B_plus_C": 0.9717614054679871,
+      "layer": "model.layers.1.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003934859996661544,
+      "B_only_rms": 0.00040080497274175286,
+      "B_plus_C_rms": 0.00039495693636126816,
+      "cosine_A_plus_B_B_plus_C": 0.9633541703224182,
+      "cosine_B_only_A_plus_B": 0.9983516931533813,
+      "cosine_B_only_B_plus_C": 0.9658110737800598,
+      "layer": "model.layers.1.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00014530218322761357,
+      "B_only_rms": 0.00015958590665832162,
+      "B_plus_C_rms": 0.00014322175411507487,
+      "cosine_A_plus_B_B_plus_C": 0.9991732239723206,
+      "cosine_B_only_A_plus_B": 0.9994930028915405,
+      "cosine_B_only_B_plus_C": 0.9990392923355103,
+      "layer": "model.layers.1.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00048147400957532227,
+      "B_only_rms": 0.0004858827742282301,
+      "B_plus_C_rms": 0.0004693656519521028,
+      "cosine_A_plus_B_B_plus_C": 0.9984453320503235,
+      "cosine_B_only_A_plus_B": 0.9993148446083069,
+      "cosine_B_only_B_plus_C": 0.9985161423683167,
+      "layer": "model.layers.1.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0011186451883986592,
+      "B_only_rms": 0.0011608732165768743,
+      "B_plus_C_rms": 0.0010185334831476212,
+      "cosine_A_plus_B_B_plus_C": 0.9999854564666748,
+      "cosine_B_only_A_plus_B": 0.9999871253967285,
+      "cosine_B_only_B_plus_C": 0.999980092048645,
+      "layer": "model.layers.1.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00020743085769936442,
+      "B_only_rms": 0.00019607764261309057,
+      "B_plus_C_rms": 0.0001996990031329915,
+      "cosine_A_plus_B_B_plus_C": 0.9981449246406555,
+      "cosine_B_only_A_plus_B": 0.9987983107566833,
+      "cosine_B_only_B_plus_C": 0.9986347556114197,
+      "layer": "model.layers.10.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008722317288629711,
+      "B_only_rms": 0.0008355379104614258,
+      "B_plus_C_rms": 0.0009194391896016896,
+      "cosine_A_plus_B_B_plus_C": 0.9979619383811951,
+      "cosine_B_only_A_plus_B": 0.9933883547782898,
+      "cosine_B_only_B_plus_C": 0.9901396036148071,
+      "layer": "model.layers.10.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.000608013360761106,
+      "B_only_rms": 0.000548125768546015,
+      "B_plus_C_rms": 0.0006426203181035817,
+      "cosine_A_plus_B_B_plus_C": 0.9993223547935486,
+      "cosine_B_only_A_plus_B": 0.9970508813858032,
+      "cosine_B_only_B_plus_C": 0.9973065853118896,
+      "layer": "model.layers.10.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0004886213573627174,
+      "B_only_rms": 0.000498385401442647,
+      "B_plus_C_rms": 0.00045159837463870645,
+      "cosine_A_plus_B_B_plus_C": 0.9668840765953064,
+      "cosine_B_only_A_plus_B": 0.9906032085418701,
+      "cosine_B_only_B_plus_C": 0.9857217669487,
+      "layer": "model.layers.10.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00022922741482034326,
+      "B_only_rms": 0.00022990835714153945,
+      "B_plus_C_rms": 0.0002512881765142083,
+      "cosine_A_plus_B_B_plus_C": 0.9941456317901611,
+      "cosine_B_only_A_plus_B": 0.9833928346633911,
+      "cosine_B_only_B_plus_C": 0.9945564866065979,
+      "layer": "model.layers.10.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0013562887907028198,
+      "B_only_rms": 0.001264853053726256,
+      "B_plus_C_rms": 0.001352993305772543,
+      "cosine_A_plus_B_B_plus_C": 0.9987100958824158,
+      "cosine_B_only_A_plus_B": 0.9983714818954468,
+      "cosine_B_only_B_plus_C": 0.9979420900344849,
+      "layer": "model.layers.10.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008196751587092876,
+      "B_only_rms": 0.0007420791080221534,
+      "B_plus_C_rms": 0.0007711420184932649,
+      "cosine_A_plus_B_B_plus_C": 0.9918678998947144,
+      "cosine_B_only_A_plus_B": 0.9944332838058472,
+      "cosine_B_only_B_plus_C": 0.9748743176460266,
+      "layer": "model.layers.10.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003115649742539972,
+      "B_only_rms": 0.00029132398776710033,
+      "B_plus_C_rms": 0.0003051282837986946,
+      "cosine_A_plus_B_B_plus_C": 0.9986871480941772,
+      "cosine_B_only_A_plus_B": 0.9991968870162964,
+      "cosine_B_only_B_plus_C": 0.9972971081733704,
+      "layer": "model.layers.11.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00038147857412695885,
+      "B_only_rms": 0.0003833806258626282,
+      "B_plus_C_rms": 0.000388746295357123,
+      "cosine_A_plus_B_B_plus_C": 0.9858065843582153,
+      "cosine_B_only_A_plus_B": 0.99192875623703,
+      "cosine_B_only_B_plus_C": 0.9735532999038696,
+      "layer": "model.layers.11.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007509171264246106,
+      "B_only_rms": 0.0007322864839807153,
+      "B_plus_C_rms": 0.0007859619800001383,
+      "cosine_A_plus_B_B_plus_C": 0.9950494766235352,
+      "cosine_B_only_A_plus_B": 0.9987340569496155,
+      "cosine_B_only_B_plus_C": 0.9971168041229248,
+      "layer": "model.layers.11.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0014242741744965315,
+      "B_only_rms": 0.0013233316130936146,
+      "B_plus_C_rms": 0.001458132523111999,
+      "cosine_A_plus_B_B_plus_C": 0.9919402599334717,
+      "cosine_B_only_A_plus_B": 0.9857805967330933,
+      "cosine_B_only_B_plus_C": 0.9650693535804749,
+      "layer": "model.layers.11.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003512837865855545,
+      "B_only_rms": 0.00033022213028743863,
+      "B_plus_C_rms": 0.00040202640229836106,
+      "cosine_A_plus_B_B_plus_C": 0.9969289302825928,
+      "cosine_B_only_A_plus_B": 0.9992577433586121,
+      "cosine_B_only_B_plus_C": 0.99781334400177,
+      "layer": "model.layers.11.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0018876604735851288,
+      "B_only_rms": 0.0017448742873966694,
+      "B_plus_C_rms": 0.0019132562447339296,
+      "cosine_A_plus_B_B_plus_C": 0.9991069436073303,
+      "cosine_B_only_A_plus_B": 0.9954838156700134,
+      "cosine_B_only_B_plus_C": 0.9925441145896912,
+      "layer": "model.layers.11.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008189341751858592,
+      "B_only_rms": 0.0008358486229553819,
+      "B_plus_C_rms": 0.0007803611806593835,
+      "cosine_A_plus_B_B_plus_C": 0.9912241101264954,
+      "cosine_B_only_A_plus_B": 0.9971921443939209,
+      "cosine_B_only_B_plus_C": 0.9914498925209045,
+      "layer": "model.layers.11.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00013108256098348647,
+      "B_only_rms": 0.00011556071694940329,
+      "B_plus_C_rms": 0.0001343803887721151,
+      "cosine_A_plus_B_B_plus_C": 0.9966421723365784,
+      "cosine_B_only_A_plus_B": 0.9890022277832031,
+      "cosine_B_only_B_plus_C": 0.9864427447319031,
+      "layer": "model.layers.12.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006978943711146712,
+      "B_only_rms": 0.0005767557304352522,
+      "B_plus_C_rms": 0.0007151123718358576,
+      "cosine_A_plus_B_B_plus_C": 0.9982327818870544,
+      "cosine_B_only_A_plus_B": 0.9976383447647095,
+      "cosine_B_only_B_plus_C": 0.9937843084335327,
+      "layer": "model.layers.12.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005857329233549535,
+      "B_only_rms": 0.0005704915965907276,
+      "B_plus_C_rms": 0.0005536778480745852,
+      "cosine_A_plus_B_B_plus_C": 0.9985668063163757,
+      "cosine_B_only_A_plus_B": 0.9965167045593262,
+      "cosine_B_only_B_plus_C": 0.996494472026825,
+      "layer": "model.layers.12.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0010359084699302912,
+      "B_only_rms": 0.0009707260760478675,
+      "B_plus_C_rms": 0.0011010023299604654,
+      "cosine_A_plus_B_B_plus_C": 0.9826458096504211,
+      "cosine_B_only_A_plus_B": 0.9918948411941528,
+      "cosine_B_only_B_plus_C": 0.9555047750473022,
+      "layer": "model.layers.12.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0004937074845656753,
+      "B_only_rms": 0.0004987068241462111,
+      "B_plus_C_rms": 0.0005858795484527946,
+      "cosine_A_plus_B_B_plus_C": 0.9994906187057495,
+      "cosine_B_only_A_plus_B": 0.9982733130455017,
+      "cosine_B_only_B_plus_C": 0.9963582754135132,
+      "layer": "model.layers.12.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0012146912049502134,
+      "B_only_rms": 0.0011389866704121232,
+      "B_plus_C_rms": 0.0011243752669543028,
+      "cosine_A_plus_B_B_plus_C": 0.994008481502533,
+      "cosine_B_only_A_plus_B": 0.9969311952590942,
+      "cosine_B_only_B_plus_C": 0.9946138858795166,
+      "layer": "model.layers.12.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002405045786872506,
+      "B_only_rms": 0.0024997848086059093,
+      "B_plus_C_rms": 0.0020979968830943108,
+      "cosine_A_plus_B_B_plus_C": 0.9993653297424316,
+      "cosine_B_only_A_plus_B": 0.9993782639503479,
+      "cosine_B_only_B_plus_C": 0.9995794892311096,
+      "layer": "model.layers.12.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00011919633107027039,
+      "B_only_rms": 0.00010436641605338082,
+      "B_plus_C_rms": 0.00012092623364878818,
+      "cosine_A_plus_B_B_plus_C": 0.9893984794616699,
+      "cosine_B_only_A_plus_B": 0.994848906993866,
+      "cosine_B_only_B_plus_C": 0.9756966233253479,
+      "layer": "model.layers.13.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0004679373523686081,
+      "B_only_rms": 0.00042348928400315344,
+      "B_plus_C_rms": 0.0004448250401765108,
+      "cosine_A_plus_B_B_plus_C": 0.9891522526741028,
+      "cosine_B_only_A_plus_B": 0.9887838959693909,
+      "cosine_B_only_B_plus_C": 0.9712266325950623,
+      "layer": "model.layers.13.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00035068896249867976,
+      "B_only_rms": 0.00032287443173117936,
+      "B_plus_C_rms": 0.00033632534905336797,
+      "cosine_A_plus_B_B_plus_C": 0.9898309111595154,
+      "cosine_B_only_A_plus_B": 0.9814817905426025,
+      "cosine_B_only_B_plus_C": 0.9723893404006958,
+      "layer": "model.layers.13.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0016295750392600894,
+      "B_only_rms": 0.001619387767277658,
+      "B_plus_C_rms": 0.0016072483267635107,
+      "cosine_A_plus_B_B_plus_C": 0.9985203742980957,
+      "cosine_B_only_A_plus_B": 0.9893398880958557,
+      "cosine_B_only_B_plus_C": 0.9844892621040344,
+      "layer": "model.layers.13.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0002753446460701525,
+      "B_only_rms": 0.0002623553737066686,
+      "B_plus_C_rms": 0.00028626719722524285,
+      "cosine_A_plus_B_B_plus_C": 0.9993776679039001,
+      "cosine_B_only_A_plus_B": 0.9812805652618408,
+      "cosine_B_only_B_plus_C": 0.982734203338623,
+      "layer": "model.layers.13.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0014369324781000614,
+      "B_only_rms": 0.0014076570514589548,
+      "B_plus_C_rms": 0.0014999744016677141,
+      "cosine_A_plus_B_B_plus_C": 0.998157799243927,
+      "cosine_B_only_A_plus_B": 0.9993104934692383,
+      "cosine_B_only_B_plus_C": 0.9989739656448364,
+      "layer": "model.layers.13.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001047448138706386,
+      "B_only_rms": 0.0010459633776918054,
+      "B_plus_C_rms": 0.0009393940563313663,
+      "cosine_A_plus_B_B_plus_C": 0.9987817406654358,
+      "cosine_B_only_A_plus_B": 0.9967358708381653,
+      "cosine_B_only_B_plus_C": 0.9955564141273499,
+      "layer": "model.layers.13.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 9.443359158467501e-05,
+      "B_only_rms": 8.467616862617433e-05,
+      "B_plus_C_rms": 0.0001240729761775583,
+      "cosine_A_plus_B_B_plus_C": 0.9845219850540161,
+      "cosine_B_only_A_plus_B": 0.9948327541351318,
+      "cosine_B_only_B_plus_C": 0.9674314856529236,
+      "layer": "model.layers.14.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00038832781137898564,
+      "B_only_rms": 0.0003956838045269251,
+      "B_plus_C_rms": 0.00035946632851846516,
+      "cosine_A_plus_B_B_plus_C": 0.985697865486145,
+      "cosine_B_only_A_plus_B": 0.9964726567268372,
+      "cosine_B_only_B_plus_C": 0.9841198921203613,
+      "layer": "model.layers.14.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003907775098923594,
+      "B_only_rms": 0.00042463853606022894,
+      "B_plus_C_rms": 0.0004001664347015321,
+      "cosine_A_plus_B_B_plus_C": 0.9720069766044617,
+      "cosine_B_only_A_plus_B": 0.9887048006057739,
+      "cosine_B_only_B_plus_C": 0.9601607322692871,
+      "layer": "model.layers.14.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0012388223549351096,
+      "B_only_rms": 0.001099441316910088,
+      "B_plus_C_rms": 0.0013050048146396875,
+      "cosine_A_plus_B_B_plus_C": 0.9938521385192871,
+      "cosine_B_only_A_plus_B": 0.981870710849762,
+      "cosine_B_only_B_plus_C": 0.9593667984008789,
+      "layer": "model.layers.14.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00038673653034493327,
+      "B_only_rms": 0.0003300087992101908,
+      "B_plus_C_rms": 0.00033192141563631594,
+      "cosine_A_plus_B_B_plus_C": 0.9879764914512634,
+      "cosine_B_only_A_plus_B": 0.9970396161079407,
+      "cosine_B_only_B_plus_C": 0.9905021786689758,
+      "layer": "model.layers.14.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0016566498670727015,
+      "B_only_rms": 0.0016405313508585095,
+      "B_plus_C_rms": 0.0016367523930966854,
+      "cosine_A_plus_B_B_plus_C": 0.9980937242507935,
+      "cosine_B_only_A_plus_B": 0.9989507794380188,
+      "cosine_B_only_B_plus_C": 0.9984884858131409,
+      "layer": "model.layers.14.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0011643553152680397,
+      "B_only_rms": 0.001135003287345171,
+      "B_plus_C_rms": 0.0010512517765164375,
+      "cosine_A_plus_B_B_plus_C": 0.9992318153381348,
+      "cosine_B_only_A_plus_B": 0.9958261251449585,
+      "cosine_B_only_B_plus_C": 0.9963388442993164,
+      "layer": "model.layers.14.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00014393407036550343,
+      "B_only_rms": 0.00013521037180908024,
+      "B_plus_C_rms": 0.0001514268951723352,
+      "cosine_A_plus_B_B_plus_C": 0.9987558126449585,
+      "cosine_B_only_A_plus_B": 0.9971486330032349,
+      "cosine_B_only_B_plus_C": 0.9926299452781677,
+      "layer": "model.layers.15.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00040134592563845217,
+      "B_only_rms": 0.0003814105875790119,
+      "B_plus_C_rms": 0.00037193094613030553,
+      "cosine_A_plus_B_B_plus_C": 0.9837479591369629,
+      "cosine_B_only_A_plus_B": 0.9977454543113708,
+      "cosine_B_only_B_plus_C": 0.9814701676368713,
+      "layer": "model.layers.15.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005071203340776265,
+      "B_only_rms": 0.0005042281118221581,
+      "B_plus_C_rms": 0.0004910249845124781,
+      "cosine_A_plus_B_B_plus_C": 0.991122841835022,
+      "cosine_B_only_A_plus_B": 0.9957255125045776,
+      "cosine_B_only_B_plus_C": 0.9856194257736206,
+      "layer": "model.layers.15.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0011005678679794073,
+      "B_only_rms": 0.001109568402171135,
+      "B_plus_C_rms": 0.0010438640601933002,
+      "cosine_A_plus_B_B_plus_C": 0.9876660108566284,
+      "cosine_B_only_A_plus_B": 0.9875202178955078,
+      "cosine_B_only_B_plus_C": 0.9814309477806091,
+      "layer": "model.layers.15.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0002673037233762443,
+      "B_only_rms": 0.0002681968326214701,
+      "B_plus_C_rms": 0.0002707669045776129,
+      "cosine_A_plus_B_B_plus_C": 0.999015748500824,
+      "cosine_B_only_A_plus_B": 0.9984754323959351,
+      "cosine_B_only_B_plus_C": 0.9972542524337769,
+      "layer": "model.layers.15.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0014817480696365237,
+      "B_only_rms": 0.0014306673547253013,
+      "B_plus_C_rms": 0.0014119569677859545,
+      "cosine_A_plus_B_B_plus_C": 0.9993974566459656,
+      "cosine_B_only_A_plus_B": 0.9976984858512878,
+      "cosine_B_only_B_plus_C": 0.9985881447792053,
+      "layer": "model.layers.15.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001342540024779737,
+      "B_only_rms": 0.0013431125553324819,
+      "B_plus_C_rms": 0.0013097301125526428,
+      "cosine_A_plus_B_B_plus_C": 0.9988373517990112,
+      "cosine_B_only_A_plus_B": 0.9993157982826233,
+      "cosine_B_only_B_plus_C": 0.9993727803230286,
+      "layer": "model.layers.15.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00013893062714487314,
+      "B_only_rms": 0.00015243356756400317,
+      "B_plus_C_rms": 0.00014368270058184862,
+      "cosine_A_plus_B_B_plus_C": 0.9906271696090698,
+      "cosine_B_only_A_plus_B": 0.9993065595626831,
+      "cosine_B_only_B_plus_C": 0.9891711473464966,
+      "layer": "model.layers.16.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005400105728767812,
+      "B_only_rms": 0.0006029484793543816,
+      "B_plus_C_rms": 0.0005756181781180203,
+      "cosine_A_plus_B_B_plus_C": 0.9975109696388245,
+      "cosine_B_only_A_plus_B": 0.9954257607460022,
+      "cosine_B_only_B_plus_C": 0.995474636554718,
+      "layer": "model.layers.16.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006592926802113652,
+      "B_only_rms": 0.0006687311106361449,
+      "B_plus_C_rms": 0.0007169961463660002,
+      "cosine_A_plus_B_B_plus_C": 0.999101459980011,
+      "cosine_B_only_A_plus_B": 0.9959997534751892,
+      "cosine_B_only_B_plus_C": 0.9926860332489014,
+      "layer": "model.layers.16.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002164321718737483,
+      "B_only_rms": 0.0022121111396700144,
+      "B_plus_C_rms": 0.002106874715536833,
+      "cosine_A_plus_B_B_plus_C": 0.9993454217910767,
+      "cosine_B_only_A_plus_B": 0.9996492266654968,
+      "cosine_B_only_B_plus_C": 0.9993178844451904,
+      "layer": "model.layers.16.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003072155814152211,
+      "B_only_rms": 0.00030218285974115133,
+      "B_plus_C_rms": 0.00031467032385990024,
+      "cosine_A_plus_B_B_plus_C": 0.9861061573028564,
+      "cosine_B_only_A_plus_B": 0.9995366930961609,
+      "cosine_B_only_B_plus_C": 0.9866441488265991,
+      "layer": "model.layers.16.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0010005544172599912,
+      "B_only_rms": 0.0009984967764467,
+      "B_plus_C_rms": 0.0009097825968638062,
+      "cosine_A_plus_B_B_plus_C": 0.9909034371376038,
+      "cosine_B_only_A_plus_B": 0.9982478022575378,
+      "cosine_B_only_B_plus_C": 0.9913490414619446,
+      "layer": "model.layers.16.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008422719547525048,
+      "B_only_rms": 0.0007265672902576625,
+      "B_plus_C_rms": 0.0008439776138402522,
+      "cosine_A_plus_B_B_plus_C": 0.9898951053619385,
+      "cosine_B_only_A_plus_B": 0.9967617988586426,
+      "cosine_B_only_B_plus_C": 0.9865928888320923,
+      "layer": "model.layers.16.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 7.503584492951632e-05,
+      "B_only_rms": 8.310335397254676e-05,
+      "B_plus_C_rms": 7.925105455797166e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9701063632965088,
+      "cosine_B_only_A_plus_B": 0.9922713041305542,
+      "cosine_B_only_B_plus_C": 0.9779769778251648,
+      "layer": "model.layers.17.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0004915834870189428,
+      "B_only_rms": 0.0004814733692910522,
+      "B_plus_C_rms": 0.0004199909744784236,
+      "cosine_A_plus_B_B_plus_C": 0.9725069999694824,
+      "cosine_B_only_A_plus_B": 0.9969561100006104,
+      "cosine_B_only_B_plus_C": 0.9861018657684326,
+      "layer": "model.layers.17.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0002269225660711527,
+      "B_only_rms": 0.00022792338859289885,
+      "B_plus_C_rms": 0.0001976668427232653,
+      "cosine_A_plus_B_B_plus_C": 0.802676260471344,
+      "cosine_B_only_A_plus_B": 0.9656838774681091,
+      "cosine_B_only_B_plus_C": 0.852712869644165,
+      "layer": "model.layers.17.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0019167575519531965,
+      "B_only_rms": 0.0018495755502954125,
+      "B_plus_C_rms": 0.0019362521125003695,
+      "cosine_A_plus_B_B_plus_C": 0.9932730197906494,
+      "cosine_B_only_A_plus_B": 0.9958451390266418,
+      "cosine_B_only_B_plus_C": 0.9826745390892029,
+      "layer": "model.layers.17.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003140087937936187,
+      "B_only_rms": 0.00031104215304367244,
+      "B_plus_C_rms": 0.0002825722622219473,
+      "cosine_A_plus_B_B_plus_C": 0.9994276165962219,
+      "cosine_B_only_A_plus_B": 0.9982064366340637,
+      "cosine_B_only_B_plus_C": 0.9974232912063599,
+      "layer": "model.layers.17.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007255949312821031,
+      "B_only_rms": 0.0007272476213984191,
+      "B_plus_C_rms": 0.0007488795672543347,
+      "cosine_A_plus_B_B_plus_C": 0.9956712126731873,
+      "cosine_B_only_A_plus_B": 0.9934925436973572,
+      "cosine_B_only_B_plus_C": 0.9870448708534241,
+      "layer": "model.layers.17.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0002290390693815425,
+      "B_only_rms": 0.000183176773134619,
+      "B_plus_C_rms": 0.00033282407093793154,
+      "cosine_A_plus_B_B_plus_C": 0.9850035905838013,
+      "cosine_B_only_A_plus_B": 0.9529570937156677,
+      "cosine_B_only_B_plus_C": 0.9018120169639587,
+      "layer": "model.layers.17.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003358836402185261,
+      "B_only_rms": 0.0003325107099954039,
+      "B_plus_C_rms": 0.00034234742633998394,
+      "cosine_A_plus_B_B_plus_C": 0.9959020018577576,
+      "cosine_B_only_A_plus_B": 0.9996848702430725,
+      "cosine_B_only_B_plus_C": 0.9959847927093506,
+      "layer": "model.layers.18.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006247548735700548,
+      "B_only_rms": 0.0005770506104454398,
+      "B_plus_C_rms": 0.0006159203476272523,
+      "cosine_A_plus_B_B_plus_C": 0.9436190724372864,
+      "cosine_B_only_A_plus_B": 0.9797425866127014,
+      "cosine_B_only_B_plus_C": 0.9606442451477051,
+      "layer": "model.layers.18.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0009449988720007241,
+      "B_only_rms": 0.0008646160713396966,
+      "B_plus_C_rms": 0.0009151855483651161,
+      "cosine_A_plus_B_B_plus_C": 0.9957447052001953,
+      "cosine_B_only_A_plus_B": 0.9986869096755981,
+      "cosine_B_only_B_plus_C": 0.993776798248291,
+      "layer": "model.layers.18.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007877808529883623,
+      "B_only_rms": 0.0008570076897740364,
+      "B_plus_C_rms": 0.0008496198570355773,
+      "cosine_A_plus_B_B_plus_C": 0.9617159962654114,
+      "cosine_B_only_A_plus_B": 0.9752275943756104,
+      "cosine_B_only_B_plus_C": 0.9498065710067749,
+      "layer": "model.layers.18.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 3.0968960345489904e-05,
+      "B_only_rms": 4.306252594687976e-05,
+      "B_plus_C_rms": 3.841664147330448e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9764297008514404,
+      "cosine_B_only_A_plus_B": 0.9603569507598877,
+      "cosine_B_only_B_plus_C": 0.9710218906402588,
+      "layer": "model.layers.18.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0019393522525206208,
+      "B_only_rms": 0.0020030534360557795,
+      "B_plus_C_rms": 0.0017446245765313506,
+      "cosine_A_plus_B_B_plus_C": 0.9950137734413147,
+      "cosine_B_only_A_plus_B": 0.9995958805084229,
+      "cosine_B_only_B_plus_C": 0.993584156036377,
+      "layer": "model.layers.18.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008303726790472865,
+      "B_only_rms": 0.0008582308073528111,
+      "B_plus_C_rms": 0.0009540911996737123,
+      "cosine_A_plus_B_B_plus_C": 0.9894757270812988,
+      "cosine_B_only_A_plus_B": 0.9779337048530579,
+      "cosine_B_only_B_plus_C": 0.9925034642219543,
+      "layer": "model.layers.18.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00017727439990267158,
+      "B_only_rms": 0.000184887700015679,
+      "B_plus_C_rms": 0.00019878467719536275,
+      "cosine_A_plus_B_B_plus_C": 0.9755796194076538,
+      "cosine_B_only_A_plus_B": 0.9966626763343811,
+      "cosine_B_only_B_plus_C": 0.9700567722320557,
+      "layer": "model.layers.19.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0009378531249240041,
+      "B_only_rms": 0.0009416811517439783,
+      "B_plus_C_rms": 0.001009311294183135,
+      "cosine_A_plus_B_B_plus_C": 0.9981856942176819,
+      "cosine_B_only_A_plus_B": 0.9992820024490356,
+      "cosine_B_only_B_plus_C": 0.9959438443183899,
+      "layer": "model.layers.19.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007639622781425714,
+      "B_only_rms": 0.0007949210121296346,
+      "B_plus_C_rms": 0.00084087741561234,
+      "cosine_A_plus_B_B_plus_C": 0.9907880425453186,
+      "cosine_B_only_A_plus_B": 0.9980353116989136,
+      "cosine_B_only_B_plus_C": 0.9957035183906555,
+      "layer": "model.layers.19.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0009601256460882723,
+      "B_only_rms": 0.0009200422209687531,
+      "B_plus_C_rms": 0.0009065424092113972,
+      "cosine_A_plus_B_B_plus_C": 0.9909336566925049,
+      "cosine_B_only_A_plus_B": 0.9944760203361511,
+      "cosine_B_only_B_plus_C": 0.990058422088623,
+      "layer": "model.layers.19.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00015439379785675555,
+      "B_only_rms": 0.00015477750275749713,
+      "B_plus_C_rms": 0.0001605622237548232,
+      "cosine_A_plus_B_B_plus_C": 0.9922454357147217,
+      "cosine_B_only_A_plus_B": 0.9990676045417786,
+      "cosine_B_only_B_plus_C": 0.9927319884300232,
+      "layer": "model.layers.19.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0015590991824865341,
+      "B_only_rms": 0.001585839199833572,
+      "B_plus_C_rms": 0.0015608445974066854,
+      "cosine_A_plus_B_B_plus_C": 0.9991750717163086,
+      "cosine_B_only_A_plus_B": 0.9954106211662292,
+      "cosine_B_only_B_plus_C": 0.9968041181564331,
+      "layer": "model.layers.19.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0010607376461848617,
+      "B_only_rms": 0.0010249511105939746,
+      "B_plus_C_rms": 0.0011267549125477672,
+      "cosine_A_plus_B_B_plus_C": 0.9871619939804077,
+      "cosine_B_only_A_plus_B": 0.989200234413147,
+      "cosine_B_only_B_plus_C": 0.9982554316520691,
+      "layer": "model.layers.19.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 3.948497760575265e-05,
+      "B_only_rms": 3.405823008506559e-05,
+      "B_plus_C_rms": 4.2991290683858097e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9977555871009827,
+      "cosine_B_only_A_plus_B": 0.9974038004875183,
+      "cosine_B_only_B_plus_C": 0.9968454837799072,
+      "layer": "model.layers.2.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003824714804068208,
+      "B_only_rms": 0.0003554761060513556,
+      "B_plus_C_rms": 0.00038410266279242933,
+      "cosine_A_plus_B_B_plus_C": 0.9949297904968262,
+      "cosine_B_only_A_plus_B": 0.9964326620101929,
+      "cosine_B_only_B_plus_C": 0.9931322932243347,
+      "layer": "model.layers.2.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00037848460488021374,
+      "B_only_rms": 0.00037700904067605734,
+      "B_plus_C_rms": 0.00036046450259163976,
+      "cosine_A_plus_B_B_plus_C": 0.995182454586029,
+      "cosine_B_only_A_plus_B": 0.9993526339530945,
+      "cosine_B_only_B_plus_C": 0.995872437953949,
+      "layer": "model.layers.2.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0009512880351394415,
+      "B_only_rms": 0.0009598387405276299,
+      "B_plus_C_rms": 0.0008721699705347419,
+      "cosine_A_plus_B_B_plus_C": 0.9990296363830566,
+      "cosine_B_only_A_plus_B": 0.9990997314453125,
+      "cosine_B_only_B_plus_C": 0.9989988803863525,
+      "layer": "model.layers.2.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 9.428998600924388e-05,
+      "B_only_rms": 9.566399967297912e-05,
+      "B_plus_C_rms": 9.518324077362195e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9730027914047241,
+      "cosine_B_only_A_plus_B": 0.9900368452072144,
+      "cosine_B_only_B_plus_C": 0.9765143394470215,
+      "layer": "model.layers.2.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008435159106738865,
+      "B_only_rms": 0.0008348284754902124,
+      "B_plus_C_rms": 0.0008477195515297353,
+      "cosine_A_plus_B_B_plus_C": 0.9983088374137878,
+      "cosine_B_only_A_plus_B": 0.9996662139892578,
+      "cosine_B_only_B_plus_C": 0.9987766146659851,
+      "layer": "model.layers.2.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006796380621381104,
+      "B_only_rms": 0.0006895364494994283,
+      "B_plus_C_rms": 0.0006341619300656021,
+      "cosine_A_plus_B_B_plus_C": 0.9984308481216431,
+      "cosine_B_only_A_plus_B": 0.9988082051277161,
+      "cosine_B_only_B_plus_C": 0.9950158596038818,
+      "layer": "model.layers.2.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00023203762248158455,
+      "B_only_rms": 0.00023517897352576256,
+      "B_plus_C_rms": 0.00022669047757517546,
+      "cosine_A_plus_B_B_plus_C": 0.9954470992088318,
+      "cosine_B_only_A_plus_B": 0.9987593293190002,
+      "cosine_B_only_B_plus_C": 0.9904159903526306,
+      "layer": "model.layers.20.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006113903364166617,
+      "B_only_rms": 0.0005566786276176572,
+      "B_plus_C_rms": 0.0007377055007964373,
+      "cosine_A_plus_B_B_plus_C": 0.9685519337654114,
+      "cosine_B_only_A_plus_B": 0.9972891807556152,
+      "cosine_B_only_B_plus_C": 0.9616646766662598,
+      "layer": "model.layers.20.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.000438742310507223,
+      "B_only_rms": 0.00040995271410793066,
+      "B_plus_C_rms": 0.00046350754564628005,
+      "cosine_A_plus_B_B_plus_C": 0.9849029779434204,
+      "cosine_B_only_A_plus_B": 0.980406641960144,
+      "cosine_B_only_B_plus_C": 0.9504052400588989,
+      "layer": "model.layers.20.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0013398195151239634,
+      "B_only_rms": 0.0014641402522101998,
+      "B_plus_C_rms": 0.0013841416221112013,
+      "cosine_A_plus_B_B_plus_C": 0.9993448257446289,
+      "cosine_B_only_A_plus_B": 0.9984467029571533,
+      "cosine_B_only_B_plus_C": 0.9983577728271484,
+      "layer": "model.layers.20.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 5.4928954341448843e-05,
+      "B_only_rms": 4.1453808080405e-05,
+      "B_plus_C_rms": 5.463512206915766e-05,
+      "cosine_A_plus_B_B_plus_C": 0.8933979868888855,
+      "cosine_B_only_A_plus_B": 0.9612022042274475,
+      "cosine_B_only_B_plus_C": 0.8828796744346619,
+      "layer": "model.layers.20.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0009792705532163382,
+      "B_only_rms": 0.000858648621942848,
+      "B_plus_C_rms": 0.0009206118411384523,
+      "cosine_A_plus_B_B_plus_C": 0.9925942420959473,
+      "cosine_B_only_A_plus_B": 0.9877973794937134,
+      "cosine_B_only_B_plus_C": 0.9706210494041443,
+      "layer": "model.layers.20.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006073188851587474,
+      "B_only_rms": 0.0006886437768116593,
+      "B_plus_C_rms": 0.0006903944886289537,
+      "cosine_A_plus_B_B_plus_C": 0.9691576361656189,
+      "cosine_B_only_A_plus_B": 0.9827672243118286,
+      "cosine_B_only_B_plus_C": 0.9946930408477783,
+      "layer": "model.layers.20.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00044831159175373614,
+      "B_only_rms": 0.0003862274461425841,
+      "B_plus_C_rms": 0.00044300503213889897,
+      "cosine_A_plus_B_B_plus_C": 0.9980897307395935,
+      "cosine_B_only_A_plus_B": 0.999485969543457,
+      "cosine_B_only_B_plus_C": 0.99704909324646,
+      "layer": "model.layers.21.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005981849390082061,
+      "B_only_rms": 0.0007171748438850045,
+      "B_plus_C_rms": 0.0006124069332145154,
+      "cosine_A_plus_B_B_plus_C": 0.9966999888420105,
+      "cosine_B_only_A_plus_B": 0.997918426990509,
+      "cosine_B_only_B_plus_C": 0.9966616034507751,
+      "layer": "model.layers.21.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007052760338410735,
+      "B_only_rms": 0.0005713810678571463,
+      "B_plus_C_rms": 0.000721202464774251,
+      "cosine_A_plus_B_B_plus_C": 0.9951019287109375,
+      "cosine_B_only_A_plus_B": 0.9948802590370178,
+      "cosine_B_only_B_plus_C": 0.9903092980384827,
+      "layer": "model.layers.21.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0010126442648470402,
+      "B_only_rms": 0.0009171043639071286,
+      "B_plus_C_rms": 0.0008763584191910923,
+      "cosine_A_plus_B_B_plus_C": 0.9882751703262329,
+      "cosine_B_only_A_plus_B": 0.9783657193183899,
+      "cosine_B_only_B_plus_C": 0.9894396066665649,
+      "layer": "model.layers.21.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00011688728409353644,
+      "B_only_rms": 0.00010813434346346185,
+      "B_plus_C_rms": 9.28495210246183e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9712433218955994,
+      "cosine_B_only_A_plus_B": 0.9919574856758118,
+      "cosine_B_only_B_plus_C": 0.9752606749534607,
+      "layer": "model.layers.21.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001816129544749856,
+      "B_only_rms": 0.0018800061661750078,
+      "B_plus_C_rms": 0.001959100365638733,
+      "cosine_A_plus_B_B_plus_C": 0.9989407658576965,
+      "cosine_B_only_A_plus_B": 0.9988777041435242,
+      "cosine_B_only_B_plus_C": 0.99947190284729,
+      "layer": "model.layers.21.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001091083395294845,
+      "B_only_rms": 0.0011274132411926985,
+      "B_plus_C_rms": 0.000896407465916127,
+      "cosine_A_plus_B_B_plus_C": 0.9979771375656128,
+      "cosine_B_only_A_plus_B": 0.9959858059883118,
+      "cosine_B_only_B_plus_C": 0.9933450818061829,
+      "layer": "model.layers.21.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003085630014538765,
+      "B_only_rms": 0.00028460146859288216,
+      "B_plus_C_rms": 0.0003440631553530693,
+      "cosine_A_plus_B_B_plus_C": 0.9993718862533569,
+      "cosine_B_only_A_plus_B": 0.9964936375617981,
+      "cosine_B_only_B_plus_C": 0.9974637627601624,
+      "layer": "model.layers.22.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00046245843986980617,
+      "B_only_rms": 0.0004300123837310821,
+      "B_plus_C_rms": 0.0005604402394965291,
+      "cosine_A_plus_B_B_plus_C": 0.9925310611724854,
+      "cosine_B_only_A_plus_B": 0.9927254915237427,
+      "cosine_B_only_B_plus_C": 0.9767631888389587,
+      "layer": "model.layers.22.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0010371418902650476,
+      "B_only_rms": 0.000884258362930268,
+      "B_plus_C_rms": 0.0011643498437479138,
+      "cosine_A_plus_B_B_plus_C": 0.9932963848114014,
+      "cosine_B_only_A_plus_B": 0.9969003200531006,
+      "cosine_B_only_B_plus_C": 0.9857515096664429,
+      "layer": "model.layers.22.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001048510312102735,
+      "B_only_rms": 0.0009490853408351541,
+      "B_plus_C_rms": 0.0011460003443062305,
+      "cosine_A_plus_B_B_plus_C": 0.9982812404632568,
+      "cosine_B_only_A_plus_B": 0.992777943611145,
+      "cosine_B_only_B_plus_C": 0.9922245740890503,
+      "layer": "model.layers.22.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0002103382139466703,
+      "B_only_rms": 0.00022303059813566506,
+      "B_plus_C_rms": 0.000230035962886177,
+      "cosine_A_plus_B_B_plus_C": 0.9805254340171814,
+      "cosine_B_only_A_plus_B": 0.9966005682945251,
+      "cosine_B_only_B_plus_C": 0.986153244972229,
+      "layer": "model.layers.22.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0012321654940024018,
+      "B_only_rms": 0.001309012877754867,
+      "B_plus_C_rms": 0.0013464840594679117,
+      "cosine_A_plus_B_B_plus_C": 0.9947521686553955,
+      "cosine_B_only_A_plus_B": 0.9993982911109924,
+      "cosine_B_only_B_plus_C": 0.9936654567718506,
+      "layer": "model.layers.22.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002224284689873457,
+      "B_only_rms": 0.0023524982389062643,
+      "B_plus_C_rms": 0.002126667881384492,
+      "cosine_A_plus_B_B_plus_C": 0.9985065460205078,
+      "cosine_B_only_A_plus_B": 0.9996007680892944,
+      "cosine_B_only_B_plus_C": 0.9971886873245239,
+      "layer": "model.layers.22.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007054330199025571,
+      "B_only_rms": 0.0006502667092718184,
+      "B_plus_C_rms": 0.0007044849335215986,
+      "cosine_A_plus_B_B_plus_C": 0.9998090863227844,
+      "cosine_B_only_A_plus_B": 0.9998001456260681,
+      "cosine_B_only_B_plus_C": 0.9999369382858276,
+      "layer": "model.layers.23.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0009153650607913733,
+      "B_only_rms": 0.0009263628162443638,
+      "B_plus_C_rms": 0.0010277858236804605,
+      "cosine_A_plus_B_B_plus_C": 0.9925620555877686,
+      "cosine_B_only_A_plus_B": 0.9868988990783691,
+      "cosine_B_only_B_plus_C": 0.9899460673332214,
+      "layer": "model.layers.23.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00124893500469625,
+      "B_only_rms": 0.0011860299855470657,
+      "B_plus_C_rms": 0.001331815030425787,
+      "cosine_A_plus_B_B_plus_C": 0.9955196380615234,
+      "cosine_B_only_A_plus_B": 0.9991989135742188,
+      "cosine_B_only_B_plus_C": 0.9938918352127075,
+      "layer": "model.layers.23.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0028201357927173376,
+      "B_only_rms": 0.0026542250998318195,
+      "B_plus_C_rms": 0.0027898892294615507,
+      "cosine_A_plus_B_B_plus_C": 0.997951865196228,
+      "cosine_B_only_A_plus_B": 0.9947256445884705,
+      "cosine_B_only_B_plus_C": 0.9883283972740173,
+      "layer": "model.layers.23.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0003805576416198164,
+      "B_only_rms": 0.000335290445946157,
+      "B_plus_C_rms": 0.0004244376323185861,
+      "cosine_A_plus_B_B_plus_C": 0.9996097087860107,
+      "cosine_B_only_A_plus_B": 0.9991718530654907,
+      "cosine_B_only_B_plus_C": 0.9993508458137512,
+      "layer": "model.layers.23.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0014467487344518304,
+      "B_only_rms": 0.0011730375699698925,
+      "B_plus_C_rms": 0.0011486246949061751,
+      "cosine_A_plus_B_B_plus_C": 0.9917181134223938,
+      "cosine_B_only_A_plus_B": 0.9981508255004883,
+      "cosine_B_only_B_plus_C": 0.9932254552841187,
+      "layer": "model.layers.23.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0016681496053934097,
+      "B_only_rms": 0.0017542790155857801,
+      "B_plus_C_rms": 0.0017087553860619664,
+      "cosine_A_plus_B_B_plus_C": 0.9907963871955872,
+      "cosine_B_only_A_plus_B": 0.9966734051704407,
+      "cosine_B_only_B_plus_C": 0.9979153275489807,
+      "layer": "model.layers.23.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0010820917086675763,
+      "B_only_rms": 0.0008853888139128685,
+      "B_plus_C_rms": 0.0010101152583956718,
+      "cosine_A_plus_B_B_plus_C": 0.9999493360519409,
+      "cosine_B_only_A_plus_B": 0.9999585747718811,
+      "cosine_B_only_B_plus_C": 0.9999424815177917,
+      "layer": "model.layers.24.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0015797184314578772,
+      "B_only_rms": 0.0013617801014333963,
+      "B_plus_C_rms": 0.0015698277857154608,
+      "cosine_A_plus_B_B_plus_C": 0.9992383718490601,
+      "cosine_B_only_A_plus_B": 0.9991068840026855,
+      "cosine_B_only_B_plus_C": 0.9986616969108582,
+      "layer": "model.layers.24.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0014819861389696598,
+      "B_only_rms": 0.0013024897780269384,
+      "B_plus_C_rms": 0.0012043059105053544,
+      "cosine_A_plus_B_B_plus_C": 0.9973539113998413,
+      "cosine_B_only_A_plus_B": 0.9991381168365479,
+      "cosine_B_only_B_plus_C": 0.9988946318626404,
+      "layer": "model.layers.24.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0029410403221845627,
+      "B_only_rms": 0.002824655966833234,
+      "B_plus_C_rms": 0.0028527395334094763,
+      "cosine_A_plus_B_B_plus_C": 0.9983868598937988,
+      "cosine_B_only_A_plus_B": 0.9993637204170227,
+      "cosine_B_only_B_plus_C": 0.9986190795898438,
+      "layer": "model.layers.24.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007338682189583778,
+      "B_only_rms": 0.0006387953762896359,
+      "B_plus_C_rms": 0.000663973216433078,
+      "cosine_A_plus_B_B_plus_C": 0.9999299049377441,
+      "cosine_B_only_A_plus_B": 0.9993720650672913,
+      "cosine_B_only_B_plus_C": 0.9991614818572998,
+      "layer": "model.layers.24.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002443857491016388,
+      "B_only_rms": 0.0023558896500617266,
+      "B_plus_C_rms": 0.0024545358028262854,
+      "cosine_A_plus_B_B_plus_C": 0.9955996870994568,
+      "cosine_B_only_A_plus_B": 0.9995298981666565,
+      "cosine_B_only_B_plus_C": 0.9958435297012329,
+      "layer": "model.layers.24.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0030060962308198214,
+      "B_only_rms": 0.002833316568285227,
+      "B_plus_C_rms": 0.003007904626429081,
+      "cosine_A_plus_B_B_plus_C": 0.9999513030052185,
+      "cosine_B_only_A_plus_B": 0.9984052777290344,
+      "cosine_B_only_B_plus_C": 0.9983958005905151,
+      "layer": "model.layers.24.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007900979253463447,
+      "B_only_rms": 0.000640939746517688,
+      "B_plus_C_rms": 0.000768405559938401,
+      "cosine_A_plus_B_B_plus_C": 0.9997982382774353,
+      "cosine_B_only_A_plus_B": 0.999574601650238,
+      "cosine_B_only_B_plus_C": 0.9995148777961731,
+      "layer": "model.layers.25.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002471635118126869,
+      "B_only_rms": 0.0022763058077543974,
+      "B_plus_C_rms": 0.0024663519579917192,
+      "cosine_A_plus_B_B_plus_C": 0.9995778799057007,
+      "cosine_B_only_A_plus_B": 0.9995778203010559,
+      "cosine_B_only_B_plus_C": 0.9992718696594238,
+      "layer": "model.layers.25.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0010960496729239821,
+      "B_only_rms": 0.0009054586407728493,
+      "B_plus_C_rms": 0.0010876752203330398,
+      "cosine_A_plus_B_B_plus_C": 0.9989938735961914,
+      "cosine_B_only_A_plus_B": 0.9980584979057312,
+      "cosine_B_only_B_plus_C": 0.9976418018341064,
+      "layer": "model.layers.25.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001160624553449452,
+      "B_only_rms": 0.0013382370816543698,
+      "B_plus_C_rms": 0.0011144853197038174,
+      "cosine_A_plus_B_B_plus_C": 0.9910467267036438,
+      "cosine_B_only_A_plus_B": 0.9863547086715698,
+      "cosine_B_only_B_plus_C": 0.98404461145401,
+      "layer": "model.layers.25.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006472667446359992,
+      "B_only_rms": 0.0005437943618744612,
+      "B_plus_C_rms": 0.0005926055018790066,
+      "cosine_A_plus_B_B_plus_C": 0.9998809099197388,
+      "cosine_B_only_A_plus_B": 0.9995665550231934,
+      "cosine_B_only_B_plus_C": 0.9995673894882202,
+      "layer": "model.layers.25.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002800962422043085,
+      "B_only_rms": 0.0030264658853411674,
+      "B_plus_C_rms": 0.0029800531920045614,
+      "cosine_A_plus_B_B_plus_C": 0.9991632699966431,
+      "cosine_B_only_A_plus_B": 0.9996334910392761,
+      "cosine_B_only_B_plus_C": 0.9996861815452576,
+      "layer": "model.layers.25.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0034542849753051996,
+      "B_only_rms": 0.0031308098696172237,
+      "B_plus_C_rms": 0.0037566551472991705,
+      "cosine_A_plus_B_B_plus_C": 0.9997408986091614,
+      "cosine_B_only_A_plus_B": 0.9997613430023193,
+      "cosine_B_only_B_plus_C": 0.9993529915809631,
+      "layer": "model.layers.25.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0012827031314373016,
+      "B_only_rms": 0.0011725215008482337,
+      "B_plus_C_rms": 0.0013397797010838985,
+      "cosine_A_plus_B_B_plus_C": 0.9999792575836182,
+      "cosine_B_only_A_plus_B": 0.9997144341468811,
+      "cosine_B_only_B_plus_C": 0.9997449517250061,
+      "layer": "model.layers.26.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0013647271553054452,
+      "B_only_rms": 0.0010965405963361263,
+      "B_plus_C_rms": 0.0015236668987199664,
+      "cosine_A_plus_B_B_plus_C": 0.9958720803260803,
+      "cosine_B_only_A_plus_B": 0.9977068305015564,
+      "cosine_B_only_B_plus_C": 0.9890453815460205,
+      "layer": "model.layers.26.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001480634557083249,
+      "B_only_rms": 0.0011640097945928574,
+      "B_plus_C_rms": 0.0013517136685550213,
+      "cosine_A_plus_B_B_plus_C": 0.9969771504402161,
+      "cosine_B_only_A_plus_B": 0.999152421951294,
+      "cosine_B_only_B_plus_C": 0.9973806738853455,
+      "layer": "model.layers.26.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002002628520131111,
+      "B_only_rms": 0.0017607725458219647,
+      "B_plus_C_rms": 0.0019868069794028997,
+      "cosine_A_plus_B_B_plus_C": 0.9917968511581421,
+      "cosine_B_only_A_plus_B": 0.9899048805236816,
+      "cosine_B_only_B_plus_C": 0.9808040857315063,
+      "layer": "model.layers.26.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005515036755241454,
+      "B_only_rms": 0.0005663419724442065,
+      "B_plus_C_rms": 0.0005600745207630098,
+      "cosine_A_plus_B_B_plus_C": 0.9962366819381714,
+      "cosine_B_only_A_plus_B": 0.9980235695838928,
+      "cosine_B_only_B_plus_C": 0.9995185732841492,
+      "layer": "model.layers.26.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002953997580334544,
+      "B_only_rms": 0.002483792370185256,
+      "B_plus_C_rms": 0.0027727754786610603,
+      "cosine_A_plus_B_B_plus_C": 0.9991453289985657,
+      "cosine_B_only_A_plus_B": 0.998730480670929,
+      "cosine_B_only_B_plus_C": 0.9995253682136536,
+      "layer": "model.layers.26.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0040582939982414246,
+      "B_only_rms": 0.003723638830706477,
+      "B_plus_C_rms": 0.004101193509995937,
+      "cosine_A_plus_B_B_plus_C": 0.999969482421875,
+      "cosine_B_only_A_plus_B": 0.9998345971107483,
+      "cosine_B_only_B_plus_C": 0.999885082244873,
+      "layer": "model.layers.26.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0016031486447900534,
+      "B_only_rms": 0.001525921979919076,
+      "B_plus_C_rms": 0.001609858009032905,
+      "cosine_A_plus_B_B_plus_C": 0.9999798536300659,
+      "cosine_B_only_A_plus_B": 0.9999653100967407,
+      "cosine_B_only_B_plus_C": 0.9999834299087524,
+      "layer": "model.layers.27.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0019194628112018108,
+      "B_only_rms": 0.0018606672529131174,
+      "B_plus_C_rms": 0.0019900554325431585,
+      "cosine_A_plus_B_B_plus_C": 0.9966408610343933,
+      "cosine_B_only_A_plus_B": 0.9991469383239746,
+      "cosine_B_only_B_plus_C": 0.9965118765830994,
+      "layer": "model.layers.27.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.003023920115083456,
+      "B_only_rms": 0.00276780454441905,
+      "B_plus_C_rms": 0.0029968121089041233,
+      "cosine_A_plus_B_B_plus_C": 0.999489963054657,
+      "cosine_B_only_A_plus_B": 0.999556303024292,
+      "cosine_B_only_B_plus_C": 0.9999659061431885,
+      "layer": "model.layers.27.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.005826157983392477,
+      "B_only_rms": 0.005133234895765781,
+      "B_plus_C_rms": 0.005757089704275131,
+      "cosine_A_plus_B_B_plus_C": 0.9998667240142822,
+      "cosine_B_only_A_plus_B": 0.9998225569725037,
+      "cosine_B_only_B_plus_C": 0.9998904466629028,
+      "layer": "model.layers.27.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0009470294462516904,
+      "B_only_rms": 0.0008877826621755958,
+      "B_plus_C_rms": 0.0009194898884743452,
+      "cosine_A_plus_B_B_plus_C": 0.9998964071273804,
+      "cosine_B_only_A_plus_B": 0.9999578595161438,
+      "cosine_B_only_B_plus_C": 0.9999448657035828,
+      "layer": "model.layers.27.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.004451374989002943,
+      "B_only_rms": 0.0038580521941184998,
+      "B_plus_C_rms": 0.004232130944728851,
+      "cosine_A_plus_B_B_plus_C": 0.9980989098548889,
+      "cosine_B_only_A_plus_B": 0.9985640645027161,
+      "cosine_B_only_B_plus_C": 0.9991430640220642,
+      "layer": "model.layers.27.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0033408321905881166,
+      "B_only_rms": 0.0029997106175869703,
+      "B_plus_C_rms": 0.003120390698313713,
+      "cosine_A_plus_B_B_plus_C": 0.9994810819625854,
+      "cosine_B_only_A_plus_B": 0.999559760093689,
+      "cosine_B_only_B_plus_C": 0.9998626112937927,
+      "layer": "model.layers.27.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0026079011149704456,
+      "B_only_rms": 0.002486097626388073,
+      "B_plus_C_rms": 0.002543437760323286,
+      "cosine_A_plus_B_B_plus_C": 0.9999397993087769,
+      "cosine_B_only_A_plus_B": 0.9999673962593079,
+      "cosine_B_only_B_plus_C": 0.999876856803894,
+      "layer": "model.layers.28.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002928549889475107,
+      "B_only_rms": 0.00265466864220798,
+      "B_plus_C_rms": 0.003166499547660351,
+      "cosine_A_plus_B_B_plus_C": 0.9993088245391846,
+      "cosine_B_only_A_plus_B": 0.9997270703315735,
+      "cosine_B_only_B_plus_C": 0.9982699751853943,
+      "layer": "model.layers.28.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002411042107269168,
+      "B_only_rms": 0.002112795365974307,
+      "B_plus_C_rms": 0.0023681065067648888,
+      "cosine_A_plus_B_B_plus_C": 0.9949333667755127,
+      "cosine_B_only_A_plus_B": 0.998286247253418,
+      "cosine_B_only_B_plus_C": 0.997823178768158,
+      "layer": "model.layers.28.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.01141066662967205,
+      "B_only_rms": 0.010159267112612724,
+      "B_plus_C_rms": 0.011047760024666786,
+      "cosine_A_plus_B_B_plus_C": 0.9999563694000244,
+      "cosine_B_only_A_plus_B": 0.9999810457229614,
+      "cosine_B_only_B_plus_C": 0.9999794363975525,
+      "layer": "model.layers.28.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006531928083859384,
+      "B_only_rms": 0.0006190651911310852,
+      "B_plus_C_rms": 0.0007325451006181538,
+      "cosine_A_plus_B_B_plus_C": 0.9985148310661316,
+      "cosine_B_only_A_plus_B": 0.9991121888160706,
+      "cosine_B_only_B_plus_C": 0.9989517331123352,
+      "layer": "model.layers.28.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.010143193416297436,
+      "B_only_rms": 0.008937787264585495,
+      "B_plus_C_rms": 0.009774304926395416,
+      "cosine_A_plus_B_B_plus_C": 0.9999554753303528,
+      "cosine_B_only_A_plus_B": 0.9999392628669739,
+      "cosine_B_only_B_plus_C": 0.9998027086257935,
+      "layer": "model.layers.28.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002737961709499359,
+      "B_only_rms": 0.0025608374271541834,
+      "B_plus_C_rms": 0.0026388021651655436,
+      "cosine_A_plus_B_B_plus_C": 0.9992496967315674,
+      "cosine_B_only_A_plus_B": 0.9989413022994995,
+      "cosine_B_only_B_plus_C": 0.9991369843482971,
+      "layer": "model.layers.28.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.005137491971254349,
+      "B_only_rms": 0.004999846685677767,
+      "B_plus_C_rms": 0.004979679826647043,
+      "cosine_A_plus_B_B_plus_C": 0.9999915957450867,
+      "cosine_B_only_A_plus_B": 0.9999979734420776,
+      "cosine_B_only_B_plus_C": 0.9999862909317017,
+      "layer": "model.layers.29.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.005169453099370003,
+      "B_only_rms": 0.004602388944476843,
+      "B_plus_C_rms": 0.005059095099568367,
+      "cosine_A_plus_B_B_plus_C": 0.9999145865440369,
+      "cosine_B_only_A_plus_B": 0.9999829530715942,
+      "cosine_B_only_B_plus_C": 0.9998465180397034,
+      "layer": "model.layers.29.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.004180421587079763,
+      "B_only_rms": 0.0038240822032094,
+      "B_plus_C_rms": 0.0043461197055876255,
+      "cosine_A_plus_B_B_plus_C": 0.9998366832733154,
+      "cosine_B_only_A_plus_B": 0.9999838471412659,
+      "cosine_B_only_B_plus_C": 0.9999071359634399,
+      "layer": "model.layers.29.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0033506499603390694,
+      "B_only_rms": 0.0032002299558371305,
+      "B_plus_C_rms": 0.0031259499955922365,
+      "cosine_A_plus_B_B_plus_C": 0.9991623163223267,
+      "cosine_B_only_A_plus_B": 0.9995315670967102,
+      "cosine_B_only_B_plus_C": 0.9993786215782166,
+      "layer": "model.layers.29.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007155139464884996,
+      "B_only_rms": 0.0006457507843151689,
+      "B_plus_C_rms": 0.0006786581361666322,
+      "cosine_A_plus_B_B_plus_C": 0.9994308352470398,
+      "cosine_B_only_A_plus_B": 0.9986169934272766,
+      "cosine_B_only_B_plus_C": 0.9988039135932922,
+      "layer": "model.layers.29.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.004219105001538992,
+      "B_only_rms": 0.0039481474086642265,
+      "B_plus_C_rms": 0.004357858560979366,
+      "cosine_A_plus_B_B_plus_C": 0.9989824891090393,
+      "cosine_B_only_A_plus_B": 0.9998341202735901,
+      "cosine_B_only_B_plus_C": 0.9985630512237549,
+      "layer": "model.layers.29.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.004829753655940294,
+      "B_only_rms": 0.004640397150069475,
+      "B_plus_C_rms": 0.004918280057609081,
+      "cosine_A_plus_B_B_plus_C": 0.999340295791626,
+      "cosine_B_only_A_plus_B": 0.9998178482055664,
+      "cosine_B_only_B_plus_C": 0.9987130165100098,
+      "layer": "model.layers.29.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00013356460840441287,
+      "B_only_rms": 0.00012784943100996315,
+      "B_plus_C_rms": 0.00013500620843842626,
+      "cosine_A_plus_B_B_plus_C": 0.9954416751861572,
+      "cosine_B_only_A_plus_B": 0.9992176294326782,
+      "cosine_B_only_B_plus_C": 0.993576169013977,
+      "layer": "model.layers.3.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00035564645077101886,
+      "B_only_rms": 0.0003617573529481888,
+      "B_plus_C_rms": 0.0003735999925993383,
+      "cosine_A_plus_B_B_plus_C": 0.9850597977638245,
+      "cosine_B_only_A_plus_B": 0.998085081577301,
+      "cosine_B_only_B_plus_C": 0.987526535987854,
+      "layer": "model.layers.3.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005279127508401871,
+      "B_only_rms": 0.0005056246882304549,
+      "B_plus_C_rms": 0.0005338132614269853,
+      "cosine_A_plus_B_B_plus_C": 0.995000958442688,
+      "cosine_B_only_A_plus_B": 0.9992851614952087,
+      "cosine_B_only_B_plus_C": 0.9949546456336975,
+      "layer": "model.layers.3.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0006231935112737119,
+      "B_only_rms": 0.0005357696791179478,
+      "B_plus_C_rms": 0.0006751961773261428,
+      "cosine_A_plus_B_B_plus_C": 0.9934821128845215,
+      "cosine_B_only_A_plus_B": 0.9918225407600403,
+      "cosine_B_only_B_plus_C": 0.9755385518074036,
+      "layer": "model.layers.3.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 5.574685928877443e-05,
+      "B_only_rms": 6.192731962073594e-05,
+      "B_plus_C_rms": 6.873544043628499e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9609720706939697,
+      "cosine_B_only_A_plus_B": 0.9809373617172241,
+      "cosine_B_only_B_plus_C": 0.9638590812683105,
+      "layer": "model.layers.3.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.000954766699578613,
+      "B_only_rms": 0.0009723430848680437,
+      "B_plus_C_rms": 0.0009191674180328846,
+      "cosine_A_plus_B_B_plus_C": 0.9936989545822144,
+      "cosine_B_only_A_plus_B": 0.993116021156311,
+      "cosine_B_only_B_plus_C": 0.991497278213501,
+      "layer": "model.layers.3.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00048524828162044287,
+      "B_only_rms": 0.0004768960061483085,
+      "B_plus_C_rms": 0.0006080291932448745,
+      "cosine_A_plus_B_B_plus_C": 0.9890766739845276,
+      "cosine_B_only_A_plus_B": 0.9957044124603271,
+      "cosine_B_only_B_plus_C": 0.9836632013320923,
+      "layer": "model.layers.3.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.014484682120382786,
+      "B_only_rms": 0.014247095212340355,
+      "B_plus_C_rms": 0.01418315339833498,
+      "cosine_A_plus_B_B_plus_C": 0.9999986290931702,
+      "cosine_B_only_A_plus_B": 0.9999968409538269,
+      "cosine_B_only_B_plus_C": 0.9999959468841553,
+      "layer": "model.layers.30.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.004378435667604208,
+      "B_only_rms": 0.004290677607059479,
+      "B_plus_C_rms": 0.004357233177870512,
+      "cosine_A_plus_B_B_plus_C": 0.9995632767677307,
+      "cosine_B_only_A_plus_B": 0.9999099969863892,
+      "cosine_B_only_B_plus_C": 0.9998010396957397,
+      "layer": "model.layers.30.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.004565820097923279,
+      "B_only_rms": 0.004119215067476034,
+      "B_plus_C_rms": 0.004462864249944687,
+      "cosine_A_plus_B_B_plus_C": 0.9995997548103333,
+      "cosine_B_only_A_plus_B": 0.9999487400054932,
+      "cosine_B_only_B_plus_C": 0.9998075366020203,
+      "layer": "model.layers.30.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.004382750019431114,
+      "B_only_rms": 0.004085754510015249,
+      "B_plus_C_rms": 0.004606695845723152,
+      "cosine_A_plus_B_B_plus_C": 0.9988095164299011,
+      "cosine_B_only_A_plus_B": 0.9994474053382874,
+      "cosine_B_only_B_plus_C": 0.9975674152374268,
+      "layer": "model.layers.30.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002149804960936308,
+      "B_only_rms": 0.0020997170358896255,
+      "B_plus_C_rms": 0.0021277822088450193,
+      "cosine_A_plus_B_B_plus_C": 0.9995853304862976,
+      "cosine_B_only_A_plus_B": 0.9999845027923584,
+      "cosine_B_only_B_plus_C": 0.9997031092643738,
+      "layer": "model.layers.30.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0057410020381212234,
+      "B_only_rms": 0.005415965337306261,
+      "B_plus_C_rms": 0.005433682352304459,
+      "cosine_A_plus_B_B_plus_C": 0.9998157620429993,
+      "cosine_B_only_A_plus_B": 0.9995478987693787,
+      "cosine_B_only_B_plus_C": 0.9993084073066711,
+      "layer": "model.layers.30.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0034652056638151407,
+      "B_only_rms": 0.003474515164270997,
+      "B_plus_C_rms": 0.003430495038628578,
+      "cosine_A_plus_B_B_plus_C": 0.9957351684570312,
+      "cosine_B_only_A_plus_B": 0.9994775652885437,
+      "cosine_B_only_B_plus_C": 0.9973520636558533,
+      "layer": "model.layers.30.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.016911542043089867,
+      "B_only_rms": 0.01692325249314308,
+      "B_plus_C_rms": 0.016129400581121445,
+      "cosine_A_plus_B_B_plus_C": 0.9999956488609314,
+      "cosine_B_only_A_plus_B": 0.9999949336051941,
+      "cosine_B_only_B_plus_C": 0.999998927116394,
+      "layer": "model.layers.31.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.006545588374137878,
+      "B_only_rms": 0.006022680085152388,
+      "B_plus_C_rms": 0.0064541795291006565,
+      "cosine_A_plus_B_B_plus_C": 0.9998500347137451,
+      "cosine_B_only_A_plus_B": 0.999963104724884,
+      "cosine_B_only_B_plus_C": 0.9999313950538635,
+      "layer": "model.layers.31.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.005255751311779022,
+      "B_only_rms": 0.005035958252847195,
+      "B_plus_C_rms": 0.0051925512962043285,
+      "cosine_A_plus_B_B_plus_C": 0.999703586101532,
+      "cosine_B_only_A_plus_B": 0.9999153017997742,
+      "cosine_B_only_B_plus_C": 0.9994781017303467,
+      "layer": "model.layers.31.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.005043954122811556,
+      "B_only_rms": 0.005140145309269428,
+      "B_plus_C_rms": 0.005072278901934624,
+      "cosine_A_plus_B_B_plus_C": 0.9996376633644104,
+      "cosine_B_only_A_plus_B": 0.9992074966430664,
+      "cosine_B_only_B_plus_C": 0.9993442296981812,
+      "layer": "model.layers.31.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.005189431831240654,
+      "B_only_rms": 0.004977148026227951,
+      "B_plus_C_rms": 0.004815987776964903,
+      "cosine_A_plus_B_B_plus_C": 0.9999377131462097,
+      "cosine_B_only_A_plus_B": 0.9999430179595947,
+      "cosine_B_only_B_plus_C": 0.9999983310699463,
+      "layer": "model.layers.31.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.007671535015106201,
+      "B_only_rms": 0.006899259518831968,
+      "B_plus_C_rms": 0.007410192862153053,
+      "cosine_A_plus_B_B_plus_C": 0.9999493360519409,
+      "cosine_B_only_A_plus_B": 0.9999579787254333,
+      "cosine_B_only_B_plus_C": 0.9999160170555115,
+      "layer": "model.layers.31.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.007034653797745705,
+      "B_only_rms": 0.006497647613286972,
+      "B_plus_C_rms": 0.006740099750459194,
+      "cosine_A_plus_B_B_plus_C": 0.9998254179954529,
+      "cosine_B_only_A_plus_B": 0.999950647354126,
+      "cosine_B_only_B_plus_C": 0.9996888041496277,
+      "layer": "model.layers.31.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00012077402789145708,
+      "B_only_rms": 0.00010824591299751773,
+      "B_plus_C_rms": 0.00011455264029791579,
+      "cosine_A_plus_B_B_plus_C": 0.9958208203315735,
+      "cosine_B_only_A_plus_B": 0.998039186000824,
+      "cosine_B_only_B_plus_C": 0.9901620149612427,
+      "layer": "model.layers.4.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005925667355768383,
+      "B_only_rms": 0.0005741107743233442,
+      "B_plus_C_rms": 0.000542268855497241,
+      "cosine_A_plus_B_B_plus_C": 0.9931069612503052,
+      "cosine_B_only_A_plus_B": 0.9986010193824768,
+      "cosine_B_only_B_plus_C": 0.9933005571365356,
+      "layer": "model.layers.4.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007698266999796033,
+      "B_only_rms": 0.0007133084582164884,
+      "B_plus_C_rms": 0.000716411741450429,
+      "cosine_A_plus_B_B_plus_C": 0.9991263151168823,
+      "cosine_B_only_A_plus_B": 0.9966110587120056,
+      "cosine_B_only_B_plus_C": 0.9941370487213135,
+      "layer": "model.layers.4.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007072118460200727,
+      "B_only_rms": 0.0006875474355183542,
+      "B_plus_C_rms": 0.0006590664852410555,
+      "cosine_A_plus_B_B_plus_C": 0.982408344745636,
+      "cosine_B_only_A_plus_B": 0.9939486980438232,
+      "cosine_B_only_B_plus_C": 0.960060179233551,
+      "layer": "model.layers.4.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00010445384396007285,
+      "B_only_rms": 0.00010427639790577814,
+      "B_plus_C_rms": 0.00011374440509825945,
+      "cosine_A_plus_B_B_plus_C": 0.9716349840164185,
+      "cosine_B_only_A_plus_B": 0.9983366131782532,
+      "cosine_B_only_B_plus_C": 0.9752041101455688,
+      "layer": "model.layers.4.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005337415495887399,
+      "B_only_rms": 0.0005079362890683115,
+      "B_plus_C_rms": 0.0005042177508585155,
+      "cosine_A_plus_B_B_plus_C": 0.9963590502738953,
+      "cosine_B_only_A_plus_B": 0.9847449064254761,
+      "cosine_B_only_B_plus_C": 0.9796156883239746,
+      "layer": "model.layers.4.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007181084947660565,
+      "B_only_rms": 0.0007723940070718527,
+      "B_plus_C_rms": 0.0006332976627163589,
+      "cosine_A_plus_B_B_plus_C": 0.99882572889328,
+      "cosine_B_only_A_plus_B": 0.9994367361068726,
+      "cosine_B_only_B_plus_C": 0.9985851645469666,
+      "layer": "model.layers.4.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00013287174806464463,
+      "B_only_rms": 0.0001106410491047427,
+      "B_plus_C_rms": 0.0001262440491700545,
+      "cosine_A_plus_B_B_plus_C": 0.9980082511901855,
+      "cosine_B_only_A_plus_B": 0.9944251775741577,
+      "cosine_B_only_B_plus_C": 0.9912649989128113,
+      "layer": "model.layers.5.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0004088708374183625,
+      "B_only_rms": 0.0003966873628087342,
+      "B_plus_C_rms": 0.00043964965152554214,
+      "cosine_A_plus_B_B_plus_C": 0.9862761497497559,
+      "cosine_B_only_A_plus_B": 0.9847220778465271,
+      "cosine_B_only_B_plus_C": 0.9578614830970764,
+      "layer": "model.layers.5.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005320727359503508,
+      "B_only_rms": 0.0005481023690663278,
+      "B_plus_C_rms": 0.0004995561903342605,
+      "cosine_A_plus_B_B_plus_C": 0.9967524409294128,
+      "cosine_B_only_A_plus_B": 0.9938940405845642,
+      "cosine_B_only_B_plus_C": 0.9909839630126953,
+      "layer": "model.layers.5.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0014723732601851225,
+      "B_only_rms": 0.0013990226434543729,
+      "B_plus_C_rms": 0.0015249624848365784,
+      "cosine_A_plus_B_B_plus_C": 0.9968225955963135,
+      "cosine_B_only_A_plus_B": 0.9987853765487671,
+      "cosine_B_only_B_plus_C": 0.9928361177444458,
+      "layer": "model.layers.5.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.000129110281704925,
+      "B_only_rms": 0.00014448775618802756,
+      "B_plus_C_rms": 0.00012201826029922813,
+      "cosine_A_plus_B_B_plus_C": 0.9947721362113953,
+      "cosine_B_only_A_plus_B": 0.9973813891410828,
+      "cosine_B_only_B_plus_C": 0.9946051836013794,
+      "layer": "model.layers.5.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007379151647910476,
+      "B_only_rms": 0.0007053376757539809,
+      "B_plus_C_rms": 0.0008793232263997197,
+      "cosine_A_plus_B_B_plus_C": 0.9937917590141296,
+      "cosine_B_only_A_plus_B": 0.995459794998169,
+      "cosine_B_only_B_plus_C": 0.9800049662590027,
+      "layer": "model.layers.5.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0012251186417415738,
+      "B_only_rms": 0.0011927252635359764,
+      "B_plus_C_rms": 0.0011151768267154694,
+      "cosine_A_plus_B_B_plus_C": 0.9989049434661865,
+      "cosine_B_only_A_plus_B": 0.9997261166572571,
+      "cosine_B_only_B_plus_C": 0.9983763694763184,
+      "layer": "model.layers.5.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 3.404367089387961e-05,
+      "B_only_rms": 3.6496901884675026e-05,
+      "B_plus_C_rms": 2.1549025404965505e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9698280096054077,
+      "cosine_B_only_A_plus_B": 0.8407451510429382,
+      "cosine_B_only_B_plus_C": 0.854065477848053,
+      "layer": "model.layers.6.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008160202414728701,
+      "B_only_rms": 0.0007662188727408648,
+      "B_plus_C_rms": 0.0008100732229650021,
+      "cosine_A_plus_B_B_plus_C": 0.9945251941680908,
+      "cosine_B_only_A_plus_B": 0.9989602565765381,
+      "cosine_B_only_B_plus_C": 0.9973090291023254,
+      "layer": "model.layers.6.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0004304512112867087,
+      "B_only_rms": 0.0004278338165022433,
+      "B_plus_C_rms": 0.00040332204662263393,
+      "cosine_A_plus_B_B_plus_C": 0.938069760799408,
+      "cosine_B_only_A_plus_B": 0.97919762134552,
+      "cosine_B_only_B_plus_C": 0.8827319145202637,
+      "layer": "model.layers.6.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0013447015080600977,
+      "B_only_rms": 0.0013406581711024046,
+      "B_plus_C_rms": 0.0013311298098415136,
+      "cosine_A_plus_B_B_plus_C": 0.9969804286956787,
+      "cosine_B_only_A_plus_B": 0.9959806799888611,
+      "cosine_B_only_B_plus_C": 0.9924773573875427,
+      "layer": "model.layers.6.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00027602046611718833,
+      "B_only_rms": 0.0002620144805405289,
+      "B_plus_C_rms": 0.00024431649944745004,
+      "cosine_A_plus_B_B_plus_C": 0.9977986216545105,
+      "cosine_B_only_A_plus_B": 0.999626874923706,
+      "cosine_B_only_B_plus_C": 0.9964598417282104,
+      "layer": "model.layers.6.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.002572801196947694,
+      "B_only_rms": 0.0023743680212646723,
+      "B_plus_C_rms": 0.0026431726291775703,
+      "cosine_A_plus_B_B_plus_C": 0.9987753629684448,
+      "cosine_B_only_A_plus_B": 0.9987489581108093,
+      "cosine_B_only_B_plus_C": 0.9956772923469543,
+      "layer": "model.layers.6.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007491002324968576,
+      "B_only_rms": 0.0007031217101030052,
+      "B_plus_C_rms": 0.0008069300674833357,
+      "cosine_A_plus_B_B_plus_C": 0.9897570013999939,
+      "cosine_B_only_A_plus_B": 0.996344804763794,
+      "cosine_B_only_B_plus_C": 0.9932564496994019,
+      "layer": "model.layers.6.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 7.43783893994987e-05,
+      "B_only_rms": 7.550100417574868e-05,
+      "B_plus_C_rms": 6.651868898188695e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9806531071662903,
+      "cosine_B_only_A_plus_B": 0.9710184335708618,
+      "cosine_B_only_B_plus_C": 0.9308837652206421,
+      "layer": "model.layers.7.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008231504471041262,
+      "B_only_rms": 0.0007420644978992641,
+      "B_plus_C_rms": 0.000829485128633678,
+      "cosine_A_plus_B_B_plus_C": 0.9990800023078918,
+      "cosine_B_only_A_plus_B": 0.9963589906692505,
+      "cosine_B_only_B_plus_C": 0.996877908706665,
+      "layer": "model.layers.7.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0011357219191268086,
+      "B_only_rms": 0.0010969034628942609,
+      "B_plus_C_rms": 0.00115159060806036,
+      "cosine_A_plus_B_B_plus_C": 0.9992130994796753,
+      "cosine_B_only_A_plus_B": 0.9975854754447937,
+      "cosine_B_only_B_plus_C": 0.9975628852844238,
+      "layer": "model.layers.7.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007514343014918268,
+      "B_only_rms": 0.0007414406281895936,
+      "B_plus_C_rms": 0.0007101757801137865,
+      "cosine_A_plus_B_B_plus_C": 0.9921848773956299,
+      "cosine_B_only_A_plus_B": 0.9980427026748657,
+      "cosine_B_only_B_plus_C": 0.9920894503593445,
+      "layer": "model.layers.7.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00014383015513885766,
+      "B_only_rms": 0.0001443263317923993,
+      "B_plus_C_rms": 0.00012067225179634988,
+      "cosine_A_plus_B_B_plus_C": 0.9780513644218445,
+      "cosine_B_only_A_plus_B": 0.9864058494567871,
+      "cosine_B_only_B_plus_C": 0.9912346601486206,
+      "layer": "model.layers.7.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00037865425110794604,
+      "B_only_rms": 0.0004564902628771961,
+      "B_plus_C_rms": 0.00047804645146243274,
+      "cosine_A_plus_B_B_plus_C": 0.9695433378219604,
+      "cosine_B_only_A_plus_B": 0.919956386089325,
+      "cosine_B_only_B_plus_C": 0.9178763031959534,
+      "layer": "model.layers.7.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0010377105791121721,
+      "B_only_rms": 0.0010325764305889606,
+      "B_plus_C_rms": 0.0008695990545675159,
+      "cosine_A_plus_B_B_plus_C": 0.996964156627655,
+      "cosine_B_only_A_plus_B": 0.9958062171936035,
+      "cosine_B_only_B_plus_C": 0.9910596609115601,
+      "layer": "model.layers.7.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 4.998852455173619e-05,
+      "B_only_rms": 3.5408018447924405e-05,
+      "B_plus_C_rms": 5.4556083341594785e-05,
+      "cosine_A_plus_B_B_plus_C": 0.9518296718597412,
+      "cosine_B_only_A_plus_B": 0.938732922077179,
+      "cosine_B_only_B_plus_C": 0.8726564049720764,
+      "layer": "model.layers.8.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0004755212285090238,
+      "B_only_rms": 0.0004639596154447645,
+      "B_plus_C_rms": 0.000478982285130769,
+      "cosine_A_plus_B_B_plus_C": 0.9732919931411743,
+      "cosine_B_only_A_plus_B": 0.9800515174865723,
+      "cosine_B_only_B_plus_C": 0.9895041584968567,
+      "layer": "model.layers.8.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005049607716500759,
+      "B_only_rms": 0.0005153061356395483,
+      "B_plus_C_rms": 0.0005082227289676666,
+      "cosine_A_plus_B_B_plus_C": 0.9943668246269226,
+      "cosine_B_only_A_plus_B": 0.9924107789993286,
+      "cosine_B_only_B_plus_C": 0.9815106987953186,
+      "layer": "model.layers.8.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005602958844974637,
+      "B_only_rms": 0.0005972943617962301,
+      "B_plus_C_rms": 0.0004944517277181149,
+      "cosine_A_plus_B_B_plus_C": 0.9872483611106873,
+      "cosine_B_only_A_plus_B": 0.9961943626403809,
+      "cosine_B_only_B_plus_C": 0.9729555249214172,
+      "layer": "model.layers.8.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00015978438023012131,
+      "B_only_rms": 0.00013488902186509222,
+      "B_plus_C_rms": 0.00015173040446825325,
+      "cosine_A_plus_B_B_plus_C": 0.9961456656455994,
+      "cosine_B_only_A_plus_B": 0.9877126812934875,
+      "cosine_B_only_B_plus_C": 0.9928181171417236,
+      "layer": "model.layers.8.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005764722009189427,
+      "B_only_rms": 0.0005450774333439767,
+      "B_plus_C_rms": 0.000605594483204186,
+      "cosine_A_plus_B_B_plus_C": 0.986054003238678,
+      "cosine_B_only_A_plus_B": 0.9754801392555237,
+      "cosine_B_only_B_plus_C": 0.9502167701721191,
+      "layer": "model.layers.8.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001072413637302816,
+      "B_only_rms": 0.0010375769343227148,
+      "B_plus_C_rms": 0.0009337310330010951,
+      "cosine_A_plus_B_B_plus_C": 0.9814123511314392,
+      "cosine_B_only_A_plus_B": 0.9978134632110596,
+      "cosine_B_only_B_plus_C": 0.9821258187294006,
+      "layer": "model.layers.8.self_attn.v_proj"
+    },
+    {
+      "A_plus_B_rms": 9.600354678696021e-05,
+      "B_only_rms": 7.836949953343719e-05,
+      "B_plus_C_rms": 9.309913002653047e-05,
+      "cosine_A_plus_B_B_plus_C": 0.991860568523407,
+      "cosine_B_only_A_plus_B": 0.9868994951248169,
+      "cosine_B_only_B_plus_C": 0.9952499270439148,
+      "layer": "model.layers.9.mlp.down_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007122932584024966,
+      "B_only_rms": 0.000698271207511425,
+      "B_plus_C_rms": 0.0007217290694825351,
+      "cosine_A_plus_B_B_plus_C": 0.992936909198761,
+      "cosine_B_only_A_plus_B": 0.9985048174858093,
+      "cosine_B_only_B_plus_C": 0.9950148463249207,
+      "layer": "model.layers.9.mlp.gate_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0005044230492785573,
+      "B_only_rms": 0.00048229607637040317,
+      "B_plus_C_rms": 0.000525070121511817,
+      "cosine_A_plus_B_B_plus_C": 0.9955117106437683,
+      "cosine_B_only_A_plus_B": 0.9965009689331055,
+      "cosine_B_only_B_plus_C": 0.9937377572059631,
+      "layer": "model.layers.9.mlp.up_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0008688016096130013,
+      "B_only_rms": 0.0007680715643800795,
+      "B_plus_C_rms": 0.0009288076544180512,
+      "cosine_A_plus_B_B_plus_C": 0.9842387437820435,
+      "cosine_B_only_A_plus_B": 0.9965006709098816,
+      "cosine_B_only_B_plus_C": 0.9699802398681641,
+      "layer": "model.layers.9.self_attn.k_proj"
+    },
+    {
+      "A_plus_B_rms": 0.00031457500881515443,
+      "B_only_rms": 0.0003156716702505946,
+      "B_plus_C_rms": 0.0003087690274696797,
+      "cosine_A_plus_B_B_plus_C": 0.998769998550415,
+      "cosine_B_only_A_plus_B": 0.997556209564209,
+      "cosine_B_only_B_plus_C": 0.9981817603111267,
+      "layer": "model.layers.9.self_attn.o_proj"
+    },
+    {
+      "A_plus_B_rms": 0.001574709895066917,
+      "B_only_rms": 0.0014829556457698345,
+      "B_plus_C_rms": 0.0016308515332639217,
+      "cosine_A_plus_B_B_plus_C": 0.9959930777549744,
+      "cosine_B_only_A_plus_B": 0.9992082118988037,
+      "cosine_B_only_B_plus_C": 0.9946243166923523,
+      "layer": "model.layers.9.self_attn.q_proj"
+    },
+    {
+      "A_plus_B_rms": 0.0007144279661588371,
+      "B_only_rms": 0.000696771836373955,
+      "B_plus_C_rms": 0.0007396439905278385,
+      "cosine_A_plus_B_B_plus_C": 0.997427761554718,
+      "cosine_B_only_A_plus_B": 0.9985727071762085,
+      "cosine_B_only_B_plus_C": 0.9963827729225159,
+      "layer": "model.layers.9.self_attn.v_proj"
+    }
+  ],
+  "samples_per_dataset": 16,
+  "summary": {
+    "cosine_A_plus_B_B_plus_C": {
+      "mean": 0.9914458183837789,
+      "median": 0.9967262148857117
+    },
+    "cosine_B_only_A_plus_B": {
+      "mean": 0.9938102388488395,
+      "median": 0.9980409443378448
+    },
+    "cosine_B_only_B_plus_C": {
+      "mean": 0.9870984804417405,
+      "median": 0.9948238432407379
+    }
+  }
+}

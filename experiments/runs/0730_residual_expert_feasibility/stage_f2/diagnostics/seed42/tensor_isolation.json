@@ -1,0 +1,13 @@
+{
+  "after_checkpoint": "/data/ckpt/zhaozhuofan/compose/residual_feasibility_v1/seed42/residual_b",
+  "before_checkpoint": "/data/ckpt/zhaozhuofan/compose/residual_feasibility_v1/seed42/expert_a",
+  "exactly_equal": true,
+  "experts": [
+    {
+      "exactly_equal": true,
+      "expert_id": 0,
+      "sha256": "403b3d2d6dd93b565d52ad41ad70d3b33e39179a66613ff76eba7f39ed27029a",
+      "tensor_count": 448
+    }
+  ]
+}
