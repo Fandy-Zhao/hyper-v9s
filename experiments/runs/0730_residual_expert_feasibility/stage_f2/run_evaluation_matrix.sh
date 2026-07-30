@@ -5,7 +5,9 @@ STAGE="${ROOT}/experiments/runs/0730_residual_expert_feasibility/stage_f2"
 EVAL_VARIANT="evaluation_v2"
 export EVAL_VARIANT
 until [[ -f "${STAGE}/training/matrix_complete_utc.txt" ]]; do sleep 20; done
-bash "${STAGE}/run_diagnostics.sh"
+if [[ ! -f "${STAGE}/diagnostics/complete_utc.txt" ]]; then
+  bash "${STAGE}/run_diagnostics.sh"
+fi
 for seed in 42 43 44; do bash "${STAGE}/assemble_seed.sh" "${seed}"; done
 
 jobs=()
