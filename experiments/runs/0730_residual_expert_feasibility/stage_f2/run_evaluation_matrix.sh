@@ -33,4 +33,12 @@ worker() {
 }
 for gpu in 0 1 2 3 4 5 6 7; do worker "${gpu}" & pids[$gpu]="$!"; done
 for pid in "${pids[@]}"; do wait "${pid}"; done
+python_module="/home/zhaozhuofan/miniconda3/envs/hyper/bin/python"
+"${python_module}" -m compose.eval.summarize_controlled \
+  --evaluation-root "${STAGE}/evaluation" \
+  --output-file "${STAGE}/final_summary.json" \
+  --failure-file "${STAGE}/failure_cases.json" \
+  > "${STAGE}/summarize.log" 2>&1
+sha256sum "${STAGE}/final_summary.json" "${STAGE}/failure_cases.json" \
+  > "${STAGE}/evaluation_SHA256SUMS"
 date -u +%FT%TZ > "${STAGE}/evaluation/matrix_complete_utc.txt"
