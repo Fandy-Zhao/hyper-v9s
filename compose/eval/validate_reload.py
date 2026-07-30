@@ -20,10 +20,10 @@ def _git_commit() -> str:
     return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 
 
-def _fixed_logits(args, record):
+def _fixed_logits(args, record, checkpoint_dir):
     loader_kwargs = {
         "model_path": args.model_path,
-        "checkpoint_dir": args.checkpoint_dir,
+        "checkpoint_dir": checkpoint_dir,
         "vision_tower": args.vision_tower,
         "projector_path": args.projector_path,
         "device": args.device,
@@ -70,6 +70,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--checkpoint-dir", required=True)
+    parser.add_argument("--comparison-checkpoint-dir")
     parser.add_argument("--projector-path", required=True)
     parser.add_argument("--vision-tower", required=True)
     parser.add_argument("--question-file", required=True)
@@ -88,8 +89,9 @@ def main() -> None:
     with open(args.question_file, "r", encoding="utf-8") as handle:
         records = json.load(handle)
     record = records[args.sample_index]
-    first, first_summary = _fixed_logits(args, record)
-    second, second_summary = _fixed_logits(args, record)
+    comparison_checkpoint = args.comparison_checkpoint_dir or args.checkpoint_dir
+    first, first_summary = _fixed_logits(args, record, args.checkpoint_dir)
+    second, second_summary = _fixed_logits(args, record, comparison_checkpoint)
     max_abs = (first - second).abs().max().item()
     if not torch.equal(first, second):
         raise AssertionError(
@@ -98,6 +100,7 @@ def main() -> None:
     digest = hashlib.sha256(first.numpy().tobytes()).hexdigest()
     result = {
         "checkpoint": args.checkpoint_dir,
+        "comparison_checkpoint": comparison_checkpoint,
         "adapter_kind": args.adapter_kind,
         "command": sys.argv,
         "git_commit": _git_commit(),

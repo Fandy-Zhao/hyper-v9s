@@ -13,6 +13,7 @@ class ExpertStatus(str, Enum):
 class ExpertMetadata:
     expert_id: int
     name: str
+    origin_task_id: Optional[str] = None
     status: ExpertStatus = ExpertStatus.REGISTERED
     source_checkpoint: Optional[str] = None
     trained_steps: int = 0

@@ -8,6 +8,7 @@ import torch
 from compose.adapters import ExpertManager, inject_compose_adapters
 from compose.config import ComposeAdapterConfig
 from compose.experts import ExpertPool, load_expert_checkpoint, save_expert_checkpoint
+from compose.experts.verify_isolation import verify_expert_isolation
 from test_injection import TinyModel
 
 
@@ -36,7 +37,12 @@ class CheckpointTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             checkpoint_path = Path(directory)
             source_model, source = _model_and_pool()
-            source.register(3, name="image-net-r", tags=["task1"])
+            source.register(
+                3,
+                name="image-net-r",
+                origin_task_id="ucit-imagenet-r",
+                tags=["task1"],
+            )
             source.mark_steps(3, 2)
             for layer in source.manager.layers.values():
                 with torch.no_grad():
@@ -59,6 +65,7 @@ class CheckpointTest(unittest.TestCase):
             self.assertGreater(manifest["metrics"]["checkpoint_bytes"], 0)
             self.assertEqual(manifest["load_summary"]["loaded_tensor_count"], 448)
             self.assertEqual(target.get(3).trained_steps, 2)
+            self.assertEqual(target.get(3).origin_task_id, "ucit-imagenet-r")
             self.assertEqual(target.get(3).tags, ["task1"])
             torch.testing.assert_close(target_output, source_output)
             with open(checkpoint_path / "compose_experts.json", encoding="utf-8") as handle:
@@ -80,3 +87,18 @@ class CheckpointTest(unittest.TestCase):
                 _, target = _model_and_pool()
                 with self.assertRaisesRegex(ValueError, "keys do not match exactly"):
                     load_expert_checkpoint(target, directory)
+
+    def test_expert_isolation_compares_every_tensor_exactly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            before_path = Path(directory) / "before"
+            after_path = Path(directory) / "after"
+            _, pool = _model_and_pool()
+            pool.register(3, name="first", origin_task_id="task-a")
+            save_expert_checkpoint(pool, str(before_path))
+            pool.register(4, name="second", origin_task_id="task-b")
+            save_expert_checkpoint(pool, str(after_path))
+            result = verify_expert_isolation(
+                str(before_path), str(after_path), [3]
+            )
+            self.assertTrue(result["exactly_equal"])
+            self.assertEqual(result["experts"][0]["tensor_count"], 448)

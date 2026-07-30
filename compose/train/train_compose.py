@@ -32,6 +32,18 @@ def _csv_floats(value: str) -> Optional[List[float]]:
     return [float(item) for item in values] if values else None
 
 
+def _expert_origin_mapping(value: str):
+    mapping = {}
+    for item in (entry.strip() for entry in value.split(",") if entry.strip()):
+        expert_id, separator, origin_task_id = item.partition("=")
+        if not separator or not origin_task_id.strip():
+            raise ValueError(
+                "compose_existing_expert_origins entries must use EXPERT_ID=TASK_ID"
+            )
+        mapping[int(expert_id.strip())] = origin_task_id.strip()
+    return mapping
+
+
 def train() -> None:
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments)
@@ -82,11 +94,32 @@ def train() -> None:
         load_summary = load_expert_checkpoint(pool, model_args.compose_checkpoint)[
             "load_summary"
         ]
+        for expert_id, origin_task_id in _expert_origin_mapping(
+            model_args.compose_existing_expert_origins
+        ).items():
+            metadata = pool.get(expert_id)
+            if metadata.origin_task_id not in (None, origin_task_id):
+                raise ValueError(
+                    "expert {} origin task mismatch; checkpoint={!r}, requested={!r}".format(
+                        expert_id, metadata.origin_task_id, origin_task_id
+                    )
+                )
+            metadata.origin_task_id = origin_task_id
         if training_args.local_rank in (-1, 0):
             print("Compose checkpoint load summary: {}".format(load_summary))
     for expert_id in selected_experts:
         if expert_id not in pool.expert_ids():
-            pool.register(expert_id, name="task1-expert-{}".format(expert_id))
+            pool.register(
+                expert_id,
+                name=(model_args.compose_expert_name or "expert-{}".format(expert_id)),
+                origin_task_id=model_args.compose_origin_task_id,
+                source_checkpoint=model_args.compose_checkpoint,
+                tags=[
+                    value.strip()
+                    for value in model_args.compose_expert_tags.split(",")
+                    if value.strip()
+                ],
+            )
     pool.train_only(selected_experts)
     trainable_parameter_count = sum(
         parameter.numel() for parameter in model.parameters() if parameter.requires_grad
@@ -173,6 +206,7 @@ def train() -> None:
     model.config.use_cache = True
     if training_args.should_save:
         pool.sync_training_step(trainer.state.global_step)
+        pool.train_only([])
         model.config.save_pretrained(training_args.output_dir)
         save_expert_checkpoint(pool, training_args.output_dir)
     if training_args.local_rank in (-1, 0):

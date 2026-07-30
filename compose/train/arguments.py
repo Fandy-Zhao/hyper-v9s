@@ -24,6 +24,10 @@ class ModelArguments:
         default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj"
     )
     compose_expert_ids: str = field(default="0")
+    compose_expert_name: str = field(default="")
+    compose_origin_task_id: Optional[str] = field(default=None)
+    compose_expert_tags: str = field(default="")
+    compose_existing_expert_origins: str = field(default="")
     compose_gates: str = field(default="")
     compose_gate_normalization: str = field(default="none")
     compose_checkpoint: Optional[str] = field(default=None)

@@ -20,6 +20,7 @@ class ExpertPool:
         self,
         expert_id: int,
         name: Optional[str] = None,
+        origin_task_id: Optional[str] = None,
         source_checkpoint: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> ExpertMetadata:
@@ -30,6 +31,7 @@ class ExpertPool:
         metadata = ExpertMetadata(
             expert_id=expert_id,
             name=name or "expert-{}".format(expert_id),
+            origin_task_id=origin_task_id,
             source_checkpoint=source_checkpoint,
             tags=list(tags or []),
         )

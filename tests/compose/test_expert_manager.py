@@ -18,11 +18,12 @@ def _pool():
 class ExpertManagerTest(unittest.TestCase):
     def test_pool_registration_and_trainability(self):
         _, manager, pool = _pool()
-        pool.register(2, name="task-two")
+        pool.register(2, name="task-two", origin_task_id="ucit-task-two")
         pool.register(5, name="task-five")
         pool.train_only([5])
         self.assertEqual(pool.expert_ids(), [2, 5])
         self.assertEqual(pool.get(2).status, ExpertStatus.FROZEN)
+        self.assertEqual(pool.get(2).origin_task_id, "ucit-task-two")
         self.assertEqual(pool.get(5).status, ExpertStatus.TRAINING)
         layer = next(iter(manager.layers.values()))
         self.assertFalse(any(parameter.requires_grad for parameter in layer.experts["2"].parameters()))
