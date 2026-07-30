@@ -44,6 +44,14 @@ def _expert_origin_mapping(value: str):
     return mapping
 
 
+def _resolve_expert_roles(active_experts, trainable_value: str):
+    active = [int(value) for value in active_experts]
+    trainable = _csv_ints(trainable_value) if trainable_value.strip() else list(active)
+    if not set(trainable).issubset(set(active)):
+        raise ValueError("compose_trainable_expert_ids must be a subset of active experts")
+    return active, trainable
+
+
 def train() -> None:
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments)
@@ -85,7 +93,10 @@ def train() -> None:
     injection_summary = validate_compose_injection(model, injected)
     manager = ExpertManager(model)
     pool = ExpertPool(manager)
-    selected_experts = _csv_ints(model_args.compose_expert_ids)
+    selected_experts, trainable_experts = _resolve_expert_roles(
+        _csv_ints(model_args.compose_expert_ids),
+        model_args.compose_trainable_expert_ids,
+    )
     gates = _csv_floats(model_args.compose_gates)
     if len(selected_experts) not in (1, 2):
         raise ValueError("Compose foundation trains one or two fixed experts")
@@ -120,7 +131,7 @@ def train() -> None:
                     if value.strip()
                 ],
             )
-    pool.train_only(selected_experts)
+    pool.train_only(trainable_experts)
     trainable_parameter_count = sum(
         parameter.numel() for parameter in model.parameters() if parameter.requires_grad
     )
@@ -149,7 +160,8 @@ def train() -> None:
         }))
         print("Compose injection summary: {}".format(injection_summary))
         print("Compose expert count: {}".format(len(pool.expert_ids())))
-        print("Trainable expert IDs: {}".format(sorted(selected_experts)))
+        print("Active expert IDs: {}".format(sorted(selected_experts)))
+        print("Trainable expert IDs: {}".format(sorted(trainable_experts)))
         print("Trainable parameter count: {}".format(trainable_parameter_count))
         print("Compose gate normalization: {}".format(
             model_args.compose_gate_normalization
