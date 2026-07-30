@@ -88,7 +88,11 @@ def train() -> None:
         if expert_id not in pool.expert_ids():
             pool.register(expert_id, name="task1-expert-{}".format(expert_id))
     pool.train_only(selected_experts)
-    manager.set_default_selection(selected_experts, gates)
+    manager.set_default_selection(
+        selected_experts,
+        gates,
+        normalization=model_args.compose_gate_normalization,
+    )
     if training_args.local_rank in (-1, 0):
         print("Compose core config: {}".format({
             "model_type": config.model_type,
@@ -101,6 +105,9 @@ def train() -> None:
         print("Compose injection summary: {}".format(injection_summary))
         print("Compose expert count: {}".format(len(pool.expert_ids())))
         print("Trainable expert IDs: {}".format(sorted(selected_experts)))
+        print("Compose gate normalization: {}".format(
+            model_args.compose_gate_normalization
+        ))
 
     if model_args.tune_mm_mlp_adapter:
         model.get_model().mm_projector.requires_grad_(True)

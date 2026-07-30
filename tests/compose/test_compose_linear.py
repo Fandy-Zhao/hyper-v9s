@@ -40,6 +40,7 @@ class ComposeLinearTest(unittest.TestCase):
         selection = ComposeSelection(
             torch.tensor([[0, 1]], dtype=torch.long),
             torch.tensor([[1.0, 3.0]]),
+            normalization="l1",
         )
         with use_selection(selection):
             output = layer(inputs)

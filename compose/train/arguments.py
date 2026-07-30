@@ -25,6 +25,7 @@ class ModelArguments:
     )
     compose_expert_ids: str = field(default="0")
     compose_gates: str = field(default="")
+    compose_gate_normalization: str = field(default="none")
     compose_checkpoint: Optional[str] = field(default=None)
 
 

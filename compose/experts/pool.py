@@ -51,10 +51,13 @@ class ExpertPool:
         batch_size: int,
         gates: Optional[Sequence[float]] = None,
         device: Optional[torch.device] = None,
+        normalization: str = "none",
     ) -> ComposeSelection:
         for expert_id in expert_ids:
             self.get(expert_id)
-        return self.manager.make_selection(expert_ids, batch_size, gates, device)
+        return self.manager.make_selection(
+            expert_ids, batch_size, gates, device, normalization
+        )
 
     def train_only(self, expert_ids: Iterable[int]) -> None:
         selected = set(int(value) for value in expert_ids)

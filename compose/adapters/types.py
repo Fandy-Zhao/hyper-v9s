@@ -8,11 +8,12 @@ class ComposeSelection:
     """Sparse per-sample expert selection.
 
     Both tensors have shape ``[batch_size, top_k]``. The foundation supports
-    top-1 and top-2 execution; gates are normalized per sample on construction.
+    top-1 and top-2 execution. Gate normalization is always explicit.
     """
 
     expert_ids: torch.LongTensor
     gates: torch.FloatTensor
+    normalization: str = "none"
 
     def __post_init__(self) -> None:
         if self.expert_ids.ndim != 2 or self.gates.ndim != 2:
@@ -31,10 +32,25 @@ class ComposeSelection:
             raise ValueError("gates must be finite")
         if torch.any(self.gates < 0):
             raise ValueError("gates must be non-negative")
-        gate_sum = self.gates.sum(dim=1, keepdim=True)
-        if torch.any(gate_sum <= 0):
-            raise ValueError("each sample must have a positive gate sum")
-        object.__setattr__(self, "gates", self.gates / gate_sum)
+        if self.expert_ids.shape[1] == 2 and torch.any(
+            self.expert_ids[:, 0] == self.expert_ids[:, 1]
+        ):
+            raise ValueError("duplicate expert IDs per sample are not allowed")
+        if self.normalization not in ("none", "l1", "l2"):
+            raise ValueError(
+                "normalization must be one of none, l1, or l2; got {!r}".format(
+                    self.normalization
+                )
+            )
+        positive_count = (self.gates > 0).sum(dim=1)
+        if torch.any(positive_count == 0):
+            raise ValueError("each sample must have at least one positive gate")
+        if self.normalization == "l1":
+            denominator = self.gates.sum(dim=1, keepdim=True)
+            object.__setattr__(self, "gates", self.gates / denominator)
+        elif self.normalization == "l2":
+            denominator = torch.linalg.vector_norm(self.gates, ord=2, dim=1, keepdim=True)
+            object.__setattr__(self, "gates", self.gates / denominator)
 
     @property
     def batch_size(self) -> int:
@@ -45,7 +61,10 @@ class ComposeSelection:
         return self.expert_ids.shape[1]
 
     def to(self, device: torch.device) -> "ComposeSelection":
+        if self.expert_ids.device == device and self.gates.device == device:
+            return self
         return ComposeSelection(
             expert_ids=self.expert_ids.to(device=device),
             gates=self.gates.to(device=device),
+            normalization=self.normalization,
         )

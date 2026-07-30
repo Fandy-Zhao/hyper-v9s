@@ -54,6 +54,7 @@ class CheckpointTest(unittest.TestCase):
 
             self.assertEqual(manifest["format_version"], 1)
             self.assertEqual(manifest["metrics"]["adapter_tensor_count"], 448)
+            self.assertNotIn("normalization", manifest)
             self.assertGreater(manifest["metrics"]["adapter_parameter_count"], 0)
             self.assertGreater(manifest["metrics"]["checkpoint_bytes"], 0)
             self.assertEqual(manifest["load_summary"]["loaded_tensor_count"], 448)

@@ -33,11 +33,14 @@ class ExpertManager:
         return sorted(common or [])
 
     def set_default_selection(
-        self, expert_ids: Sequence[int], gates: Optional[Sequence[float]] = None
+        self,
+        expert_ids: Sequence[int],
+        gates: Optional[Sequence[float]] = None,
+        normalization: str = "none",
     ) -> None:
         self._require_experts(expert_ids)
         for layer in self.layers.values():
-            layer.set_default_selection(expert_ids, gates)
+            layer.set_default_selection(expert_ids, gates, normalization)
 
     def clear_default_selection(self) -> None:
         for layer in self.layers.values():
@@ -49,17 +52,19 @@ class ExpertManager:
         batch_size: int,
         gates: Optional[Sequence[float]] = None,
         device: Optional[torch.device] = None,
+        normalization: str = "none",
     ) -> ComposeSelection:
         self._require_experts(expert_ids)
         if len(expert_ids) not in (1, 2):
             raise ValueError("fixed selection supports one or two experts")
         if gates is None:
-            gates = [1.0 / len(expert_ids)] * len(expert_ids)
+            gates = [1.0] * len(expert_ids)
         ids_tensor = torch.tensor(expert_ids, dtype=torch.long, device=device)
         gate_tensor = torch.tensor(gates, dtype=torch.float32, device=device)
         return ComposeSelection(
             ids_tensor.unsqueeze(0).expand(batch_size, -1),
             gate_tensor.unsqueeze(0).expand(batch_size, -1),
+            normalization=normalization,
         )
 
     def selection_context(self, selection: ComposeSelection):
