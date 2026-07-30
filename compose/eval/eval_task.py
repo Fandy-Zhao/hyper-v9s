@@ -117,7 +117,7 @@ def main() -> None:
             )[0].unsqueeze(0).to(device=args.device, dtype=torch.bfloat16)
             with torch.inference_mode():
                 output_ids = bundle.model.generate(
-                    input_ids,
+                    input_ids=input_ids,
                     images=image_tensor,
                     do_sample=False,
                     num_beams=1,
