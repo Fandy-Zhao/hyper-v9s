@@ -55,6 +55,12 @@ def _expected_targets(model: nn.Module) -> List[Tuple[str, nn.Module, str, nn.Mo
     return targets
 
 
+def decoder_projection_names(model: nn.Module) -> List[str]:
+    """Return the exact decoder projection boundary used by Compose and PEFT."""
+
+    return [name for name, _, _, _ in _expected_targets(model)]
+
+
 def validate_compose_injection(
     model: nn.Module, injected_names: Iterable[str] = None
 ) -> Dict[str, object]:

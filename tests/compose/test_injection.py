@@ -3,7 +3,11 @@ import unittest
 import torch
 import torch.nn as nn
 
-from compose.adapters.inject import inject_compose_adapters, validate_compose_injection
+from compose.adapters.inject import (
+    decoder_projection_names,
+    inject_compose_adapters,
+    validate_compose_injection,
+)
 from compose.adapters.lora import ComposeLinear
 from compose.config import ComposeAdapterConfig
 
@@ -78,7 +82,9 @@ class InjectionTest(unittest.TestCase):
 
     def test_32_layer_decoder_injects_exactly_224_projections(self):
         model = TinyModel(layer_count=32)
+        target_names = decoder_projection_names(model)
         matches = inject_compose_adapters(model, ComposeAdapterConfig())
+        self.assertEqual(target_names, matches)
         self.assertEqual(len(matches), 224)
         self.assertEqual(validate_compose_injection(model)["expected_layers"], 224)
 

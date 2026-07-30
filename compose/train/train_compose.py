@@ -88,6 +88,18 @@ def train() -> None:
         if expert_id not in pool.expert_ids():
             pool.register(expert_id, name="task1-expert-{}".format(expert_id))
     pool.train_only(selected_experts)
+    trainable_parameter_count = sum(
+        parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+    )
+    if (
+        model_args.expected_adapter_parameters is not None
+        and trainable_parameter_count != model_args.expected_adapter_parameters
+    ):
+        raise ValueError(
+            "trainable parameter count mismatch; expected={}, actual={}".format(
+                model_args.expected_adapter_parameters, trainable_parameter_count
+            )
+        )
     manager.set_default_selection(
         selected_experts,
         gates,
@@ -105,6 +117,7 @@ def train() -> None:
         print("Compose injection summary: {}".format(injection_summary))
         print("Compose expert count: {}".format(len(pool.expert_ids())))
         print("Trainable expert IDs: {}".format(sorted(selected_experts)))
+        print("Trainable parameter count: {}".format(trainable_parameter_count))
         print("Compose gate normalization: {}".format(
             model_args.compose_gate_normalization
         ))
@@ -150,7 +163,12 @@ def train() -> None:
         for name in os.listdir(training_args.output_dir)
         if name.startswith("checkpoint-")
     ] if os.path.isdir(training_args.output_dir) else []
-    trainer.train(resume_from_checkpoint=bool(checkpoints))
+    if checkpoints:
+        raise ValueError(
+            "output_dir contains checkpoint-* entries; automatic resume is disabled "
+            "because Compose checkpoints are adapter-only: {}".format(sorted(checkpoints))
+        )
+    trainer.train()
     trainer.save_state()
     model.config.use_cache = True
     if training_args.should_save:
