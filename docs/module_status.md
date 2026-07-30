@@ -1,7 +1,7 @@
 # Module Status
 
 ## Overview
-Status of each module in the HiDe-LLaVA project as of 2026-07-29.
+Status of each module in the HiDe-LLaVA project as of 2026-07-30.
 
 ## Modules
 
@@ -13,7 +13,7 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-29.
 | LLaVA Serve | `llava/serve/` | Gradio web UI, controller, worker | Stable | Manual | Not needed for research; inherited from LLaVA |
 | Hyper PEFT | `Hyper/peft/` | Custom PEFT framework | Active | Import test | Modified from HuggingFace PEFT; adds HyperMOELora |
 | HyperMOELora | `Hyper/peft/tuners/clitmoelora.py` | CLIP-guided multi-expert LoRA with task routing | Active | Integration test only | Core innovation; Gaussian stats + expert management |
-| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Post-review fixes validated | 16 unit tests + 2-step GPU smoke + strict reload | Decoder-only 224-layer boundary; no Hyper PEFT, Gaussian/Poincare, instance router, or task-ID binding |
+| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Stage A validated | 30 unit tests + bf16 CUDA grouped-execution smoke + prior 2-step model smoke/strict reload | Explicit none/l1/l2 gates; active-row grouped top-1/top-2 execution; decoder-only 224-layer boundary |
 | Instance Router | `llava/model/routing/instance_router.py` | Modality-aware per-instance fusion | Active | Integration test only | MLP-based router with Gaussian prior initialization |
 | Scripts - Train | `scripts/Hyper/Train_*/` | Shell scripts for sequential task training | Stable | `bash -n` syntax | Multiple training orders: UCIT, UCIT_AIRFCV, UCIT_IFRCAV, UCIT_LlaVANext, CoIN |
 | Scripts - Eval | `scripts/Hyper/Eval_*/` | Shell scripts for evaluation | Stable | `bash -n` syntax | Per-task eval scripts + aggregated Eval_all.sh |
@@ -53,11 +53,11 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-29.
 
 ### compose/ (Compose Foundation)
 - `model/` — clean Compose LLaVA config/model and vision-only multimodal preparation
-- `adapters/` — independent LoRA experts, injection, context-local sample selection, and manager
+- `adapters/` — independent LoRA experts, explicit gate normalization, active-row grouped execution, context-local sample selection, and manager
 - `experts/` — ExpertPool metadata and adapter-only checkpoint manifests/weights
 - `train/` — clean v1/UCIT preprocessing, Compose Trainer save hook, and standalone entry
 - `scripts/Compose/Train_UCIT/` — full Task1 and bounded two-step smoke launchers
-- `tests/compose/` — top-1/top-2 math, injection, lifecycle, checkpoint, and import-isolation tests
+- `tests/compose/` — normalization, grouped top-1/top-2 math and gradients, injection, lifecycle, checkpoint, and import-isolation tests
 
 ## Risks
 - `llava/model/llava_arch copy.py` is a stale copy — archived to deprecated
