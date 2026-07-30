@@ -102,7 +102,7 @@ def load_compose_model(
     checkpoint_dir: str,
     vision_tower: str,
     projector_path: str,
-    expert_id: int = 0,
+    expert_id: Optional[int] = 0,
     gate: float = 1.0,
     normalization: str = "none",
     device: str = "cuda:0",
@@ -124,10 +124,13 @@ def load_compose_model(
     manager = ExpertManager(model)
     pool = ExpertPool(manager)
     loaded_manifest = load_expert_checkpoint(pool, checkpoint_dir)
-    if expert_id not in pool.expert_ids():
+    if expert_id is not None and expert_id not in pool.expert_ids():
         raise KeyError("expert {} is not present in checkpoint".format(expert_id))
     pool.train_only([])
-    manager.set_default_selection([expert_id], [gate], normalization=normalization)
+    if expert_id is None:
+        manager.clear_default_selection()
+    else:
+        manager.set_default_selection([expert_id], [gate], normalization=normalization)
     model.eval()
     return EvaluationBundle(
         model=model,
