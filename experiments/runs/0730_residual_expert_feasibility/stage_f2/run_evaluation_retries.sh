@@ -6,6 +6,8 @@ PRIMARY="evaluation_v2"
 RETRY="evaluation_retry_v1"
 MERGED="evaluation_merged"
 RUNNER="${STAGE}/run_eval_one.sh"
+read -r -a gpu_ids <<< "${GPU_IDS:-0 1 2 3 4 5 6 7}"
+[[ "${#gpu_ids[@]}" -gt 0 ]] || { echo "GPU_IDS must name at least one GPU" >&2; exit 2; }
 
 is_complete() {
   local root="$1" model="$2" seed="$3" dataset="$4"
@@ -23,15 +25,18 @@ done < "${STAGE}/${PRIMARY}_jobs.txt"
 printf '%s\n' "${jobs[@]}" > "${STAGE}/${RETRY}_jobs.txt"
 
 worker() {
-  local gpu="$1" index model seed dataset
-  for ((index=gpu; index<${#jobs[@]}; index+=8)); do
+  local gpu="$1" slot="$2" index model seed dataset
+  for ((index=slot; index<${#jobs[@]}; index+=${#gpu_ids[@]})); do
     read -r model seed dataset <<< "${jobs[$index]}"
     echo "GPU ${gpu} RETRY ${model} seed${seed} ${dataset}"
     EVAL_VARIANT="${RETRY}" BATCH_SIZE=4 bash "${RUNNER}" \
       "${model}" "${seed}" "${dataset}" "${gpu}"
   done
 }
-for gpu in 0 1 2 3 4 5 6 7; do worker "${gpu}" & pids[$gpu]="$!"; done
+for slot in "${!gpu_ids[@]}"; do
+  gpu="${gpu_ids[$slot]}"
+  worker "${gpu}" "${slot}" & pids[$slot]="$!"
+done
 for pid in "${pids[@]}"; do wait "${pid}"; done
 
 [[ ! -e "${STAGE}/${MERGED}" ]] || {
