@@ -159,9 +159,9 @@ def load_peft_model(
     dtype: torch.dtype = torch.bfloat16,
     model_max_length: int = 2048,
 ) -> EvaluationBundle:
-    from peft import PeftConfig, PeftModel
+    from peft import LoraConfig, PeftModel
 
-    config = PeftConfig.from_pretrained(checkpoint_dir)
+    config = LoraConfig.from_pretrained(checkpoint_dir)
     expected_targets = None
     model, tokenizer, image_processor = _foundation(
         model_path, vision_tower, projector_path, device, dtype, model_max_length

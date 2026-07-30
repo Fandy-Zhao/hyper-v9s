@@ -13,7 +13,7 @@ from llava.constants import DEFAULT_IMAGE_TOKEN, IMAGE_TOKEN_INDEX
 from llava.conversation import conv_templates
 from llava.mm_utils import process_images, tokenizer_image_token
 
-from .load_compose import load_compose_model
+from .load_compose import load_compose_model, load_peft_model
 
 
 def _git_commit() -> str:
@@ -21,18 +21,24 @@ def _git_commit() -> str:
 
 
 def _fixed_logits(args, record):
-    bundle = load_compose_model(
-        model_path=args.model_path,
-        checkpoint_dir=args.checkpoint_dir,
-        vision_tower=args.vision_tower,
-        projector_path=args.projector_path,
-        expert_id=args.expert_id,
-        gate=1.0,
-        normalization="none",
-        device=args.device,
-        dtype=torch.bfloat16,
-        model_max_length=2048,
-    )
+    loader_kwargs = {
+        "model_path": args.model_path,
+        "checkpoint_dir": args.checkpoint_dir,
+        "vision_tower": args.vision_tower,
+        "projector_path": args.projector_path,
+        "device": args.device,
+        "dtype": torch.bfloat16,
+        "model_max_length": 2048,
+    }
+    if args.adapter_kind == "compose":
+        bundle = load_compose_model(
+            expert_id=args.expert_id,
+            gate=1.0,
+            normalization="none",
+            **loader_kwargs,
+        )
+    else:
+        bundle = load_peft_model(**loader_kwargs)
     conversation = conv_templates["vicuna_v1"].copy()
     conversation.append_message(
         conversation.roles[0], DEFAULT_IMAGE_TOKEN + "\n" + str(record["text"])
@@ -69,6 +75,9 @@ def main() -> None:
     parser.add_argument("--question-file", required=True)
     parser.add_argument("--image-folder", required=True)
     parser.add_argument("--output-file", required=True)
+    parser.add_argument(
+        "--adapter-kind", choices=("compose", "peft"), default="compose"
+    )
     parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument("--expert-id", type=int, default=0)
     parser.add_argument("--device", default="cuda:0")
@@ -89,6 +98,7 @@ def main() -> None:
     digest = hashlib.sha256(first.numpy().tobytes()).hexdigest()
     result = {
         "checkpoint": args.checkpoint_dir,
+        "adapter_kind": args.adapter_kind,
         "command": sys.argv,
         "git_commit": _git_commit(),
         "sample_index": args.sample_index,
