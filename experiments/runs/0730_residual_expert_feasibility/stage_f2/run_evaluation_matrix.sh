@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT="/home/zhaozhuofan/Hyper-LlaVA"
 STAGE="${ROOT}/experiments/runs/0730_residual_expert_feasibility/stage_f2"
 until [[ -f "${STAGE}/training/matrix_complete_utc.txt" ]]; do sleep 20; done
+bash "${STAGE}/run_diagnostics.sh"
 for seed in 42 43 44; do bash "${STAGE}/assemble_seed.sh" "${seed}"; done
 
 jobs=()
