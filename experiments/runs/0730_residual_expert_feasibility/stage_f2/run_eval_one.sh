@@ -5,6 +5,8 @@ model_name="$1"
 seed="$2"
 dataset="$3"
 gpu="$4"
+eval_variant="${EVAL_VARIANT:-evaluation}"
+max_samples="${MAX_SAMPLES:-}"
 case "${seed}" in 42|43|44) ;; *) echo "Unsupported seed: ${seed}" >&2; exit 2 ;; esac
 case "${dataset}" in A_only|B_only|C_only|A_plus_B|B_plus_C) ;; *) echo "Unsupported dataset: ${dataset}" >&2; exit 2 ;; esac
 
@@ -14,7 +16,7 @@ VISION_TOWER="/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336"
 TRAIN_ROOT="/data/ckpt/zhaozhuofan/compose/residual_feasibility_v1/seed${seed}"
 ASSEMBLED_ROOT="/data/ckpt/zhaozhuofan/compose/residual_feasibility_v1/assembled/seed${seed}"
 DATA_ROOT="/data/dataset/zhaozhuofan/Hyper-LlaVA/controlled_functional_v1"
-RESULT_ROOT="${ROOT}/experiments/runs/0730_residual_expert_feasibility/stage_f2/evaluation/seed${seed}/${dataset}/${model_name}"
+RESULT_ROOT="${ROOT}/experiments/runs/0730_residual_expert_feasibility/stage_f2/${eval_variant}/seed${seed}/${dataset}/${model_name}"
 checkpoint=""
 expert_ids=""
 case "${model_name}" in
@@ -41,6 +43,10 @@ if [[ -e "${RESULT_ROOT}/summary.json" || -e "${RESULT_ROOT}/per_sample.jsonl" ]
   exit 1
 fi
 mkdir -p "${RESULT_ROOT}"
+gates=""
+if [[ -n "${expert_ids}" ]]; then
+  gates="$(sed 's/[^,]*/1/g' <<< "${expert_ids}")"
+fi
 nvidia-smi --query-gpu=timestamp,index,memory.used,utilization.gpu --format=csv,noheader,nounits -l 2 \
   > "${RESULT_ROOT}/gpu.csv" &
 monitor_pid="$!"
@@ -51,10 +57,13 @@ args=(
   --question-file "${DATA_ROOT}/instructions/${dataset}/test.json"
   --image-folder "/data/dataset/zhaozhuofan/Hyper-LlaVA"
   --output-dir "${RESULT_ROOT}" --selection-name "${model_name}"
-  --expert-ids "${expert_ids}" --gates "$(sed 's/[^,]*/1/g' <<< "${expert_ids}")"
+  --expert-ids "${expert_ids}" --gates "${gates}"
   --normalization none --batch-size 8 --max-new-tokens 16
   --experiment-seed "${seed}" --device cuda:0
 )
+if [[ -n "${max_samples}" ]]; then
+  args+=(--max-samples "${max_samples}")
+fi
 {
   printf 'CUDA_VISIBLE_DEVICES=%q /home/zhaozhuofan/miniconda3/envs/hyper/bin/python -m compose.eval.eval_controlled' "${gpu}"
   printf ' %q' "${args[@]}"
