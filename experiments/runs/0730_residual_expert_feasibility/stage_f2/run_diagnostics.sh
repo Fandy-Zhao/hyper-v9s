@@ -26,7 +26,15 @@ for seed in 42 43 44; do
     --question-file "${DATA}" --image-folder /data/dataset/zhaozhuofan/Hyper-LlaVA \
     --output-file "${seed_out}/fixed_logits.json" --sample-count 8 --device cuda:0 \
     > "${seed_out}/fixed_logits.log" 2>&1
+  CUDA_VISIBLE_DEVICES=0 "${PYTHON}" -m compose.experts.activation_identity \
+    --model-path "${MODEL}" --checkpoint-dir "${residual}" --expert-id 1 \
+    --projector-path "${MODEL}/mm_projector.bin" --vision-tower "${VISION}" \
+    --data-root /data/dataset/zhaozhuofan/Hyper-LlaVA/controlled_functional_v1 \
+    --image-folder /data/dataset/zhaozhuofan/Hyper-LlaVA \
+    --output-file "${seed_out}/activation_identity.json" --samples-per-dataset 16 \
+    --device cuda:0 > "${seed_out}/activation_identity.log" 2>&1
   sha256sum "${seed_out}/tensor_isolation.json" "${seed_out}/old_residual_geometry.json" \
-    "${seed_out}/fixed_logits.json" > "${seed_out}/SHA256SUMS"
+    "${seed_out}/fixed_logits.json" "${seed_out}/activation_identity.json" \
+    > "${seed_out}/SHA256SUMS"
 done
 date -u +%FT%TZ > "${OUT}/complete_utc.txt"
