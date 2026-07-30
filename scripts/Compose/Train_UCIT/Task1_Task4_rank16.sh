@@ -7,6 +7,7 @@ DATA_PATH="${DATA_PATH:-/data/ckpt/zhaozhuofan/compose/inputs/task1_task4_train_
 IMAGE_FOLDER="${IMAGE_FOLDER:-/data/dataset/zhaozhuofan/UCIT/datasets}"
 OUTPUT_DIR="${OUTPUT_DIR:-/data/ckpt/zhaozhuofan/compose/UCIT/Task1_Task4_rank16_seed42}"
 MAX_STEPS="${MAX_STEPS:-}"
+GPU_IDS="${GPU_IDS:-0,1,2,3}"
 
 for required in "$MODEL_PATH" "$VISION_TOWER" "$DATA_PATH" "$IMAGE_FOLDER" "$MODEL_PATH/mm_projector.bin"; do
   if [[ ! -e "$required" ]]; then
@@ -32,7 +33,7 @@ fi
 printf 'Compose mixed rank16: output=%s rank=16 alpha=32 scale=2 seed=42 records=%s global_batch=64 max_steps=%s\n' \
   "$OUTPUT_DIR" "$record_count" "${MAX_STEPS:-full}"
 
-deepspeed --include localhost:0,1,2,3 --master_port "${MASTER_PORT:-29618}" \
+deepspeed --include "localhost:${GPU_IDS}" --master_port "${MASTER_PORT:-29618}" \
   --module compose.train.train_compose \
   --deepspeed ./scripts/zero2.json \
   --model_name_or_path "$MODEL_PATH" \
