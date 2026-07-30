@@ -6,6 +6,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 
 from llava.constants import IGNORE_INDEX
 
@@ -15,6 +16,7 @@ from compose.oracle.losses import compute_per_sample_nll
 from compose.oracle.metrics import compute_oracle_record, summarize_oracle_records
 from compose.oracle.build_mixture import build_mixture
 from compose.oracle.aggregate import aggregate_records
+from compose.adapters.lora import ComposeLinear
 
 
 class OracleLossTest(unittest.TestCase):
@@ -96,6 +98,21 @@ class CandidateSetTest(unittest.TestCase):
         self.assertEqual(
             aggregate["synergy_threshold_pair_acceptance"]["0.05"], 1.0
         )
+
+    def test_empty_set_disables_registered_experts(self):
+        base = nn.Linear(2, 1, bias=False)
+        with torch.no_grad():
+            base.weight.fill_(1.0)
+        layer = ComposeLinear(base, rank=1, alpha=1.0)
+        expert = layer.add_expert(0)
+        with torch.no_grad():
+            expert.lora_A.weight.fill_(1.0)
+            expert.lora_B.weight.fill_(1.0)
+        inputs = torch.tensor([[2.0, 3.0]])
+        layer.set_default_selection([0])
+        self.assertFalse(torch.equal(layer(inputs), base(inputs)))
+        layer.clear_default_selection()
+        torch.testing.assert_close(layer(inputs), base(inputs))
 
 
 class OracleCacheTest(unittest.TestCase):
