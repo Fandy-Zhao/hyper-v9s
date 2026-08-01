@@ -1,0 +1,11 @@
+{
+  "stage": "stage00_audit",
+  "test_suite": {"total": 60, "passed": 60, "failed": 0, "runner": "unittest discover tests/compose"},
+  "gpu_count_idle": 8,
+  "gpu_model": "NVIDIA GeForce RTX 4090 24GB",
+  "ucit_task_order_locked": true,
+  "metrics_code_located": "scripts/Hyper/Eval_UCIT/summarize_continual_metrics.py",
+  "controlled_direct_sum_status": "FAILED",
+  "full_v6_ucit_status": "NOT_YET_TESTED",
+  "note": "audit stage: no training runs, no metrics beyond test suite"
+}
