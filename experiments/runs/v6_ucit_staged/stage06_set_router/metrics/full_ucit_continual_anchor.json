@@ -1,0 +1,183 @@
+{
+  "accuracy_matrix": [
+    [
+      91.9,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      91.6,
+      57.77,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      90.57,
+      85.4,
+      54.46,
+      null,
+      null,
+      null
+    ],
+    [
+      87.8,
+      86.9,
+      54.68,
+      69.97,
+      null,
+      null
+    ],
+    [
+      87.8,
+      85.77,
+      53.74,
+      63.87,
+      38.07,
+      null
+    ],
+    [
+      87.13,
+      93.43,
+      59.35,
+      64.87,
+      47.07,
+      56.29
+    ]
+  ],
+  "answer_features_used": false,
+  "baseline_metrics": {
+    "BWT": -6.293999999999999,
+    "MAA": 83.12691666666667,
+    "MFN": 73.23666666666666,
+    "MFT": 78.48166666666667
+  },
+  "delta_vs_hyper_baseline": {
+    "BWT": 14.229999999999999,
+    "MAA": -7.775944444444448,
+    "MFN": -5.213333333333338,
+    "MFT": -17.071666666666665
+  },
+  "generation": {
+    "peak_memory_bytes": 16309958656,
+    "reused_frozen_stage01_answers": 44308,
+    "samples": 63000,
+    "seconds_per_sample_including_reuse": 0.13396609338848955
+  },
+  "metrics": {
+    "BWT": 7.936,
+    "MAA": 75.35097222222223,
+    "MFN": 68.02333333333333,
+    "MFT": 61.410000000000004
+  },
+  "oracle_used": false,
+  "routing": {
+    "average_active_experts": 0.9999047619047619,
+    "counts": {
+      "0": 6,
+      "1": 62994,
+      "2": 0
+    },
+    "per_stage": {
+      "1": {
+        "average_active_experts": 1.0,
+        "counts": {
+          "0": 0,
+          "1": 3000,
+          "2": 0
+        },
+        "rates": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 0.0
+        }
+      },
+      "2": {
+        "average_active_experts": 1.0,
+        "counts": {
+          "0": 0,
+          "1": 6000,
+          "2": 0
+        },
+        "rates": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 0.0
+        }
+      },
+      "3": {
+        "average_active_experts": 1.0,
+        "counts": {
+          "0": 0,
+          "1": 9000,
+          "2": 0
+        },
+        "rates": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 0.0
+        }
+      },
+      "4": {
+        "average_active_experts": 1.0,
+        "counts": {
+          "0": 0,
+          "1": 12000,
+          "2": 0
+        },
+        "rates": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 0.0
+        }
+      },
+      "5": {
+        "average_active_experts": 1.0,
+        "counts": {
+          "0": 0,
+          "1": 15000,
+          "2": 0
+        },
+        "rates": {
+          "0": 0.0,
+          "1": 1.0,
+          "2": 0.0
+        }
+      },
+      "6": {
+        "average_active_experts": 0.9996666666666667,
+        "counts": {
+          "0": 6,
+          "1": 17994,
+          "2": 0
+        },
+        "rates": {
+          "0": 0.0003333333333333333,
+          "1": 0.9996666666666667,
+          "2": 0.0
+        }
+      }
+    },
+    "predicted_single_only_equals_predicted_set": true,
+    "rates": {
+      "0": 9.523809523809524e-05,
+      "1": 0.9999047619047619,
+      "2": 0.0
+    },
+    "seconds_per_sample": 0.0009029945115159665
+  },
+  "status": "COMPLETE",
+  "task_id_lookup_used": false,
+  "task_order": [
+    "ImageNet-R",
+    "ArxivQA",
+    "VizWiz",
+    "IconQA",
+    "CLEVR",
+    "Flickr30k"
+  ]
+}

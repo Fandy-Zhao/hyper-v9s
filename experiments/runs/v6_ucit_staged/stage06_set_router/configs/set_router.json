@@ -1,0 +1,18 @@
+{
+  "composition_mode": "direct_sum",
+  "anchor_max_per_expert": 32,
+  "anchor_selection": "seeded_sha256_member_stratified_train_only",
+  "epochs": 40,
+  "lambda_empty": 1.0,
+  "lambda_member": 1.0,
+  "lambda_pair": 1.0,
+  "lambda_retrieval": 0.5,
+  "learning_rate": 0.001,
+  "mode_primary": "continual_anchor",
+  "mode_upper_bound": "offline_diagnostic",
+  "oracle_source": "historical_only_direct",
+  "pair_threshold_candidates": [0.5, 0.65, 0.8],
+  "seed": 42,
+  "test_data_used_for_selection": false,
+  "top_m": 8
+}

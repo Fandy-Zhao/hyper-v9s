@@ -54,3 +54,27 @@ def state_fingerprint(module) -> str:
         digest.update(name.encode())
         digest.update(value.detach().cpu().contiguous().numpy().tobytes())
     return digest.hexdigest()
+
+
+def save_set_router_checkpoint(path, router, extra=None) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=str(target.parent))
+    os.close(descriptor)
+    try:
+        torch.save({"checkpoint_version": 1, "set_router": router.state_dict(), "extra": dict(extra or {})}, temporary)
+        os.replace(temporary, target)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def load_set_router_checkpoint(path, router, map_location="cpu"):
+    payload = torch.load(path, map_location=map_location)
+    if payload.get("checkpoint_version") != 1:
+        raise ValueError("unsupported Set Router checkpoint")
+    router.load_state_dict(payload["set_router"])
+    return payload.get("extra", {})
