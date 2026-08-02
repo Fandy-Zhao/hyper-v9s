@@ -1,0 +1,18 @@
+{
+  "task": 6,
+  "config": "gb24_matched",
+  "tag": "full_gb24_task6",
+  "n_gpus": 4,
+  "gpu_list": "4,5,6,7",
+  "per_device_train_batch_size": 2,
+  "gradient_accumulation_steps": 3,
+  "global_batch": 24,
+  "expected_global_batch": 24,
+  "seed": 42,
+  "max_steps": null,
+  "data_path": "/data/dataset/zhaozhuofan/UCIT/instructions/Flickr30k/train_brief_4w.json",
+  "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/full_gb24_task6_llava_lora_ours",
+  "master_port": 29696,
+  "source_script": "scripts/Hyper/Train_UCIT/Task6.sh",
+  "source_script_sha256": "d92c209f94289dcbcc97f7cdda162bd3d3b631359497b89414c5081940f27574"
+}

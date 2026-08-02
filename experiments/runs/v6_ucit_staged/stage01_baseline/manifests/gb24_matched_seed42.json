@@ -1,0 +1,327 @@
+{
+  "run": "full_gb24",
+  "config": "gb24_matched",
+  "env": {
+    "python": "3.10.20",
+    "torch": "2.3.1+cu118",
+    "peft": "0.4.0",
+    "transformers": "4.33.3",
+    "deepspeed": "0.14.5",
+    "host": "ubuntu"
+  },
+  "tasks": [
+    {
+      "task": 1,
+      "config": "gb24_matched",
+      "tag": "full_gb24_task1",
+      "n_gpus": 4,
+      "gpu_list": "4,5,6,7",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 3,
+      "global_batch": 24,
+      "expected_global_batch": 24,
+      "seed": 42,
+      "max_steps": null,
+      "data_path": "/data/dataset/zhaozhuofan/UCIT/instructions/ImageNet-R/train.json",
+      "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/full_gb24_task1_llava_lora_ours",
+      "master_port": 29691,
+      "source_script": "scripts/Hyper/Train_UCIT/Task1.sh",
+      "source_script_sha256": "28b8a4afa977ce3b80af97e7327a619e6515fe8d3c9351d61b8e0a348357452e",
+      "checkpoint_files": {
+        "README.md": {
+          "sha256": "a031fff54629e2384925072b16a3fcdcc7bfd3bc60282eb726708c7b915fb91a",
+          "size_bytes": 88
+        },
+        "adapter_config.json": {
+          "sha256": "73c379a86850b77cea69a3ff221160ff68ad784de81397eb2cc48a0fdfe62c9d",
+          "size_bytes": 623
+        },
+        "adapter_model.bin": {
+          "sha256": "dcc00cea3f4f57396c252785dad083947d69b384e805df9234fa452a7b038a82",
+          "size_bytes": 254560258
+        },
+        "config.json": {
+          "sha256": "5162781914d1efe6d2a6ef2cc0875412e690767c74d4f9a824f5971548b3a548",
+          "size_bytes": 1762
+        },
+        "non_lora_trainables.bin": {
+          "sha256": "5fa3fe124279142ae5cbef9195e94f2d1162924494ddbe063c5c4b0a1fa89986",
+          "size_bytes": 42052630
+        },
+        "stats.json": {
+          "sha256": "bef4a112cfe34e4f3ba035cdc1e3fd6864d02839a8754e98d256775d01376bc7",
+          "size_bytes": 71775
+        },
+        "trainer_state.json": {
+          "sha256": "99cd82456a9666878890745f61ac6620bbdf9855fc9d8775b9067c9936baf8e0",
+          "size_bytes": 120661
+        }
+      },
+      "timing": {
+        "first_ts": "2026-08-01 10:02:15",
+        "last_ts": "2026-08-01 10:47:24"
+      }
+    },
+    {
+      "task": 2,
+      "config": "gb24_matched",
+      "tag": "full_gb24_task2",
+      "n_gpus": 4,
+      "gpu_list": "4,5,6,7",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 3,
+      "global_batch": 24,
+      "expected_global_batch": 24,
+      "seed": 42,
+      "max_steps": null,
+      "data_path": "/data/dataset/zhaozhuofan/UCIT/instructions/ArxivQA/train_4w.json",
+      "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/full_gb24_task2_llava_lora_ours",
+      "master_port": 29692,
+      "source_script": "scripts/Hyper/Train_UCIT/Task2.sh",
+      "source_script_sha256": "dd89fe4f61ad72fa6d6b9b1fe61100a04cde60ce58713ce15308735693edb246",
+      "checkpoint_files": {
+        "README.md": {
+          "sha256": "a031fff54629e2384925072b16a3fcdcc7bfd3bc60282eb726708c7b915fb91a",
+          "size_bytes": 88
+        },
+        "adapter_config.json": {
+          "sha256": "5eae85b4ff5be472232ae0d2c719a3d4526f070df9ebc0bd7bc81df888400cce",
+          "size_bytes": 623
+        },
+        "adapter_model.bin": {
+          "sha256": "3139d4605ad99ff8326520c2ebe64ca4ddff982ff8d375aa157a680a49c002c0",
+          "size_bytes": 254560258
+        },
+        "config.json": {
+          "sha256": "d827e003603d965da3f5d7754b4787ad51d0cc215ad389643e8190550ffd831e",
+          "size_bytes": 1807
+        },
+        "non_lora_trainables.bin": {
+          "sha256": "77344b4855c039eca668656fe9ecff05cff3fcf20a6521db22da67ca9535e171",
+          "size_bytes": 42052630
+        },
+        "stats.json": {
+          "sha256": "81bcc16892ac6bfc846e7a9594fa691e177d0ae3033abd8dc84684e4631eb383",
+          "size_bytes": 136648
+        },
+        "trainer_state.json": {
+          "sha256": "f9c1680f599ec9a5975b56480d5c6d4497bd1ce4288cf477a6ebe846ec9a2cdd",
+          "size_bytes": 201150
+        }
+      },
+      "timing": {
+        "first_ts": "2026-08-01 10:51:44",
+        "last_ts": "2026-08-01 12:18:07"
+      }
+    },
+    {
+      "task": 3,
+      "config": "gb24_matched",
+      "tag": "full_gb24_task3",
+      "n_gpus": 4,
+      "gpu_list": "4,5,6,7",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 3,
+      "global_batch": 24,
+      "expected_global_batch": 24,
+      "seed": 42,
+      "max_steps": null,
+      "data_path": "/data/dataset/zhaozhuofan/UCIT/instructions/VizWiz/train.json",
+      "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/full_gb24_task3_llava_lora_ours",
+      "master_port": 29693,
+      "source_script": "scripts/Hyper/Train_UCIT/Task3.sh",
+      "source_script_sha256": "9919a8cc747af0200bde899279913d7dc7c59663322375844e3a0f632f3792ea",
+      "checkpoint_files": {
+        "README.md": {
+          "sha256": "a031fff54629e2384925072b16a3fcdcc7bfd3bc60282eb726708c7b915fb91a",
+          "size_bytes": 88
+        },
+        "adapter_config.json": {
+          "sha256": "5b2fbb569beecca9b24e5af2eb0df017b5e600e9f74bbca137f96ac9211b8cda",
+          "size_bytes": 623
+        },
+        "adapter_model.bin": {
+          "sha256": "e7b370e975c5eecdf944974737bbe08443a8729dbd19a109e5722a6e48a67382",
+          "size_bytes": 254560258
+        },
+        "config.json": {
+          "sha256": "98725ad32a5a73f8ad997b89f9cf6659b83c18eb3f9de8a4750c2e46932feb2a",
+          "size_bytes": 1826
+        },
+        "non_lora_trainables.bin": {
+          "sha256": "a9d0761932b522d77c63fa7c32ea8358c6fefeb903dfe81765138c137e207202",
+          "size_bytes": 42052630
+        },
+        "stats.json": {
+          "sha256": "f0144a5afdc0bd352313f6696329f9c78794032e69f5511a624bb83c541f034b",
+          "size_bytes": 208408
+        },
+        "trainer_state.json": {
+          "sha256": "60641438cef63bfb96a3211d667d966a0fce59b5c9d2d87812ebb41c94a211fa",
+          "size_bytes": 201102
+        }
+      },
+      "timing": {
+        "first_ts": "2026-08-01 12:25:53",
+        "last_ts": "2026-08-01 13:38:20"
+      }
+    },
+    {
+      "task": 4,
+      "config": "gb24_matched",
+      "tag": "full_gb24_task4",
+      "n_gpus": 4,
+      "gpu_list": "4,5,6,7",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 3,
+      "global_batch": 24,
+      "expected_global_batch": 24,
+      "seed": 42,
+      "max_steps": null,
+      "data_path": "/data/dataset/zhaozhuofan/UCIT/instructions/IconQA/train.json",
+      "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/full_gb24_task4_llava_lora_ours",
+      "master_port": 29694,
+      "source_script": "scripts/Hyper/Train_UCIT/Task4.sh",
+      "source_script_sha256": "7bcc1ab3f326d68129cf33aff2f4500f894ca92397a4536171b66af0bf2a1374",
+      "checkpoint_files": {
+        "README.md": {
+          "sha256": "a031fff54629e2384925072b16a3fcdcc7bfd3bc60282eb726708c7b915fb91a",
+          "size_bytes": 88
+        },
+        "adapter_config.json": {
+          "sha256": "1af6dccbbcafe0f017ec70dc7a4a966db4f3b91535e57ae4b8dbe35a9052d0d7",
+          "size_bytes": 623
+        },
+        "adapter_model.bin": {
+          "sha256": "51c7c598a1c225dbc04adb07eb9734b4a7c822bbc4da668679d9dda38e121e22",
+          "size_bytes": 254560258
+        },
+        "config.json": {
+          "sha256": "a958e0a04b4194a23e67000a3b0258dbe22f9a889fa6a4ca3aca67c6f2f76452",
+          "size_bytes": 1851
+        },
+        "non_lora_trainables.bin": {
+          "sha256": "cec2113ed96d721b847c787374c062d9a07eb30cd1b9ac145638262640aaba5c",
+          "size_bytes": 42052630
+        },
+        "stats.json": {
+          "sha256": "a57a867b8f0cf9bbfd4e4b52b172752ce8ce387fb19deeb34adcc1c95f84ed82",
+          "size_bytes": 273623
+        },
+        "trainer_state.json": {
+          "sha256": "62d2ac3f52b9ab67987659cf2b96346541256ecd632fe90915722b8c000085c5",
+          "size_bytes": 150387
+        }
+      },
+      "timing": {
+        "first_ts": "2026-08-01 14:26:31",
+        "last_ts": "2026-08-01 15:21:28"
+      }
+    },
+    {
+      "task": 5,
+      "config": "gb24_matched",
+      "tag": "full_gb24_task5",
+      "n_gpus": 4,
+      "gpu_list": "4,5,6,7",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 3,
+      "global_batch": 24,
+      "expected_global_batch": 24,
+      "seed": 42,
+      "max_steps": null,
+      "data_path": "/data/dataset/zhaozhuofan/UCIT/instructions/CLEVR/train_4w.json",
+      "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/full_gb24_task5_llava_lora_ours",
+      "master_port": 29695,
+      "source_script": "scripts/Hyper/Train_UCIT/Task5.sh",
+      "source_script_sha256": "0394f97322b58a8d53349280ad672f26ff40c3739529730ca1737b8de82b75cd",
+      "checkpoint_files": {
+        "README.md": {
+          "sha256": "a031fff54629e2384925072b16a3fcdcc7bfd3bc60282eb726708c7b915fb91a",
+          "size_bytes": 88
+        },
+        "adapter_config.json": {
+          "sha256": "90206372a7fd2a746321c665ff548bf00bff172263c7ad3c24be1b08169348f5",
+          "size_bytes": 623
+        },
+        "adapter_model.bin": {
+          "sha256": "b69f5d8e8b18ce991b6fb463e2f21dda2095a89c8b0add491982ad7e2c0a4cfb",
+          "size_bytes": 254560258
+        },
+        "config.json": {
+          "sha256": "8b4299d069d80fd517bd21aa451b4a1259cc57eea5b957c9f9f50a3eae9a2f88",
+          "size_bytes": 1876
+        },
+        "non_lora_trainables.bin": {
+          "sha256": "0e4844c9816d914a25d987a1fe216d307c59db06104f5e3a871d1a7f86cfafce",
+          "size_bytes": 42052630
+        },
+        "stats.json": {
+          "sha256": "874bd03bb9f38ef85f566c20e1827ad8be103b2d8ade5bf9b8598b7cafbe4a17",
+          "size_bytes": 339325
+        },
+        "trainer_state.json": {
+          "sha256": "11738397c8c1fcbe2b62d7b4d5af1e9af1db3b27577baccb45606d17c00fb9ad",
+          "size_bytes": 201127
+        }
+      },
+      "timing": {
+        "first_ts": "2026-08-01 15:43:19",
+        "last_ts": "2026-08-01 16:54:10"
+      }
+    },
+    {
+      "task": 6,
+      "config": "gb24_matched",
+      "tag": "full_gb24_task6",
+      "n_gpus": 4,
+      "gpu_list": "4,5,6,7",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 3,
+      "global_batch": 24,
+      "expected_global_batch": 24,
+      "seed": 42,
+      "max_steps": null,
+      "data_path": "/data/dataset/zhaozhuofan/UCIT/instructions/Flickr30k/train_brief_4w.json",
+      "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/full_gb24_task6_llava_lora_ours",
+      "master_port": 29696,
+      "source_script": "scripts/Hyper/Train_UCIT/Task6.sh",
+      "source_script_sha256": "d92c209f94289dcbcc97f7cdda162bd3d3b631359497b89414c5081940f27574",
+      "checkpoint_files": {
+        "README.md": {
+          "sha256": "a031fff54629e2384925072b16a3fcdcc7bfd3bc60282eb726708c7b915fb91a",
+          "size_bytes": 88
+        },
+        "adapter_config.json": {
+          "sha256": "25334455f8efc604a02e36153dc493bc237de85e0bccaa52a6f5fda1ecfb7851",
+          "size_bytes": 623
+        },
+        "adapter_model.bin": {
+          "sha256": "6479b7ca90c6ef7ea5457b550d7d90ad6844d3df073180f3010e0e5c02147dc1",
+          "size_bytes": 254560258
+        },
+        "config.json": {
+          "sha256": "3223d1e4558850eab6863dcde9e77f24b6fc449ce1618ab386e03ea10d1c1278",
+          "size_bytes": 1901
+        },
+        "non_lora_trainables.bin": {
+          "sha256": "fe858f3b3d68fdeac2d32e368e2f683854db636a7955cfac4658eec0041bf344",
+          "size_bytes": 42052630
+        },
+        "stats.json": {
+          "sha256": "95ec0ad566434c1e49ae696ddca944d7442e80b1dbd1ca966447c335989ea2d7",
+          "size_bytes": 411390
+        },
+        "trainer_state.json": {
+          "sha256": "7110968682a5b7f166c34531239d69c12b4a3e6a4601c040bdb78cf8239ca329",
+          "size_bytes": 201123
+        }
+      },
+      "timing": {
+        "first_ts": "2026-08-01 17:19:43",
+        "last_ts": "2026-08-01 18:31:34"
+      }
+    }
+  ],
+  "git_head": "8b3d4a95788022d7719e23b45f16efb9c12b22b5"
+}

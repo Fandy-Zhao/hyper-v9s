@@ -1,0 +1,770 @@
+[
+  {
+    "question_id": "1748",
+    "image": "ImageNet-R/test/n02129604/deviantart_19.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tiger"
+  },
+  {
+    "question_id": "2245",
+    "image": "ImageNet-R/test/n02106550/misc_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Rottweiler"
+  },
+  {
+    "question_id": "1827",
+    "image": "ImageNet-R/test/n04141076/sculpture_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Sax"
+  },
+  {
+    "question_id": "652",
+    "image": "ImageNet-R/test/n07718472/sketch_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Cucumber"
+  },
+  {
+    "question_id": "1945",
+    "image": "ImageNet-R/test/n03930630/painting_9.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Pickup"
+  },
+  {
+    "question_id": "1844",
+    "image": "ImageNet-R/test/n01910747/deviantart_12.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Jellyfish"
+  },
+  {
+    "question_id": "1062",
+    "image": "ImageNet-R/test/n07753592/misc_105.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Banana"
+  },
+  {
+    "question_id": "1013",
+    "image": "ImageNet-R/test/n02447366/sculpture_3.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Badger"
+  },
+  {
+    "question_id": "2612",
+    "image": "ImageNet-R/test/n04192698/toy_7.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Shield"
+  },
+  {
+    "question_id": "1136",
+    "image": "ImageNet-R/test/n02395406/cartoon_22.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Hog"
+  },
+  {
+    "question_id": "2136",
+    "image": "ImageNet-R/test/n04389033/videogame_22.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tank"
+  },
+  {
+    "question_id": "1985",
+    "image": "ImageNet-R/test/n02268443/misc_47.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "\"dragonfly"
+  },
+  {
+    "question_id": "2568",
+    "image": "ImageNet-R/test/n02980441/sketch_11.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Castle"
+  },
+  {
+    "question_id": "980",
+    "image": "ImageNet-R/test/n04254680/videogame_5.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Soccer ball"
+  },
+  {
+    "question_id": "1125",
+    "image": "ImageNet-R/test/n04536866/painting_16.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Violin"
+  },
+  {
+    "question_id": "1802",
+    "image": "ImageNet-R/test/n02906734/painting_6.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Broom"
+  },
+  {
+    "question_id": "318",
+    "image": "ImageNet-R/test/n02165456/tattoo_32.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Ladybug"
+  },
+  {
+    "question_id": "2923",
+    "image": "ImageNet-R/test/n03372029/sculpture_35.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Flute"
+  },
+  {
+    "question_id": "1171",
+    "image": "ImageNet-R/test/n04141076/cartoon_46.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Sax"
+  },
+  {
+    "question_id": "961",
+    "image": "ImageNet-R/test/n02317335/embroidery_5.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Starfish"
+  },
+  {
+    "question_id": "1113",
+    "image": "ImageNet-R/test/n07745940/embroidery_24.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Strawberry"
+  },
+  {
+    "question_id": "1376",
+    "image": "ImageNet-R/test/n02948072/embroidery_4.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Candle"
+  },
+  {
+    "question_id": "1310",
+    "image": "ImageNet-R/test/n02607072/misc_79.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Anemone fish"
+  },
+  {
+    "question_id": "2213",
+    "image": "ImageNet-R/test/n02226429/graphic_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Grasshopper"
+  },
+  {
+    "question_id": "331",
+    "image": "ImageNet-R/test/n02128385/toy_8.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Leopard"
+  },
+  {
+    "question_id": "567",
+    "image": "ImageNet-R/test/n02071294/tattoo_5.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Killer whale"
+  },
+  {
+    "question_id": "618",
+    "image": "ImageNet-R/test/n02190166/sticker_7.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Fly"
+  },
+  {
+    "question_id": "948",
+    "image": "ImageNet-R/test/n04141076/sketch_6.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Sax"
+  },
+  {
+    "question_id": "1569",
+    "image": "ImageNet-R/test/n02672831/cartoon_39.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Accordion"
+  },
+  {
+    "question_id": "2843",
+    "image": "ImageNet-R/test/n02099712/misc_43.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Labrador retriever"
+  },
+  {
+    "question_id": "626",
+    "image": "ImageNet-R/test/n07614500/origami_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Ice cream"
+  },
+  {
+    "question_id": "2894",
+    "image": "ImageNet-R/test/n01855672/cartoon_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Goose"
+  },
+  {
+    "question_id": "877",
+    "image": "ImageNet-R/test/n02363005/sketch_19.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Beaver"
+  },
+  {
+    "question_id": "264",
+    "image": "ImageNet-R/test/n04275548/sketch_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "\"spider web"
+  },
+  {
+    "question_id": "1700",
+    "image": "ImageNet-R/test/n02071294/toy_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Killer whale"
+  },
+  {
+    "question_id": "1670",
+    "image": "ImageNet-R/test/n03775071/cartoon_3.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Mitten"
+  },
+  {
+    "question_id": "1356",
+    "image": "ImageNet-R/test/n01770393/origami_21.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Scorpion"
+  },
+  {
+    "question_id": "2223",
+    "image": "ImageNet-R/test/n02129165/tattoo_68.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Lion"
+  },
+  {
+    "question_id": "1909",
+    "image": "ImageNet-R/test/n04389033/toy_6.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tank"
+  },
+  {
+    "question_id": "1704",
+    "image": "ImageNet-R/test/n01518878/painting_18.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Ostrich"
+  },
+  {
+    "question_id": "256",
+    "image": "ImageNet-R/test/n02088094/sketch_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Afghan hound"
+  },
+  {
+    "question_id": "848",
+    "image": "ImageNet-R/test/n09835506/misc_14.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Ballplayer"
+  },
+  {
+    "question_id": "1721",
+    "image": "ImageNet-R/test/n02480495/painting_38.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Orangutan"
+  },
+  {
+    "question_id": "1596",
+    "image": "ImageNet-R/test/n01882714/deviantart_41.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Koala"
+  },
+  {
+    "question_id": "2393",
+    "image": "ImageNet-R/test/n04086273/deviantart_8.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Revolver"
+  },
+  {
+    "question_id": "2849",
+    "image": "ImageNet-R/test/n09472597/deviantart_16.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Volcano"
+  },
+  {
+    "question_id": "81",
+    "image": "ImageNet-R/test/n02113023/sketch_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Pembroke"
+  },
+  {
+    "question_id": "2359",
+    "image": "ImageNet-R/test/n02423022/sculpture_0.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Gazelle"
+  },
+  {
+    "question_id": "1559",
+    "image": "ImageNet-R/test/n03272010/sketch_0.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Electric guitar"
+  },
+  {
+    "question_id": "1954",
+    "image": "ImageNet-R/test/n02088238/misc_36.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Basset"
+  },
+  {
+    "question_id": "25",
+    "image": "ImageNet-R/test/n01847000/tattoo_23.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Drake"
+  },
+  {
+    "question_id": "1441",
+    "image": "ImageNet-R/test/n04409515/sketch_19.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tennis ball"
+  },
+  {
+    "question_id": "1224",
+    "image": "ImageNet-R/test/n02437616/misc_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Llama"
+  },
+  {
+    "question_id": "1598",
+    "image": "ImageNet-R/test/n02363005/toy_9.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Beaver"
+  },
+  {
+    "question_id": "1717",
+    "image": "ImageNet-R/test/n01748264/sketch_10.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Indian cobra"
+  },
+  {
+    "question_id": "2205",
+    "image": "ImageNet-R/test/n02098286/misc_6.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "West highland white terrier"
+  },
+  {
+    "question_id": "2237",
+    "image": "ImageNet-R/test/n07714990/art_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Broccoli"
+  },
+  {
+    "question_id": "2471",
+    "image": "ImageNet-R/test/n02088238/tattoo_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Basset"
+  },
+  {
+    "question_id": "904",
+    "image": "ImageNet-R/test/n02088466/misc_25.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Bloodhound"
+  },
+  {
+    "question_id": "2000",
+    "image": "ImageNet-R/test/n01443537/painting_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Goldfish"
+  },
+  {
+    "question_id": "899",
+    "image": "ImageNet-R/test/n01694178/sticker_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "African chameleon"
+  },
+  {
+    "question_id": "1118",
+    "image": "ImageNet-R/test/n04118538/videogame_4.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Rugby ball"
+  },
+  {
+    "question_id": "1786",
+    "image": "ImageNet-R/test/n02317335/sketch_21.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Starfish"
+  },
+  {
+    "question_id": "1990",
+    "image": "ImageNet-R/test/n04147183/sketch_18.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Schooner"
+  },
+  {
+    "question_id": "119",
+    "image": "ImageNet-R/test/n02129604/tattoo_26.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tiger"
+  },
+  {
+    "question_id": "1593",
+    "image": "ImageNet-R/test/n03481172/sketch_10.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Hammer"
+  },
+  {
+    "question_id": "1377",
+    "image": "ImageNet-R/test/n07742313/sketch_10.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Granny smith"
+  },
+  {
+    "question_id": "2740",
+    "image": "ImageNet-R/test/n04487394/graphic_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Trombone"
+  },
+  {
+    "question_id": "2782",
+    "image": "ImageNet-R/test/n02909870/videogame_16.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Bucket"
+  },
+  {
+    "question_id": "1657",
+    "image": "ImageNet-R/test/n02219486/sticker_3.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Ant"
+  },
+  {
+    "question_id": "2967",
+    "image": "ImageNet-R/test/n04141076/cartoon_34.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Sax"
+  },
+  {
+    "question_id": "677",
+    "image": "ImageNet-R/test/n02110341/misc_122.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Dalmatian"
+  },
+  {
+    "question_id": "1915",
+    "image": "ImageNet-R/test/n02129604/painting_4.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tiger"
+  },
+  {
+    "question_id": "523",
+    "image": "ImageNet-R/test/n02102318/graphic_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Cocker spaniel"
+  },
+  {
+    "question_id": "2549",
+    "image": "ImageNet-R/test/n02481823/art_18.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Chimpanzee"
+  },
+  {
+    "question_id": "2188",
+    "image": "ImageNet-R/test/n02607072/sketch_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Anemone fish"
+  },
+  {
+    "question_id": "111",
+    "image": "ImageNet-R/test/n07753592/sketch_18.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Banana"
+  },
+  {
+    "question_id": "1614",
+    "image": "ImageNet-R/test/n02814860/deviantart_10.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Beacon"
+  },
+  {
+    "question_id": "2425",
+    "image": "ImageNet-R/test/n02364673/painting_20.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Guinea pig"
+  },
+  {
+    "question_id": "2312",
+    "image": "ImageNet-R/test/n03676483/graffiti_3.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Lipstick"
+  },
+  {
+    "question_id": "2716",
+    "image": "ImageNet-R/test/n01860187/art_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Black swan"
+  },
+  {
+    "question_id": "112",
+    "image": "ImageNet-R/test/n01833805/graffiti_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Hummingbird"
+  },
+  {
+    "question_id": "344",
+    "image": "ImageNet-R/test/n02410509/misc_6.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Bison"
+  },
+  {
+    "question_id": "2633",
+    "image": "ImageNet-R/test/n04536866/deviantart_31.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Violin"
+  },
+  {
+    "question_id": "1756",
+    "image": "ImageNet-R/test/n02071294/painting_16.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Killer whale"
+  },
+  {
+    "question_id": "556",
+    "image": "ImageNet-R/test/n04325704/sculpture_3.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Stole"
+  },
+  {
+    "question_id": "1892",
+    "image": "ImageNet-R/test/n02086240/sketch_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Shih-tzu"
+  },
+  {
+    "question_id": "745",
+    "image": "ImageNet-R/test/n04275548/videogame_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "\"spider web"
+  },
+  {
+    "question_id": "206",
+    "image": "ImageNet-R/test/n02088238/misc_5.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Basset"
+  },
+  {
+    "question_id": "1066",
+    "image": "ImageNet-R/test/n02447366/graphic_0.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Badger"
+  },
+  {
+    "question_id": "1553",
+    "image": "ImageNet-R/test/n01986214/painting_4.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Hermit crab"
+  },
+  {
+    "question_id": "1341",
+    "image": "ImageNet-R/test/n07697313/sketch_24.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Cheeseburger"
+  },
+  {
+    "question_id": "867",
+    "image": "ImageNet-R/test/n01484850/deviantart_20.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Great white shark"
+  },
+  {
+    "question_id": "1863",
+    "image": "ImageNet-R/test/n02672831/art_0.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Accordion"
+  },
+  {
+    "question_id": "1339",
+    "image": "ImageNet-R/test/n07753592/misc_23.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Banana"
+  },
+  {
+    "question_id": "1383",
+    "image": "ImageNet-R/test/n02346627/cartoon_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Porcupine"
+  },
+  {
+    "question_id": "1140",
+    "image": "ImageNet-R/test/n02346627/tattoo_0.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Porcupine"
+  },
+  {
+    "question_id": "1727",
+    "image": "ImageNet-R/test/n02480855/graffiti_13.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Gorilla"
+  },
+  {
+    "question_id": "1034",
+    "image": "ImageNet-R/test/n01514859/cartoon_0.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Hen"
+  },
+  {
+    "question_id": "336",
+    "image": "ImageNet-R/test/n02843684/toy_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Birdhouse"
+  },
+  {
+    "question_id": "1927",
+    "image": "ImageNet-R/test/n07768694/tattoo_4.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Pomegranate"
+  },
+  {
+    "question_id": "80",
+    "image": "ImageNet-R/test/n04254680/sketch_14.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Soccer ball"
+  },
+  {
+    "question_id": "2210",
+    "image": "ImageNet-R/test/n01443537/painting_3.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Goldfish"
+  },
+  {
+    "question_id": "214",
+    "image": "ImageNet-R/test/n04141076/painting_27.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Sax"
+  },
+  {
+    "question_id": "1434",
+    "image": "ImageNet-R/test/n02346627/sketch_1.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Porcupine"
+  },
+  {
+    "question_id": "919",
+    "image": "ImageNet-R/test/n01774750/tattoo_11.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tarantula"
+  },
+  {
+    "question_id": "2663",
+    "image": "ImageNet-R/test/n04086273/sketch_4.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Revolver"
+  },
+  {
+    "question_id": "282",
+    "image": "ImageNet-R/test/n04141076/sculpture_7.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Sax"
+  },
+  {
+    "question_id": "2670",
+    "image": "ImageNet-R/test/n02129604/toy_15.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tiger"
+  },
+  {
+    "question_id": "165",
+    "image": "ImageNet-R/test/n01774750/art_5.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tarantula"
+  },
+  {
+    "question_id": "128",
+    "image": "ImageNet-R/test/n04465501/videogame_21.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Tractor"
+  },
+  {
+    "question_id": "817",
+    "image": "ImageNet-R/test/n02106030/cartoon_3.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Collie"
+  },
+  {
+    "question_id": "84",
+    "image": "ImageNet-R/test/n03124170/sketch_13.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Cowboy hat"
+  },
+  {
+    "question_id": "2545",
+    "image": "ImageNet-R/test/n02110958/toy_5.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Pug"
+  },
+  {
+    "question_id": "625",
+    "image": "ImageNet-R/test/n02317335/embroidery_4.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Starfish"
+  },
+  {
+    "question_id": "978",
+    "image": "ImageNet-R/test/n03481172/sketch_3.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Hammer"
+  },
+  {
+    "question_id": "518",
+    "image": "ImageNet-R/test/n07749582/misc_8.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Lemon"
+  },
+  {
+    "question_id": "1940",
+    "image": "ImageNet-R/test/n04552348/deviantart_29.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Warplane"
+  },
+  {
+    "question_id": "2743",
+    "image": "ImageNet-R/test/n01494475/misc_7.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Hammerhead"
+  },
+  {
+    "question_id": "469",
+    "image": "ImageNet-R/test/n03372029/art_7.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Flute"
+  },
+  {
+    "question_id": "2311",
+    "image": "ImageNet-R/test/n02134084/misc_155.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Ice bear"
+  },
+  {
+    "question_id": "893",
+    "image": "ImageNet-R/test/n07753275/videogame_13.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Pineapple"
+  },
+  {
+    "question_id": "1905",
+    "image": "ImageNet-R/test/n01531178/painting_7.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Goldfinch"
+  },
+  {
+    "question_id": "2866",
+    "image": "ImageNet-R/test/n02007558/art_6.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Flamingo"
+  },
+  {
+    "question_id": "1050",
+    "image": "ImageNet-R/test/n09835506/deviantart_5.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Ballplayer"
+  },
+  {
+    "question_id": "1511",
+    "image": "ImageNet-R/test/n02110185/graphic_2.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Siberian husky"
+  },
+  {
+    "question_id": "688",
+    "image": "ImageNet-R/test/n02130308/painting_4.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Cheetah"
+  },
+  {
+    "question_id": "2482",
+    "image": "ImageNet-R/test/n03124170/painting_37.jpg",
+    "text": "What is the object in the image?\nAnswer the question using a single word or phrase.",
+    "answer": "Cowboy hat"
+  }
+]

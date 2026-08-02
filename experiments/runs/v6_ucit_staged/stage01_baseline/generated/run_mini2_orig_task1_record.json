@@ -1,0 +1,18 @@
+{
+  "task": 1,
+  "config": "original_batch",
+  "tag": "mini2_orig_task1",
+  "n_gpus": 4,
+  "gpu_list": "0,1,2,3",
+  "per_device_train_batch_size": 2,
+  "gradient_accumulation_steps": 8,
+  "global_batch": 64,
+  "expected_global_batch": 64,
+  "seed": 42,
+  "max_steps": null,
+  "data_path": "/home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_staged/stage01_baseline/data_indices/ImageNet-R/train.json",
+  "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/mini2_orig_task1_llava_lora_ours",
+  "master_port": 29631,
+  "source_script": "scripts/Hyper/Train_UCIT/Task1.sh",
+  "source_script_sha256": "28b8a4afa977ce3b80af97e7327a619e6515fe8d3c9351d61b8e0a348357452e"
+}

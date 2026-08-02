@@ -1,0 +1,79 @@
+{
+  "name": "hyper_llava_original_batch_seed42",
+  "task_order": [
+    "ImageNet-R",
+    "ArxivQA",
+    "VizWiz",
+    "IconQA",
+    "CLEVR-Math",
+    "Flickr30k"
+  ],
+  "accuracy_matrix": [
+    [
+      91.73,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      90.4,
+      94.23,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      89.37,
+      94.07,
+      61.37,
+      null,
+      null,
+      null
+    ],
+    [
+      87.07,
+      94.1,
+      57.4,
+      86.0,
+      null,
+      null
+    ],
+    [
+      87.37,
+      94.27,
+      56.7,
+      78.73,
+      79.7,
+      null
+    ],
+    [
+      86.67,
+      94.0,
+      58.71,
+      79.03,
+      64.33,
+      58.2
+    ]
+  ],
+  "metrics": {
+    "MAA": 83.27247222222222,
+    "MFN": 73.49,
+    "MFT": 78.53833333333334,
+    "BWT": -6.058000000000002
+  },
+  "formula_verified": {
+    "MAA": 83.3888888888889,
+    "MFN": 77.66666666666667,
+    "MFT": 87.66666666666667,
+    "BWT": -15.0
+  },
+  "metric_definitions": {
+    "MAA": "mean over stages i of mean(seen-task performance after task i)",
+    "MFN": "mean of final row",
+    "MFT": "mean diagonal",
+    "BWT": "mean over old tasks (final - at-learn)"
+  }
+}

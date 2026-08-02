@@ -1,0 +1,119 @@
+{
+  "run": "mini2_orig",
+  "config": "original_batch",
+  "env": {
+    "python": "3.10.20",
+    "torch": "2.3.1+cu118",
+    "peft": "0.4.0",
+    "transformers": "4.33.3",
+    "deepspeed": "0.14.5",
+    "host": "ubuntu"
+  },
+  "tasks": [
+    {
+      "task": 1,
+      "config": "original_batch",
+      "tag": "mini2_orig_task1",
+      "n_gpus": 4,
+      "gpu_list": "0,1,2,3",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 8,
+      "global_batch": 64,
+      "expected_global_batch": 64,
+      "seed": 42,
+      "max_steps": null,
+      "data_path": "/home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_staged/stage01_baseline/data_indices/ImageNet-R/train.json",
+      "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/mini2_orig_task1_llava_lora_ours",
+      "master_port": 29631,
+      "source_script": "scripts/Hyper/Train_UCIT/Task1.sh",
+      "source_script_sha256": "28b8a4afa977ce3b80af97e7327a619e6515fe8d3c9351d61b8e0a348357452e",
+      "checkpoint_files": {
+        "README.md": {
+          "sha256": "a031fff54629e2384925072b16a3fcdcc7bfd3bc60282eb726708c7b915fb91a",
+          "size_bytes": 88
+        },
+        "adapter_config.json": {
+          "sha256": "59787f2805535a1c8fc2ab809497c7e7cda87167559f7a325f00ebbee80cdc53",
+          "size_bytes": 623
+        },
+        "adapter_model.bin": {
+          "sha256": "1da1c59bb10c5ed83a86265a890b967973f07ea9fd8332c34eb0c69ee6b8e8e7",
+          "size_bytes": 254560258
+        },
+        "config.json": {
+          "sha256": "5162781914d1efe6d2a6ef2cc0875412e690767c74d4f9a824f5971548b3a548",
+          "size_bytes": 1762
+        },
+        "non_lora_trainables.bin": {
+          "sha256": "b4c19736f33010cd5d29e9548a7d38577e9090d433886c082589a96187362740",
+          "size_bytes": 42052630
+        },
+        "stats.json": {
+          "sha256": "8c4560cc9658a6c187c2c3b259f0603dcd41c00a493d75b074c45aaa1b4465ff",
+          "size_bytes": 72164
+        },
+        "trainer_state.json": {
+          "sha256": "40a02de02c79ed09f799759a8e53b2ba6a91cba0247b3e7fc216bef9c0e5a179",
+          "size_bytes": 1560
+        }
+      },
+      "timing": {
+        "first_ts": "2026-08-01 08:31:10",
+        "last_ts": "2026-08-01 08:37:11"
+      }
+    },
+    {
+      "task": 2,
+      "config": "original_batch",
+      "tag": "mini2_orig_task2",
+      "n_gpus": 4,
+      "gpu_list": "0,1,2,3",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 4,
+      "global_batch": 32,
+      "expected_global_batch": 32,
+      "seed": 42,
+      "max_steps": null,
+      "data_path": "/home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_staged/stage01_baseline/data_indices/ArxivQA/train.json",
+      "output_dir": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints/mini2_orig_task2_llava_lora_ours",
+      "master_port": 29632,
+      "source_script": "scripts/Hyper/Train_UCIT/Task2.sh",
+      "source_script_sha256": "dd89fe4f61ad72fa6d6b9b1fe61100a04cde60ce58713ce15308735693edb246",
+      "checkpoint_files": {
+        "README.md": {
+          "sha256": "a031fff54629e2384925072b16a3fcdcc7bfd3bc60282eb726708c7b915fb91a",
+          "size_bytes": 88
+        },
+        "adapter_config.json": {
+          "sha256": "944a358cc9aae7a67e080915fb0755513e1cb5441575d6cdfe9801b642c97212",
+          "size_bytes": 623
+        },
+        "adapter_model.bin": {
+          "sha256": "eece41bcf97ce8bcbe23cef3e5580d2d75be3f52c337700cca5bc8041cd6ce29",
+          "size_bytes": 254560258
+        },
+        "config.json": {
+          "sha256": "aa002c3f1c111d5a121fd726b7eb9b50736b732f9935c9be3e6465abfe7e4922",
+          "size_bytes": 1809
+        },
+        "non_lora_trainables.bin": {
+          "sha256": "2a9e66a64e97789c7d776920f83b4c5112643a0f43c84b3d6a51aea6bfa821f8",
+          "size_bytes": 42052630
+        },
+        "stats.json": {
+          "sha256": "05935cc5f649a3a6153824632bd3e700354fad153ed2c4c94f7eb079137ac69d",
+          "size_bytes": 136235
+        },
+        "trainer_state.json": {
+          "sha256": "f0b25d3ccbf475b513f01d916d63499e3912f16cb8067c75e823a578a3a76c8f",
+          "size_bytes": 2518
+        }
+      },
+      "timing": {
+        "first_ts": "2026-08-01 08:38:19",
+        "last_ts": "2026-08-01 08:44:32"
+      }
+    }
+  ],
+  "git_head": "8b3d4a95788022d7719e23b45f16efb9c12b22b5"
+}

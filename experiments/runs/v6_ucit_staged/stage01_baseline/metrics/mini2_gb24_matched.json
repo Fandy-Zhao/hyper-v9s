@@ -1,0 +1,39 @@
+{
+  "name": "mini2_gb24_matched",
+  "task_order": [
+    "ImageNet-R",
+    "ArxivQA",
+    "VizWiz",
+    "IconQA",
+    "CLEVR-Math",
+    "Flickr30k"
+  ],
+  "accuracy_matrix": [
+    [
+      47.66,
+      null
+    ],
+    [
+      50.0,
+      80.47
+    ]
+  ],
+  "metrics": {
+    "MAA": 56.4475,
+    "MFN": 65.235,
+    "MFT": 64.065,
+    "BWT": 2.3400000000000034
+  },
+  "formula_verified": {
+    "MAA": 83.3888888888889,
+    "MFN": 77.66666666666667,
+    "MFT": 87.66666666666667,
+    "BWT": -15.0
+  },
+  "metric_definitions": {
+    "MAA": "mean over stages i of mean(seen-task performance after task i)",
+    "MFN": "mean of final row",
+    "MFT": "mean diagonal",
+    "BWT": "mean over old tasks (final - at-learn)"
+  }
+}

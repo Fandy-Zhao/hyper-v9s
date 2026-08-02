@@ -1,0 +1,79 @@
+{
+  "name": "hyper_llava_gb24_matched_seed42",
+  "task_order": [
+    "ImageNet-R",
+    "ArxivQA",
+    "VizWiz",
+    "IconQA",
+    "CLEVR-Math",
+    "Flickr30k"
+  ],
+  "accuracy_matrix": [
+    [
+      91.9,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      91.03,
+      94.83,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      89.63,
+      94.43,
+      61.77,
+      null,
+      null,
+      null
+    ],
+    [
+      86.27,
+      93.87,
+      57.54,
+      84.63,
+      null,
+      null
+    ],
+    [
+      85.9,
+      93.97,
+      54.6,
+      76.83,
+      79.57,
+      null
+    ],
+    [
+      86.8,
+      93.83,
+      59.06,
+      76.17,
+      65.37,
+      58.19
+    ]
+  ],
+  "metrics": {
+    "MAA": 83.12691666666667,
+    "MFN": 73.23666666666666,
+    "MFT": 78.48166666666667,
+    "BWT": -6.293999999999999
+  },
+  "formula_verified": {
+    "MAA": 83.3888888888889,
+    "MFN": 77.66666666666667,
+    "MFT": 87.66666666666667,
+    "BWT": -15.0
+  },
+  "metric_definitions": {
+    "MAA": "mean over stages i of mean(seen-task performance after task i)",
+    "MFN": "mean of final row",
+    "MFT": "mean diagonal",
+    "BWT": "mean over old tasks (final - at-learn)"
+  }
+}

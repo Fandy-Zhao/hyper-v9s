@@ -1,0 +1,23 @@
+{
+  "stage01_artifacts": {
+    "experiments/runs/v6_ucit_staged/stage01_baseline/configs/original_batch/task_params.json": "cff6b0065e44f612325b24321e7fe9c026a8e9088d1122a4e66cfd169fe269c9",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/configs/gb24_matched/task_params.json": "541fad990585f122322ccd628d73f4b1f10f1d5637f54e2f6d9f9e5bc3514147",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/manifests/mini2_gb24_matched.json": "0d16af1c96d937046a0357715191483144c0e7021dcafa6c324061b8292dfb7f",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/metrics/original_batch_seed42.json": "350bfcf3cf4c829204bd8984fb0830562dbc12a0a8353cd23ee7242431c5d848",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/manifests/gb24_matched_seed42.json": "a420b9fd5e05f7611e5ecb8ec6e3e4b1aafb6a63353248b07e8692425084e623",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/manifests/mini2_original_batch.json": "e2e2d6b91263bc6d9c0663e6e6def2dab348f3c8f27349add73072155f9b0263",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/stage_report.md": "8cd6b951d3a650df24a467151fff2d15533ced1681a412aee2d5e7eefea7f85b",
+    "docs/reports/v6_ucit_baseline.md": "4d100f7a1b2f82d47952d1adf5099226dbca3e2654d22d8df60b9593f17eb9e3",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/data_indices/mini2_manifest.json": "4526df49c0dfafe44589303bffd957d42614d2e42a7b44eb5add549665d2bd1c",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/metrics/mini2_original_batch.json": "29d987ce9e3f91aaa080f2d6b4db69abd23592ef960b1be5eeadf8c4b0d2f412",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/metrics/mini2_gb24_matched.json": "248b75e06314d9e224766b0064b94c3380db488440b7c7d4a22990c3c74f6ccb",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/metrics/params_orig.json": "f81cbfbbc5744827a1439781482fbc00d2a295c41ced3c9eb9f9f56f41975d23",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/metrics/gb24_matched_seed42.json": "7f9b4df14d3d8d81970c3cd6d97ec558d7fc740599a4530b3328adf2cd07fdeb",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/manifests/original_batch_seed42.json": "8d86bc645c382621ef3c3b415663660f1c65383e03fb86e394c9c96261ee3970",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/metrics/params_gb24.json": "b9cdf65803ac803a1b5ad04d000fff51006e422dfc6d5def6dcc63be1cd0ae25",
+    "experiments/runs/v6_ucit_staged/stage01_baseline/metrics/comparison.json": "5c342e9cc1c1169371213af1ac7d08c1bfea6f2eeaa009474575299d0791326e"
+  },
+  "note": "checkpoints/logs/evals on /data tracked by path in manifests; large outputs not committed",
+  "checkpoint_root": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage01_baseline/checkpoints",
+  "eval_root": "experiments/runs/v6_ucit_staged/stage01_baseline/evaluations"
+}
