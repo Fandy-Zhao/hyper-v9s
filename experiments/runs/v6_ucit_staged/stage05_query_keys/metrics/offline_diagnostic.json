@@ -1,0 +1,43 @@
+{
+  "EmptyFalseRecallRate": 0.021739130434782608,
+  "MRR": 0.11066666666666668,
+  "OracleMemberRecall@1": 0.06,
+  "OracleMemberRecall@2": 0.09,
+  "OracleMemberRecall@4": 0.135,
+  "OracleSetRecall@1": 0.04,
+  "OracleSetRecall@2": 0.07,
+  "OracleSetRecall@4": 0.12,
+  "PairAtLeastOneRecall@4": 0.3,
+  "PairBothMembersRecall@4": 0.15,
+  "SingleRecall@1": 0.05,
+  "average_similarity_margin": 0.019047843483955756,
+  "checkpoint": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage05_query_keys/checkpoints/offline_diagnostic.pt",
+  "config_hash": "00d8be0282e083a980e9e5aa271ab13b3fc9ae9362c453de7c2f8ab3bf200a87",
+  "expert_selection_histogram": {
+    "0": 19,
+    "1": 19,
+    "2": 19,
+    "3": 18,
+    "4": 17
+  },
+  "key_utilization": 0.8333333333333334,
+  "one_key_collapse": false,
+  "task_ID_collapse_diagnostic": {
+    "0": {},
+    "1": {},
+    "2": {},
+    "3": {
+      "2": 1
+    },
+    "4": {
+      "0": 1
+    },
+    "5": {
+      "1": 1,
+      "2": 11,
+      "3": 4,
+      "4": 1
+    }
+  },
+  "temporal_mask_violations": 0
+}

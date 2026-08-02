@@ -1,0 +1,14 @@
+................................................................... [ 53%]
+..........................................................            [100%]
+=============================== warnings summary ===============================
+../miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311
+../miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311
+  /home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+    torch.utils._pytree._register_pytree_node(
+
+../miniconda3/envs/hyper/lib/python3.10/site-packages/deepspeed/ops/op_builder/async_io.py:71
+  /home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/deepspeed/ops/op_builder/async_io.py:71: DeprecationWarning: Use shutil.which instead of find_executable
+    path = distutils.spawn.find_executable(pkgmgr)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+125 passed, 3 warnings, 8 subtests passed in 12.80s

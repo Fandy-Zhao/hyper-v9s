@@ -1,0 +1,53 @@
+{
+  "direct_only": true,
+  "historical_post_separate": true,
+  "status": "PASSED",
+  "tasks": [
+    {
+      "disjoint": true,
+      "task_id": 0,
+      "task_name": "ImageNet-R",
+      "train": 128,
+      "validation": 32
+    },
+    {
+      "disjoint": true,
+      "task_id": 1,
+      "task_name": "ArxivQA",
+      "train": 128,
+      "validation": 32
+    },
+    {
+      "disjoint": true,
+      "task_id": 2,
+      "task_name": "VizWiz",
+      "train": 128,
+      "validation": 32
+    },
+    {
+      "disjoint": true,
+      "task_id": 3,
+      "task_name": "IconQA",
+      "train": 128,
+      "validation": 32
+    },
+    {
+      "disjoint": true,
+      "task_id": 4,
+      "task_name": "CLEVR",
+      "train": 128,
+      "validation": 32
+    },
+    {
+      "disjoint": true,
+      "task_id": 5,
+      "task_name": "Flickr30k",
+      "train": 128,
+      "validation": 32
+    }
+  ],
+  "temporal_violations": 0,
+  "test_data_used": false,
+  "train_total": 768,
+  "validation_total": 192
+}

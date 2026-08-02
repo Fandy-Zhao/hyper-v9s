@@ -1,0 +1,40 @@
+{
+  "checks": {
+    "checkpoint_metadata": true,
+    "key_tensors_finite_and_distinct": true,
+    "metrics_complete": true,
+    "oracle_expansion": true,
+    "temporal_mask": true,
+    "test_data_used": true
+  },
+  "config_sha256": "3d4e6eef78c649e4539b8ed8c94465bccca27879ab1cbaf21ed179f4ba0b1734",
+  "continual_checkpoint_sha256": "8b8e3837eef4ac4cf52b20652730d5cf6acfe801f48bec5cbfe8be6836f02439",
+  "dataset_manifest_hash": "2982f01bc8f8d29a3a6ab648286d1ee399f76319c3031649add99db4dd5af3cf",
+  "environment": {
+    "cuda": "11.8",
+    "peft": "0.4.0",
+    "python": "3.10.20",
+    "pytorch": "2.3.1+cu118",
+    "transformers": "4.33.3"
+  },
+  "failures_retries": [
+    "initial SSH quoting failures during read-only/preflight and controlled launch; no data mutation",
+    "pytest installed in hyper environment because absent"
+  ],
+  "label_counts": {
+    "train": {
+      "0": 398,
+      "1": 288,
+      "2": 82
+    },
+    "validation": {
+      "0": 92,
+      "1": 80,
+      "2": 20
+    }
+  },
+  "offline_checkpoint_sha256": "fa1d2b0d9ffbef616d72c2fd232c8710ab4a08cba92e4f546d0930581e3e8709",
+  "oracle_cache_hash": "779af3046f12b6293d94a329ee837216598a94dbb5f51e0f6fb5874c6f328d5f",
+  "source_parent_commit": "2ab34c6042751744c0b53ef6be173c35b839f54a",
+  "status": "PASSED"
+}

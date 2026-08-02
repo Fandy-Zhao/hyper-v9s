@@ -1,0 +1,37 @@
+{
+  "EmptyFalseRecallRate": 0.010869565217391304,
+  "MRR": 0.04333333333333333,
+  "OracleMemberRecall@1": 0.04,
+  "OracleMemberRecall@2": 0.04,
+  "OracleMemberRecall@4": 0.05,
+  "OracleSetRecall@1": 0.04,
+  "OracleSetRecall@2": 0.04,
+  "OracleSetRecall@4": 0.05,
+  "PairAtLeastOneRecall@4": 0.05,
+  "PairBothMembersRecall@4": 0.05,
+  "SingleRecall@1": 0.05,
+  "average_similarity_margin": 0.07664835420291638,
+  "checkpoint": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage05_query_keys/checkpoints/continual_anchor.pt",
+  "config_hash": "cc4ea261d7964f2b2bba0159c4ed76f730f66d3eb564805d56adcfcdb922397b",
+  "expert_selection_histogram": {
+    "0": 6,
+    "1": 6,
+    "2": 6,
+    "3": 1
+  },
+  "key_utilization": 0.6666666666666666,
+  "one_key_collapse": false,
+  "task_ID_collapse_diagnostic": {
+    "0": {},
+    "1": {},
+    "2": {},
+    "3": {
+      "2": 5
+    },
+    "4": {
+      "3": 1
+    },
+    "5": {}
+  },
+  "temporal_mask_violations": 0
+}

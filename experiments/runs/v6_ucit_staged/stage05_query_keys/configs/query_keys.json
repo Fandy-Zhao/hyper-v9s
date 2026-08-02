@@ -1,0 +1,18 @@
+{
+  "anchor_capacity_per_expert": 32,
+  "empty_margin": 0.2,
+  "lambda_anchor": 1.0,
+  "lambda_diversity": 0.01,
+  "lambda_empty": 1.0,
+  "mode_primary": "continual_anchor",
+  "mode_upper_bound": "offline_diagnostic",
+  "oracle_composition": "direct_sum",
+  "oracle_source_initialization": "post_task_direct",
+  "oracle_source_supervision": "historical_only_direct",
+  "query_dim": 128,
+  "sampling_seed": 42,
+  "temperature": 0.07,
+  "test_data_used": false,
+  "train_samples_per_task": 128,
+  "validation_samples_per_task": 32
+}

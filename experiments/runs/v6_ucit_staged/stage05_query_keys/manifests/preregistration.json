@@ -1,0 +1,16 @@
+{
+  "formal_scale_decision": "allowed_cost_fallback_fixed_before_generation",
+  "gpu_preferred": [0, 1, 2, 3],
+  "gpu_selected": [4, 5, 6, 7],
+  "gpu_selection_reason": "GPUs 0-3 occupied by another user's processes during preflight; GPUs 4-7 idle",
+  "oracle_configuration_sha256": "10f2cdce7726e9f5cecdcebbd056555cd98393415e9665a5a80a4ce1f6b99fe5",
+  "oracle_direct_only": true,
+  "reuse_existing_train_samples_per_task": 32,
+  "sampling_seed": 42,
+  "status": "PREREGISTERED_BEFORE_STAGE05_FORMAL_RESULTS",
+  "test_answers_permitted": false,
+  "test_data_used": false,
+  "train_missing_samples_per_task": 96,
+  "train_samples_per_task": 128,
+  "validation_samples_per_task": 32
+}
