@@ -1,0 +1,12 @@
+{
+  "frozen_utc": "2026-08-02T04:51:21Z",
+  "formula": "c_i=sqrt(r_j/r_i), c_j=sqrt(r_i/r_j); output=base+(1/sqrt(2))*(c_i*delta_i+c_j*delta_j)",
+  "calibration_split": "train_calibration",
+  "calibration_seed": 42,
+  "coefficient_clip": [0.25, 4.0],
+  "epsilon": 1e-8,
+  "config_sha256": "29eacd7c25718e085a864a742b3c0d8ab343759b2be958202b11cc846923d0f2",
+  "implementation_sha256": "6891823fafc6fd8936b88cc37a1a5defc927b9757aa886b21572e4555c312da5",
+  "statistics_implementation_sha256": "1854f5b0dbe2b123eb99c50f0b155b2e47da1985a71ea142b8c056187e6836de",
+  "test_data_used": false
+}

@@ -1,0 +1,70 @@
+{
+  "ranks": [
+    {
+      "active": [
+        0,
+        1
+      ],
+      "direct_finite": true,
+      "new_expert_gradient": true,
+      "old_expert_frozen": true,
+      "rank": 0,
+      "rms_finite": true,
+      "statistics_identical": true,
+      "statistics_sample_count": 16,
+      "trainable": [
+        1
+      ]
+    },
+    {
+      "active": [
+        0,
+        1
+      ],
+      "direct_finite": true,
+      "new_expert_gradient": true,
+      "old_expert_frozen": true,
+      "rank": 1,
+      "rms_finite": true,
+      "statistics_identical": true,
+      "statistics_sample_count": 16,
+      "trainable": [
+        1
+      ]
+    },
+    {
+      "active": [
+        0,
+        1
+      ],
+      "direct_finite": true,
+      "new_expert_gradient": true,
+      "old_expert_frozen": true,
+      "rank": 2,
+      "rms_finite": true,
+      "statistics_identical": true,
+      "statistics_sample_count": 16,
+      "trainable": [
+        1
+      ]
+    },
+    {
+      "active": [
+        0,
+        1
+      ],
+      "direct_finite": true,
+      "new_expert_gradient": true,
+      "old_expert_frozen": true,
+      "rank": 3,
+      "rms_finite": true,
+      "statistics_identical": true,
+      "statistics_sample_count": 16,
+      "trainable": [
+        1
+      ]
+    }
+  ],
+  "status": "PASSED",
+  "world_size": 4
+}

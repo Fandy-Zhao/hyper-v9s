@@ -1,0 +1,18 @@
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[2026-08-02 04:56:48,010] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
+Traceback (most recent call last):
+  File "/home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_staged/stage03_composition/scripts/controlled_direct_sum_regression.py", line 88, in <module>
+    main()
+  File "/home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_staged/stage03_composition/scripts/controlled_direct_sum_regression.py", line 29, in main
+    bundle = load_compose_model(checkpoint_dir=args.checkpoint, expert_id=None, device="cuda:0",
+  File "/home/zhaozhuofan/Hyper-LlaVA/compose/eval/load_compose.py", line 112, in load_compose_model
+    manifest = _read_compose_manifest(checkpoint_dir)
+  File "/home/zhaozhuofan/Hyper-LlaVA/compose/eval/load_compose.py", line 88, in _read_compose_manifest
+    raise FileNotFoundError("Compose manifest does not exist: {}".format(path))
+FileNotFoundError: Compose manifest does not exist: /data/ckpt/zhaozhuofan/compose/format_controlled_composition_v1/assembled/seed42/a_residual_b/compose_experts.json

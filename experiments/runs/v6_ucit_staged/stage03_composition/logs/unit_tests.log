@@ -1,0 +1,104 @@
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[2026-08-02 04:52:26,023] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+test_vector_cosine (test_activation_identity.ActivationIdentityTest) ... ok
+test_empty_frozen_trainable_and_restore_cases (test_adapter_bridge.AdapterBridgeTest) ... ok
+test_multi_expert_state_is_recorded_but_forward_is_blocked (test_adapter_bridge.AdapterBridgeTest) ... ok
+test_assembles_selected_experts_exactly (test_assemble.AssembleCheckpointTest) ... ok
+test_rejects_duplicate_ids_and_incompatible_adapters (test_assemble.AssembleCheckpointTest) ... ok
+test_checkpoint_rejects_missing_or_unexpected_tensors (test_checkpoint.CheckpointTest) ... ok
+test_checkpoint_round_trip_is_exact_and_preserves_output (test_checkpoint.CheckpointTest) ... ok
+test_expert_isolation_compares_every_tensor_exactly (test_checkpoint.CheckpointTest) ... ok
+test_sample_level_top1_selection (test_compose_linear.ComposeLinearTest) ... ok
+test_sample_level_top2_composition_normalizes_gates (test_compose_linear.ComposeLinearTest) ... ok
+test_selection_rejects_more_than_two_experts (test_compose_linear.ComposeLinearTest) ... ok
+test_frozen_old_expert_participates_without_gradient (test_conditional_training.ConditionalTrainingTest) ... ok
+test_roles_require_trainable_subset_of_active (test_conditional_training.ConditionalTrainingTest) ... ok
+test_llava_config_is_explicitly_converted_without_warning (test_config.ConfigConversionTest) ... ok
+test_generation_is_deterministic_and_split_safe (test_controlled_functional.ControlledFunctionalDataTest) ... ok
+test_records_supervised_token_summary_after_truncation (test_data.DataCollatorTest) ... ok
+test_rejects_zero_supervision_created_by_truncation (test_data.DataCollatorTest) ... ok
+test_exact_match_is_trimmed_and_case_insensitive (test_eval_controlled.ControlledEvalTest) ... ok
+test_summary (test_eval_controlled.ControlledEvalTest) ... ok
+test_compose_manifest_accepts_strict_adapter_config (test_eval_metrics.EvalMetricsTest) ... ok
+test_compose_manifest_requires_complete_adapter_config (test_eval_metrics.EvalMetricsTest) ... ok
+test_task1_exact_match_is_case_insensitive_and_id_aligned (test_eval_metrics.EvalMetricsTest) ... ok
+test_task1_metric_rejects_partial_predictions (test_eval_metrics.EvalMetricsTest) ... ok
+test_exception_exit_restores_and_subset_is_default (test_expert_activation.ExpertActivationContextTest) ... ok
+test_nested_contexts_restore_outer_then_initial_state (test_expert_activation.ExpertActivationContextTest) ... ok
+test_manager_builds_fixed_top2_selection (test_expert_manager.ExpertManagerTest) ... ok
+test_pool_registration_and_trainability (test_expert_manager.ExpertManagerTest) ... ok
+test_invalid_values_and_archived_selection_fail (test_expert_metadata.ExpertMetadataTest) ... ok
+test_legacy_fields_and_status_remain_loadable (test_expert_metadata.ExpertMetadataTest) ... ok
+test_schema_is_json_safe_and_deduplicates_reuse_tasks (test_expert_metadata.ExpertMetadataTest) ... ok
+test_unknown_fields_are_preserved_in_extra (test_expert_metadata.ExpertMetadataTest) ... ok
+test_active_and_trainable_are_ordered_independent_sets (test_expert_registry.ExpertRegistryTest) ... ok
+test_duplicate_missing_archived_and_bound_unregister_are_protected (test_expert_registry.ExpertRegistryTest) ... ok
+test_state_dict_round_trip_preserves_order_and_roles (test_expert_registry.ExpertRegistryTest) ... ok
+test_factorized_statistics_match_dense_deltas (test_geometry.GeometryTest) ... ok
+test_zero_delta_has_finite_zero_cosine (test_geometry.GeometryTest) ... ok
+test_bfloat16_forward_backward_matches_reference (test_grouped_execution.GroupedExecutionTest) ... ok
+test_each_expert_receives_only_active_rows (test_grouped_execution.GroupedExecutionTest) ... ok
+test_grouped_backward_matches_reference (test_grouped_execution.GroupedExecutionTest) ... ok
+test_mixed_batch_matches_per_sample_reference (test_grouped_execution.GroupedExecutionTest) ... ok
+test_rank_two_input_is_supported (test_grouped_execution.GroupedExecutionTest) ... ok
+test_compose_import_does_not_load_hyper_modules (test_imports.ImportIsolationTest) ... /home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[2026-08-02 04:52:33,057] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
+ok
+test_compose_model_has_no_hyper_state (test_imports.ImportIsolationTest) ... ok
+test_32_layer_decoder_injects_exactly_224_projections (test_injection.InjectionTest) ... ok
+test_duplicate_injection_fails (test_injection.InjectionTest) ... ok
+test_injection_targets_decoder_projections_only (test_injection.InjectionTest) ... ok
+test_noncanonical_target_set_fails (test_injection.InjectionTest) ... ok
+test_base_single_and_direct_sum_regressions (test_lora_composition_stage03.CompositionMathTest) ... ok
+test_gradient_isolation_and_restore (test_lora_composition_stage03.CompositionMathTest) ... ok
+test_reject_duplicate_too_many_missing_and_archived (test_lora_composition_stage03.CompositionMathTest) ... ok
+test_rms_pair_swap_frozen_coefficients_and_bf16 (test_lora_composition_stage03.CompositionMathTest) ... ok
+test_two_trainable_experts_are_explicitly_supported (test_lora_composition_stage03.CompositionMathTest) ... ok
+test_zero_delta_and_no_implicit_pair_scale (test_lora_composition_stage03.CompositionMathTest) ... ok
+test_atomic_checkpoint_roundtrip_and_hash_invalidation (test_lora_composition_stage03.StatisticsTest) ... ok
+test_ddp_all_reduce_reconstructs_global_moments (test_lora_composition_stage03.StatisticsTest) ... ok
+test_online_moments_and_epsilon (test_lora_composition_stage03.StatisticsTest) ... ok
+test_best_single_pair_synergy_and_summary (test_oracle.CandidateSetTest) ... ok
+test_empty_set_disables_registered_experts (test_oracle.CandidateSetTest) ... ok
+test_four_experts_produce_stable_eleven_set_mapping (test_oracle.CandidateSetTest) ... ok
+test_cache_round_trip_and_config_hash_are_stable (test_oracle.OracleCacheTest) ... ok
+test_mixture_namespaces_sample_ids_and_preserves_task_ids (test_oracle.OracleCacheTest) ... ok
+test_per_sample_nll_matches_manual_and_single_sample_results (test_oracle.OracleLossTest) ... ok
+test_zero_target_tokens_raise (test_oracle.OracleLossTest) ... ok
+test_oracles_follow_nll_selection_and_attached_prediction (test_posthoc_audit.PosthocAuditTest) ... ok
+test_percentiles_and_negative_characterization (test_posthoc_audit.PosthocAuditTest) ... ok
+test_conversation_record (test_records.RecordAccessorTest) ... ok
+test_flat_record (test_records.RecordAccessorTest) ... ok
+test_missing_fields_fail_explicitly (test_records.RecordAccessorTest) ... ok
+test_atomic_json_round_trip_has_provenance_and_checksum (test_registry_checkpoint.RegistryCheckpointTest) ... ok
+test_missing_checkpoint_is_clear (test_registry_checkpoint.RegistryCheckpointTest) ... ok
+test_duplicate_expert_ids_are_rejected (test_selection.ComposeSelectionTest) ... ok
+test_gate_validation_is_independent_of_normalization (test_selection.ComposeSelectionTest) ... ok
+test_invalid_normalization_is_rejected (test_selection.ComposeSelectionTest) ... ok
+test_l1_normalizes_each_row (test_selection.ComposeSelectionTest) ... ok
+test_l2_normalizes_each_row (test_selection.ComposeSelectionTest) ... ok
+test_manager_default_l2_pair_uses_inverse_sqrt_two (test_selection.ComposeSelectionTest) ... ok
+test_none_preserves_user_gates (test_selection.ComposeSelectionTest) ... ok
+test_single_expert_default_is_one (test_selection.ComposeSelectionTest) ... ok
+test_to_preserves_normalization (test_selection.ComposeSelectionTest) ... ok
+test_bootstrap_interval_is_deterministic_and_positive (test_summarize_controlled.SummarizeControlledTest) ... ok
+test_bootstrap_interval_preserves_negative_direction (test_summarize_controlled.SummarizeControlledTest) ... ok
+test_constructing_bridge_does_not_change_existing_forward (test_v6_off_regression.V6OffRegressionTest) ... ok
+test_tensor_hash_is_exact_and_shape_sensitive (test_verify_behavior.VerifyBehaviorTest) ... ok
+
+----------------------------------------------------------------------
+Ran 83 tests in 8.062s
+
+OK
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.

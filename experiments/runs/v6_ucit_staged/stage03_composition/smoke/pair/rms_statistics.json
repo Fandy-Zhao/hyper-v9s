@@ -1,0 +1,69 @@
+{
+  "entries": {
+    "{\"expert_id\":0,\"layer_name\":\"proj\",\"module_name\":\"proj\",\"statistic_version\":1,\"target_module_type\":\"HyperMOELoraLinear\"}": {
+      "base_output": {
+        "count": 128,
+        "m2": 62.06952694512438,
+        "mean": -0.04343128204345703,
+        "sum_squares": 62.310970306396484
+      },
+      "delta": {
+        "count": 128,
+        "m2": 0.0,
+        "mean": 0.0,
+        "sum_squares": 0.0
+      },
+      "dtype": "torch.bfloat16",
+      "key": {
+        "expert_id": 0,
+        "layer_name": "proj",
+        "module_name": "proj",
+        "statistic_version": 1,
+        "target_module_type": "HyperMOELoraLinear"
+      },
+      "output": {
+        "count": 128,
+        "m2": 62.06952694512438,
+        "mean": -0.04343128204345703,
+        "sum_squares": 62.310970306396484
+      },
+      "sample_count": 4
+    },
+    "{\"expert_id\":1,\"layer_name\":\"proj\",\"module_name\":\"proj\",\"statistic_version\":1,\"target_module_type\":\"HyperMOELoraLinear\"}": {
+      "base_output": {
+        "count": 128,
+        "m2": 62.06952694512438,
+        "mean": -0.04343128204345703,
+        "sum_squares": 62.310970306396484
+      },
+      "delta": {
+        "count": 128,
+        "m2": 0.0,
+        "mean": 0.0,
+        "sum_squares": 0.0
+      },
+      "dtype": "torch.bfloat16",
+      "key": {
+        "expert_id": 1,
+        "layer_name": "proj",
+        "module_name": "proj",
+        "statistic_version": 1,
+        "target_module_type": "HyperMOELoraLinear"
+      },
+      "output": {
+        "count": 128,
+        "m2": 62.06952694512438,
+        "mean": -0.04343128204345703,
+        "sum_squares": 62.310970306396484
+      },
+      "sample_count": 4
+    }
+  },
+  "provenance": {
+    "calibration_split": "train_calibration_smoke",
+    "checkpoint_hash": "tiny-fixed",
+    "composition_config_hash": "29eacd7c25718e085a864a742b3c0d8ab343759b2be958202b11cc846923d0f2",
+    "dataset_manifest_hash": "seed42-rank-sharded"
+  },
+  "statistic_version": 1
+}

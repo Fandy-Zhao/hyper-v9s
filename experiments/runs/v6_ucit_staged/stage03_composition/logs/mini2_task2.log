@@ -1,0 +1,127 @@
+W0802 05:46:36.501000 140006851134656 torch/distributed/run.py:757]
+W0802 05:46:36.501000 140006851134656 torch/distributed/run.py:757] *****************************************
+W0802 05:46:36.501000 140006851134656 torch/distributed/run.py:757] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed.
+W0802 05:46:36.501000 140006851134656 torch/distributed/run.py:757] *****************************************
+[2026-08-02 05:46:37,919] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[2026-08-02 05:46:37,920] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[2026-08-02 05:46:37,939] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[2026-08-02 05:46:38,021] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[2026-08-02 05:46:41,649] [INFO] [comm.py:637:init_distributed] cdb=None
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[2026-08-02 05:46:41,795] [INFO] [comm.py:637:init_distributed] cdb=None
+[2026-08-02 05:46:41,795] [INFO] [comm.py:668:init_distributed] Initializing TorchBackend in DeepSpeed with backend nccl
+[2026-08-02 05:46:41,803] [INFO] [comm.py:637:init_distributed] cdb=None
+[2026-08-02 05:46:41,831] [INFO] [comm.py:637:init_distributed] cdb=None
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:13<00:13, 13.85s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:13<00:13, 13.86s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:13<00:13, 13.59s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:15<00:15, 15.12s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:18<00:00,  8.66s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:18<00:00,  9.44s/it]
+Some weights of LlavaLlamaForCausalLM were not initialized from the model checkpoint at /data/ckpt/zhaozhuofan/models/llava-v1.5-7b and are newly initialized: ['image_boundary.6', 'text_anchors.2', 'image_count.3', 'image_boundary.0', 'image_anchors.2', 'image_boundary.8', 'text_var.5', 'text_boundary.6', 'text_mean.0', 'text_count.4', 'text_anchors.1', 'image_var.2', 'text_boundary.2', 'text_boundary.9', 'text_boundary.1', 'text_boundary.8', 'image_boundary.2', 'text_var.0', 'image_anchors.1', 'image_anchors.8', 'text_anchors.3', 'text_anchors.4', 'image_anchors.3', 'image_mean.4', 'text_anchors.5', 'image_mean.3', 'text_anchors.9', 'text_mean.5', 'text_anchors.7', 'text_count.3', 'text_var.3', 'text_mean.4', 'image_count.4', 'image_count.5', 'image_mean.0', 'text_boundary.5', 'text_count.0', 'text_count.2', 'image_mean.5', 'image_anchors.9', 'image_boundary.9', 'text_boundary.3', 'image_boundary.3', 'image_count.0', 'text_boundary.4', 'text_mean.3', 'image_mean.1', 'image_count.2', 'image_mean.2', 'image_anchors.0', 'image_anchors.7', 'text_boundary.0', 'text_anchors.0', 'image_var.0', 'image_var.3', 'text_mean.2', 'text_anchors.6', 'text_var.2', 'image_var.4', 'text_mean.1', 'image_boundary.7', 'image_var.5', 'image_var.1', 'image_boundary.5', 'image_anchors.4', 'text_count.5', 'image_anchors.5', 'image_boundary.1', 'text_boundary.7', 'image_count.1', 'text_var.1', 'text_anchors.8', 'image_anchors.6', 'text_var.4', 'image_boundary.4', 'text_count.1']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Loading checkpoint shards: 100%|██████████| 2/2 [00:18<00:00,  8.69s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:18<00:00,  9.46s/it]
+Some weights of LlavaLlamaForCausalLM were not initialized from the model checkpoint at /data/ckpt/zhaozhuofan/models/llava-v1.5-7b and are newly initialized: ['text_mean.0', 'image_count.3', 'image_anchors.7', 'image_boundary.8', 'image_boundary.3', 'text_count.3', 'text_anchors.7', 'text_count.1', 'text_boundary.9', 'text_anchors.0', 'image_boundary.5', 'image_var.4', 'image_boundary.7', 'text_var.1', 'text_boundary.7', 'image_boundary.4', 'image_anchors.8', 'text_anchors.8', 'text_boundary.3', 'text_anchors.6', 'text_boundary.5', 'image_mean.0', 'image_var.0', 'text_boundary.1', 'text_count.0', 'image_var.3', 'image_anchors.0', 'text_mean.1', 'image_mean.4', 'text_mean.5', 'image_boundary.9', 'text_var.2', 'image_anchors.5', 'text_mean.3', 'text_var.0', 'text_var.3', 'text_anchors.2', 'image_var.2', 'image_mean.5', 'image_count.1', 'image_anchors.9', 'image_boundary.2', 'image_count.4', 'image_count.5', 'text_boundary.0', 'image_count.2', 'text_boundary.4', 'text_anchors.1', 'text_anchors.5', 'text_count.4', 'text_boundary.8', 'image_anchors.1', 'text_anchors.9', 'text_boundary.6', 'image_var.1', 'image_anchors.4', 'text_mean.2', 'text_var.4', 'image_mean.2', 'image_boundary.0', 'image_boundary.6', 'image_var.5', 'text_mean.4', 'text_boundary.2', 'text_var.5', 'text_anchors.4', 'image_mean.3', 'text_anchors.3', 'image_anchors.3', 'image_anchors.6', 'image_mean.1', 'image_anchors.2', 'image_count.0', 'image_boundary.1', 'text_count.2', 'text_count.5']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Loading checkpoint shards: 100%|██████████| 2/2 [00:17<00:00,  8.11s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:17<00:00,  8.93s/it]
+Some weights of LlavaLlamaForCausalLM were not initialized from the model checkpoint at /data/ckpt/zhaozhuofan/models/llava-v1.5-7b and are newly initialized: ['text_boundary.6', 'image_anchors.0', 'text_mean.2', 'image_anchors.2', 'text_boundary.7', 'image_boundary.3', 'text_anchors.2', 'image_anchors.5', 'text_count.4', 'image_var.3', 'image_mean.0', 'image_mean.1', 'image_boundary.5', 'image_var.4', 'text_var.1', 'image_var.5', 'image_anchors.6', 'text_anchors.0', 'text_mean.4', 'text_mean.0', 'text_boundary.2', 'image_anchors.4', 'text_boundary.5', 'image_count.5', 'image_boundary.9', 'image_boundary.4', 'image_mean.3', 'image_anchors.9', 'image_mean.2', 'text_boundary.3', 'image_boundary.6', 'image_anchors.3', 'text_anchors.4', 'text_anchors.8', 'image_boundary.2', 'text_anchors.9', 'image_boundary.7', 'image_count.1', 'image_anchors.8', 'text_var.2', 'text_var.4', 'text_mean.5', 'text_mean.3', 'image_mean.4', 'text_boundary.8', 'image_var.2', 'image_count.2', 'text_count.0', 'image_boundary.8', 'text_var.0', 'image_var.1', 'text_count.2', 'image_count.0', 'image_count.4', 'image_boundary.1', 'text_anchors.1', 'text_anchors.6', 'text_count.3', 'text_count.5', 'text_count.1', 'image_boundary.0', 'text_boundary.0', 'text_mean.1', 'image_mean.5', 'text_boundary.9', 'text_var.5', 'text_anchors.7', 'image_anchors.7', 'text_boundary.1', 'text_anchors.3', 'image_anchors.1', 'text_var.3', 'text_boundary.4', 'text_anchors.5', 'image_count.3', 'image_var.0']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Loading checkpoint shards: 100%|██████████| 2/2 [00:23<00:00, 11.41s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:23<00:00, 11.97s/it]
+Some weights of LlavaLlamaForCausalLM were not initialized from the model checkpoint at /data/ckpt/zhaozhuofan/models/llava-v1.5-7b and are newly initialized: ['image_boundary.1', 'text_mean.2', 'image_boundary.7', 'image_anchors.2', 'image_count.2', 'text_count.3', 'image_anchors.8', 'image_boundary.8', 'image_anchors.3', 'image_mean.2', 'image_anchors.7', 'text_var.2', 'image_anchors.5', 'text_count.0', 'text_boundary.5', 'text_anchors.9', 'text_mean.4', 'text_boundary.6', 'text_anchors.0', 'image_anchors.6', 'text_count.2', 'text_boundary.1', 'text_boundary.4', 'text_anchors.6', 'image_var.5', 'text_boundary.3', 'image_anchors.4', 'text_boundary.7', 'image_var.0', 'image_var.1', 'image_boundary.9', 'image_anchors.9', 'text_anchors.5', 'text_var.3', 'text_var.0', 'text_mean.0', 'text_var.4', 'text_boundary.8', 'image_boundary.5', 'image_boundary.2', 'image_boundary.0', 'image_var.3', 'text_mean.5', 'image_mean.4', 'text_anchors.3', 'image_mean.3', 'image_anchors.0', 'image_mean.1', 'text_anchors.1', 'text_count.5', 'text_mean.3', 'image_mean.0', 'image_var.2', 'text_boundary.2', 'text_anchors.7', 'image_count.3', 'text_var.5', 'image_var.4', 'image_count.1', 'text_anchors.8', 'image_count.0', 'text_mean.1', 'image_mean.5', 'text_var.1', 'image_count.5', 'image_count.4', 'text_boundary.0', 'image_boundary.4', 'text_anchors.2', 'image_boundary.3', 'image_boundary.6', 'text_count.4', 'text_boundary.9', 'text_anchors.4', 'text_count.1', 'image_anchors.1']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Adding LoRA adapters...
+True
+True
+True
+True
+Loading additional LLaVA weights...
+Loading additional LLaVA weights...
+Loading LoRA weights...
+Loading LoRA weights...
+Loading additional LLaVA weights...
+Loading LoRA weights...
+Model is loaded...
+Model is loaded...
+
+==========================================================
+📊 🧮 Model Parameter Statistics:
+  - Trainable params: 47,815,680 (47.82 M)
+  - Total params    : 7,313,546,528 (7.31 B)
+  - Trainable %     : 0.6538%
+==========================================================
+
+Formatting inputs...Skip in lazy mode
+Model is loaded...
+Loading additional LLaVA weights...
+Loading LoRA weights...
+Model is loaded...
+  0%|          | 0/21 [00:00<?, ?it/s]/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/checkpoint.py:464: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  warnings.warn(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/checkpoint.py:464: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  warnings.warn(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/checkpoint.py:464: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  warnings.warn(
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/checkpoint.py:464: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  warnings.warn(
+  5%|▍         | 1/21 [00:06<02:18,  6.90s/it]                                              {'loss': 0.8192, 'learning_rate': 0.0002, 'epoch': 0.05}
+  5%|▍         | 1/21 [00:06<02:18,  6.90s/it] 10%|▉         | 2/21 [00:09<01:25,  4.50s/it]                                              {'loss': 0.6894, 'learning_rate': 0.00019876883405951377, 'epoch': 0.09}
+ 10%|▉         | 2/21 [00:09<01:25,  4.50s/it] 14%|█▍        | 3/21 [00:12<01:08,  3.78s/it]                                              {'loss': 0.5116, 'learning_rate': 0.00019510565162951537, 'epoch': 0.14}
+ 14%|█▍        | 3/21 [00:12<01:08,  3.78s/it] 19%|█▉        | 4/21 [00:15<00:58,  3.42s/it]                                              {'loss': 0.6453, 'learning_rate': 0.0001891006524188368, 'epoch': 0.19}
+ 19%|█▉        | 4/21 [00:15<00:58,  3.42s/it] 24%|██▍       | 5/21 [00:18<00:52,  3.27s/it]                                              {'loss': 0.4512, 'learning_rate': 0.00018090169943749476, 'epoch': 0.23}
+ 24%|██▍       | 5/21 [00:18<00:52,  3.27s/it] 29%|██▊       | 6/21 [00:21<00:46,  3.10s/it]                                              {'loss': 0.3981, 'learning_rate': 0.00017071067811865476, 'epoch': 0.28}
+ 29%|██▊       | 6/21 [00:21<00:46,  3.10s/it] 33%|███▎      | 7/21 [00:24<00:42,  3.04s/it]                                              {'loss': 0.3415, 'learning_rate': 0.00015877852522924732, 'epoch': 0.33}
+ 33%|███▎      | 7/21 [00:24<00:42,  3.04s/it] 38%|███▊      | 8/21 [00:27<00:38,  2.97s/it]                                              {'loss': 0.3373, 'learning_rate': 0.00014539904997395468, 'epoch': 0.38}
+ 38%|███▊      | 8/21 [00:27<00:38,  2.97s/it] 43%|████▎     | 9/21 [00:29<00:35,  2.95s/it]                                              {'loss': 0.2026, 'learning_rate': 0.00013090169943749476, 'epoch': 0.42}
+ 43%|████▎     | 9/21 [00:29<00:35,  2.95s/it] 48%|████▊     | 10/21 [00:32<00:32,  2.92s/it]                                               {'loss': 0.1802, 'learning_rate': 0.0001156434465040231, 'epoch': 0.47}
+ 48%|████▊     | 10/21 [00:32<00:32,  2.92s/it] 52%|█████▏    | 11/21 [00:35<00:29,  2.91s/it]                                               {'loss': 0.2691, 'learning_rate': 0.0001, 'epoch': 0.52}
+ 52%|█████▏    | 11/21 [00:35<00:29,  2.91s/it] 57%|█████▋    | 12/21 [00:38<00:26,  2.91s/it]                                               {'loss': 0.4488, 'learning_rate': 8.435655349597689e-05, 'epoch': 0.56}
+ 57%|█████▋    | 12/21 [00:38<00:26,  2.91s/it] 62%|██████▏   | 13/21 [00:41<00:23,  2.92s/it]                                               {'loss': 0.3765, 'learning_rate': 6.909830056250527e-05, 'epoch': 0.61}
+ 62%|██████▏   | 13/21 [00:41<00:23,  2.92s/it] 67%|██████▋   | 14/21 [00:44<00:20,  2.96s/it]                                               {'loss': 0.2303, 'learning_rate': 5.4600950026045326e-05, 'epoch': 0.66}
+ 67%|██████▋   | 14/21 [00:44<00:20,  2.96s/it] 71%|███████▏  | 15/21 [00:47<00:17,  2.93s/it]                                               {'loss': 0.3606, 'learning_rate': 4.12214747707527e-05, 'epoch': 0.7}
+ 71%|███████▏  | 15/21 [00:47<00:17,  2.93s/it] 76%|███████▌  | 16/21 [00:50<00:14,  2.89s/it]                                               {'loss': 0.2585, 'learning_rate': 2.9289321881345254e-05, 'epoch': 0.75}
+ 76%|███████▌  | 16/21 [00:50<00:14,  2.89s/it] 81%|████████  | 17/21 [00:53<00:11,  2.88s/it]                                               {'loss': 0.1534, 'learning_rate': 1.9098300562505266e-05, 'epoch': 0.8}
+ 81%|████████  | 17/21 [00:53<00:11,  2.88s/it] 86%|████████▌ | 18/21 [00:55<00:08,  2.87s/it]                                               {'loss': 0.2157, 'learning_rate': 1.0899347581163221e-05, 'epoch': 0.84}
+ 86%|████████▌ | 18/21 [00:55<00:08,  2.87s/it] 90%|█████████ | 19/21 [00:58<00:05,  2.88s/it]                                               {'loss': 0.1643, 'learning_rate': 4.8943483704846475e-06, 'epoch': 0.89}
+ 90%|█████████ | 19/21 [00:58<00:05,  2.88s/it] 95%|█████████▌| 20/21 [01:01<00:02,  2.87s/it]                                               {'loss': 0.0927, 'learning_rate': 1.231165940486234e-06, 'epoch': 0.94}
+ 95%|█████████▌| 20/21 [01:01<00:02,  2.87s/it]100%|██████████| 21/21 [01:04<00:00,  2.85s/it]                                               {'loss': 0.2839, 'learning_rate': 0.0, 'epoch': 0.98}
+100%|██████████| 21/21 [01:04<00:00,  2.85s/it]                                               {'train_runtime': 142.1661, 'train_samples_per_second': 3.601, 'train_steps_per_second': 0.148, 'train_loss': 0.35381563291663215, 'epoch': 0.98}
+100%|██████████| 21/21 [02:22<00:00,  2.85s/it]100%|██████████| 21/21 [02:22<00:00,  6.77s/it]
+Calculated adaptive visual weights for Stage 2: [9.03655745787546e-05, 9.03655745787546e-05]
+image_boundary: [127. 127.   1.   1.   1.   1.   1.   1.   1.   1.]
+text_boundary: [127. 127.   1.   1.   1.   1.   1.   1.   1.   1.]
+image_boundary: [127. 127.   1.   1.   1.   1.   1.   1.   1.   1.]
+text_boundary: [127. 127.   1.   1.   1.   1.   1.   1.   1.   1.]
+image_boundary: [127. 127.   1.   1.   1.   1.   1.   1.   1.   1.]
+text_boundary: [127. 127.   1.   1.   1.   1.   1.   1.   1.   1.]
+image_boundary: [127. 127.   1.   1.   1.   1.   1.   1.   1.   1.]
+text_boundary: [127. 127.   1.   1.   1.   1.   1.   1.   1.   1.]

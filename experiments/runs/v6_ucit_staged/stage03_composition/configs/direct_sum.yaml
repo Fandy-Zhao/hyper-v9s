@@ -1,0 +1,6 @@
+mode: direct_sum
+active_expert_count: 2
+coefficients: [1.0, 1.0]
+normalization: none
+clipping: none
+learned_gates: false

@@ -1,0 +1,117 @@
+{
+  "answer_logit_max_absolute_difference": 0.0,
+  "checkpoint": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage03_composition/controlled/a_residual_b",
+  "expert_ids": [
+    0,
+    1
+  ],
+  "max_absolute_logit_difference": 0.0,
+  "max_absolute_nll_difference": 0.0,
+  "mean_absolute_logit_difference": 0.0,
+  "new_answer_logits": [
+    [
+      30.875,
+      19.625
+    ],
+    [
+      16.125,
+      27.5
+    ],
+    [
+      30.0,
+      19.625
+    ],
+    [
+      15.625,
+      27.625
+    ],
+    [
+      31.0,
+      20.125
+    ],
+    [
+      16.375,
+      28.125
+    ],
+    [
+      29.75,
+      18.375
+    ],
+    [
+      15.3125,
+      26.625
+    ]
+  ],
+  "new_nll": [
+    7.82012939453125e-05,
+    0.00019073486328125,
+    0.000213623046875,
+    0.0001621246337890625,
+    4.76837158203125e-05,
+    0.000102996826171875,
+    0.0002117156982421875,
+    0.0005130767822265625
+  ],
+  "old_answer_logits": [
+    [
+      30.875,
+      19.625
+    ],
+    [
+      16.125,
+      27.5
+    ],
+    [
+      30.0,
+      19.625
+    ],
+    [
+      15.625,
+      27.625
+    ],
+    [
+      31.0,
+      20.125
+    ],
+    [
+      16.375,
+      28.125
+    ],
+    [
+      29.75,
+      18.375
+    ],
+    [
+      15.3125,
+      26.625
+    ]
+  ],
+  "old_nll": [
+    7.82012939453125e-05,
+    0.00019073486328125,
+    0.000213623046875,
+    0.0001621246337890625,
+    4.76837158203125e-05,
+    0.000102996826171875,
+    0.0002117156982421875,
+    0.0005130767822265625
+  ],
+  "prediction_agreement": 1.0,
+  "question_file": "experiments/data/controlled_format_v1_training/instructions/A_plus_B/test_eval.json",
+  "sample_ids": [
+    "A_plus_B/test/000000",
+    "A_plus_B/test/000001",
+    "A_plus_B/test/000002",
+    "A_plus_B/test/000003",
+    "A_plus_B/test/000004",
+    "A_plus_B/test/000005",
+    "A_plus_B/test/000006",
+    "A_plus_B/test/000007"
+  ],
+  "sample_ids_sha256": "c78fb5c798a2d20d643cc95d796ab9a4cf01fb5081adf5125de2d950a932389a",
+  "samples": 8,
+  "status": "PASSED",
+  "tolerance": {
+    "exact_bf16": 0.0
+  }
+}

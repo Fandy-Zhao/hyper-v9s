@@ -1,0 +1,48 @@
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[2026-08-02 05:32:35,986] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:08<00:08,  8.90s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:12<00:00,  5.60s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:12<00:00,  6.09s/it]
+Some weights of LlavaLlamaForCausalLM were not initialized from the model checkpoint at /data/ckpt/zhaozhuofan/models/llava-v1.5-7b and are newly initialized: ['image_var.2', 'text_var.5', 'text_boundary.6', 'image_boundary.5', 'image_var.3', 'image_count.4', 'text_anchors.1', 'text_var.0', 'text_anchors.0', 'image_count.3', 'image_boundary.4', 'text_anchors.9', 'image_var.5', 'text_boundary.1', 'image_count.0', 'image_count.2', 'text_var.2', 'text_boundary.3', 'image_anchors.7', 'image_boundary.9', 'text_count.4', 'text_mean.2', 'image_mean.1', 'text_mean.0', 'text_boundary.8', 'image_boundary.2', 'text_boundary.5', 'image_boundary.3', 'text_mean.1', 'image_anchors.8', 'image_count.5', 'text_mean.4', 'text_anchors.3', 'text_boundary.4', 'image_anchors.5', 'image_boundary.0', 'image_anchors.3', 'image_anchors.2', 'image_count.1', 'text_var.3', 'text_count.5', 'text_count.0', 'image_boundary.7', 'text_anchors.8', 'image_boundary.8', 'image_anchors.4', 'image_boundary.6', 'text_var.4', 'image_var.1', 'text_mean.5', 'text_boundary.9', 'text_count.3', 'image_anchors.9', 'image_mean.3', 'text_count.2', 'text_count.1', 'text_var.1', 'text_boundary.7', 'image_mean.2', 'text_anchors.2', 'image_var.0', 'text_boundary.2', 'image_boundary.1', 'image_mean.0', 'image_mean.4', 'image_mean.5', 'text_anchors.7', 'text_anchors.5', 'text_anchors.6', 'text_mean.3', 'image_anchors.1', 'text_anchors.4', 'image_anchors.6', 'text_boundary.0', 'image_var.4', 'image_anchors.0']
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+Loading LoRA weights from /data/ckpt/zhaozhuofan/v6_ucit_staged/stage03_composition/checkpoints/single_smoke_gb24
+False
+Merging weights
+Convert to FP16...
+  0%|          | 0/128 [00:00<?, ?it/s]  0%|          | 0/128 [00:00<?, ?it/s]
+Traceback (most recent call last):
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/home/zhaozhuofan/Hyper-LlaVA/llava/eval/model_answer.py", line 150, in <module>
+    eval_model(args)
+  File "/home/zhaozhuofan/Hyper-LlaVA/llava/eval/model_answer.py", line 97, in eval_model
+    for (input_ids, image_tensor), line in tqdm(zip(data_loader, questions), total=len(questions)):
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 631, in __next__
+    data = self._next_data()
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1346, in _next_data
+    return self._process_data(data)
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 1372, in _process_data
+    data.reraise()
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/_utils.py", line 705, in reraise
+    raise exception
+AttributeError: Caught AttributeError in DataLoader worker process 0.
+Original Traceback (most recent call last):
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/data/_utils/worker.py", line 308, in _worker_loop
+    data = fetcher.fetch(index)  # type: ignore[possibly-undefined]
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/data/_utils/fetch.py", line 51, in fetch
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/torch/utils/data/_utils/fetch.py", line 51, in <listcomp>
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/home/zhaozhuofan/Hyper-LlaVA/llava/eval/model_answer.py", line 53, in __getitem__
+    image_tensor = process_images([image], self.image_processor, self.model_config)[0]
+  File "/home/zhaozhuofan/Hyper-LlaVA/llava/mm_utils.py", line 38, in process_images
+    image = expand2square(image, tuple(int(x*255) for x in image_processor.image_mean))
+AttributeError: 'NoneType' object has no attribute 'image_mean'

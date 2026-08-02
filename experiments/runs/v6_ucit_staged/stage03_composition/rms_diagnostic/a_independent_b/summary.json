@@ -1,0 +1,4843 @@
+{
+  "calibration": {
+    "provenance": {
+      "calibration_seed": 42,
+      "calibration_split": "train_calibration",
+      "checkpoint_hash": "1c2c13c9da6ceea5e9c333ab696e5f1597da625ed2d6dd38f82e76ede4a803fb",
+      "composition_config_hash": "29eacd7c25718e085a864a742b3c0d8ab343759b2be958202b11cc846923d0f2",
+      "dataset_manifest_hash": "e2c001fe039625fbc6857220de5aa9f5b5471d4995185bc0a5c4862c4eb5e17a"
+    },
+    "sample_count": 16,
+    "sample_ids": [
+      "A_plus_B/train/000000",
+      "A_plus_B/train/000001",
+      "A_plus_B/train/000002",
+      "A_plus_B/train/000003",
+      "A_plus_B/train/000004",
+      "A_plus_B/train/000005",
+      "A_plus_B/train/000006",
+      "A_plus_B/train/000007",
+      "A_plus_B/train/000008",
+      "A_plus_B/train/000009",
+      "A_plus_B/train/000010",
+      "A_plus_B/train/000011",
+      "A_plus_B/train/000012",
+      "A_plus_B/train/000013",
+      "A_plus_B/train/000014",
+      "A_plus_B/train/000015"
+    ],
+    "sample_ids_sha256": "79d908165589c82057d54a1ae2e6b65ed3276f1c63a7e3e536696eeed033e446",
+    "seed": 42,
+    "split": "train_calibration"
+  },
+  "checkpoint": "/data/ckpt/zhaozhuofan/compose/format_controlled_composition_v1/assembled/seed42/a_independent_b",
+  "coefficient_distribution": {
+    "epsilon_fallback_layers": 0,
+    "max": 1.9625146725080267,
+    "mean": 1.0185155846001233,
+    "min": 0.5095503305063366
+  },
+  "coefficients": [
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0279485131038713,
+        0.9728113687139045
+      ],
+      "delta_rms": [
+        0.00030271476097136897,
+        0.0003198720722666909
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.0.self_attn.q_proj",
+      "raw_coefficients": [
+        1.0279485131038713,
+        0.9728113687139045
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9559802360539548,
+        1.0460467301371708
+      ],
+      "delta_rms": [
+        0.0005981303758793693,
+        0.0005466302808950213
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.0.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9559802360539548,
+        1.0460467301371708
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9344081356399379,
+        1.0701961614612239
+      ],
+      "delta_rms": [
+        0.0014152387676680095,
+        0.001235671240472808
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.0.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9344081356399379,
+        1.0701961614612239
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9468776956510082,
+        1.0561026039508392
+      ],
+      "delta_rms": [
+        0.0003547885601129993,
+        0.0003180953943171736
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.0.self_attn.o_proj",
+      "raw_coefficients": [
+        0.9468776956510082,
+        1.0561026039508392
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8302362913173382,
+        1.2044763767352271
+      ],
+      "delta_rms": [
+        0.0004124921128781584,
+        0.00028432763697855184
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.0.mlp.gate_proj",
+      "raw_coefficients": [
+        0.8302362913173382,
+        1.2044763767352271
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9412650809581359,
+        1.0623999766166576
+      ],
+      "delta_rms": [
+        0.00031099410207039395,
+        0.00027553453982088723
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.0.mlp.up_proj",
+      "raw_coefficients": [
+        0.9412650809581359,
+        1.0623999766166576
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7868843926901897,
+        1.2708347112861311
+      ],
+      "delta_rms": [
+        4.687275498060032e-05,
+        2.902300276272621e-05
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.0.mlp.down_proj",
+      "raw_coefficients": [
+        0.7868843926901897,
+        1.2708347112861311
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0209164431226465,
+        0.9795120910594114
+      ],
+      "delta_rms": [
+        0.0006061039519861193,
+        0.0006317241986824199
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.1.self_attn.q_proj",
+      "raw_coefficients": [
+        1.0209164431226465,
+        0.9795120910594114
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1765409291093019,
+        0.8499491817569391
+      ],
+      "delta_rms": [
+        0.0007241272613928044,
+        0.0010023721172968925
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.1.self_attn.k_proj",
+      "raw_coefficients": [
+        1.1765409291093019,
+        0.8499491817569391
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0613382969988456,
+        0.9422066487449927
+      ],
+      "delta_rms": [
+        0.0023157052554989197,
+        0.002608500667551208
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.1.self_attn.v_proj",
+      "raw_coefficients": [
+        1.0613382969988456,
+        0.9422066487449927
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7991505623595925,
+        1.2513286570773026
+      ],
+      "delta_rms": [
+        0.0006475022576188456,
+        0.0004135218916138351
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.1.self_attn.o_proj",
+      "raw_coefficients": [
+        0.7991505623595925,
+        1.2513286570773026
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.887564783212087,
+        1.1266783213063178
+      ],
+      "delta_rms": [
+        0.000674585073835825,
+        0.0005314187230681797
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.1.mlp.gate_proj",
+      "raw_coefficients": [
+        0.887564783212087,
+        1.1266783213063178
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1348290837169928,
+        0.88118996450516
+      ],
+      "delta_rms": [
+        0.000500858215120704,
+        0.0006450237658536438
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.1.mlp.up_proj",
+      "raw_coefficients": [
+        1.1348290837169928,
+        0.88118996450516
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1338828575741824,
+        0.8819253182285426
+      ],
+      "delta_rms": [
+        0.007502797351294848,
+        0.009646274037777
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.1.mlp.down_proj",
+      "raw_coefficients": [
+        1.1338828575741824,
+        0.8819253182285426
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1960954730734634,
+        0.8360536616950983
+      ],
+      "delta_rms": [
+        0.0014958305127284709,
+        0.0021400015175248067
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.2.self_attn.q_proj",
+      "raw_coefficients": [
+        1.1960954730734634,
+        0.8360536616950983
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.223135276125483,
+        0.8175710565455139
+      ],
+      "delta_rms": [
+        0.0013983162242051427,
+        0.0020919648357300754
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.2.self_attn.k_proj",
+      "raw_coefficients": [
+        1.223135276125483,
+        0.8175710565455139
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8451364344586244,
+        1.1832409055238255
+      ],
+      "delta_rms": [
+        0.003087405977718642,
+        0.0022051969869823235
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.2.self_attn.v_proj",
+      "raw_coefficients": [
+        0.8451364344586244,
+        1.1832409055238255
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.006749425447368,
+        0.9932958238894762
+      ],
+      "delta_rms": [
+        0.0006943058843961638,
+        0.000703709844931696
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.2.self_attn.o_proj",
+      "raw_coefficients": [
+        1.006749425447368,
+        0.9932958238894762
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9862550882694052,
+        1.0139364672426818
+      ],
+      "delta_rms": [
+        0.0009635543643233651,
+        0.0009372484621471436
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.2.mlp.gate_proj",
+      "raw_coefficients": [
+        0.9862550882694052,
+        1.0139364672426818
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.01590150960272,
+        0.9843473905172772
+      ],
+      "delta_rms": [
+        0.0006218962209569471,
+        0.0006418316498552248
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.2.mlp.up_proj",
+      "raw_coefficients": [
+        1.01590150960272,
+        0.9843473905172772
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.905573401470683,
+        1.1042727164644688
+      ],
+      "delta_rms": [
+        0.00011706763303617465,
+        9.600285606087551e-05
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.2.mlp.down_proj",
+      "raw_coefficients": [
+        0.905573401470683,
+        1.1042727164644688
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1929839652351124,
+        0.8382342337710472
+      ],
+      "delta_rms": [
+        0.0014779856489891903,
+        0.0021034850511406264
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.3.self_attn.q_proj",
+      "raw_coefficients": [
+        1.1929839652351124,
+        0.8382342337710472
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0742731844891154,
+        0.9308619208209716
+      ],
+      "delta_rms": [
+        0.0032999524436791955,
+        0.0038083526042265625
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.3.self_attn.k_proj",
+      "raw_coefficients": [
+        1.0742731844891154,
+        0.9308619208209716
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1798983200666542,
+        0.8475306583566528
+      ],
+      "delta_rms": [
+        0.0027992121952564444,
+        0.003896951377661327
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.3.self_attn.v_proj",
+      "raw_coefficients": [
+        1.1798983200666542,
+        0.8475306583566528
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1120195348811974,
+        0.8992647778501796
+      ],
+      "delta_rms": [
+        0.0003479170210212252,
+        0.00043022982042974206
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.3.self_attn.o_proj",
+      "raw_coefficients": [
+        1.1120195348811974,
+        0.8992647778501796
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6973433505971359,
+        1.4340138170726067
+      ],
+      "delta_rms": [
+        0.0020525224549643555,
+        0.0009981165236207991
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.3.mlp.gate_proj",
+      "raw_coefficients": [
+        0.6973433505971359,
+        1.4340138170726067
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9319535869981377,
+        1.0730148088394003
+      ],
+      "delta_rms": [
+        0.0012691005308427432,
+        0.0011022613874820792
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.3.mlp.up_proj",
+      "raw_coefficients": [
+        0.9319535869981377,
+        1.0730148088394003
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6244368083638221,
+        1.6014430709493979
+      ],
+      "delta_rms": [
+        0.0003894261520315355,
+        0.00015184556221771575
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.3.mlp.down_proj",
+      "raw_coefficients": [
+        0.6244368083638221,
+        1.6014430709493979
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9476758006394633,
+        1.055213185063109
+      ],
+      "delta_rms": [
+        0.002251722957369908,
+        0.0020222485718051045
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.4.self_attn.q_proj",
+      "raw_coefficients": [
+        0.9476758006394633,
+        1.055213185063109
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9567844879995706,
+        1.0451674463188505
+      ],
+      "delta_rms": [
+        0.002839655611316184,
+        0.002599524554402743
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.4.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9567844879995706,
+        1.0451674463188505
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9234148701025375,
+        1.0829368601016338
+      ],
+      "delta_rms": [
+        0.0025989709123117196,
+        0.00221612956009953
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.4.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9234148701025375,
+        1.0829368601016338
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0671246404606185,
+        0.9370976567164221
+      ],
+      "delta_rms": [
+        0.00035207675567566754,
+        0.0004009291653032405
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.4.self_attn.o_proj",
+      "raw_coefficients": [
+        1.0671246404606185,
+        0.9370976567164221
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8979992207138727,
+        1.113586712475141
+      ],
+      "delta_rms": [
+        0.001296936547722221,
+        0.0010458530046405286
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.4.mlp.gate_proj",
+      "raw_coefficients": [
+        0.8979992207138727,
+        1.113586712475141
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.673890049674058,
+        1.483921598907229
+      ],
+      "delta_rms": [
+        0.0023045694358810737,
+        0.0010465690456738907
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.4.mlp.up_proj",
+      "raw_coefficients": [
+        0.673890049674058,
+        1.483921598907229
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7428851467844574,
+        1.3461031013050293
+      ],
+      "delta_rms": [
+        0.0003713452540217727,
+        0.0002049374028439775
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.4.mlp.down_proj",
+      "raw_coefficients": [
+        0.7428851467844574,
+        1.3461031013050293
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9936196568034478,
+        1.0064213133796873
+      ],
+      "delta_rms": [
+        0.0019844345661782082,
+        0.001959192602920373
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.5.self_attn.q_proj",
+      "raw_coefficients": [
+        0.9936196568034478,
+        1.0064213133796873
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9849739378296254,
+        1.0152552890927087
+      ],
+      "delta_rms": [
+        0.0027859199610209356,
+        0.002702826160046108
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.5.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9849739378296254,
+        1.0152552890927087
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9402545303030371,
+        1.0635418046618796
+      ],
+      "delta_rms": [
+        0.0034091123392369096,
+        0.0030139232019173495
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.5.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9402545303030371,
+        1.0635418046618796
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8849652097383304,
+        1.1299879238141841
+      ],
+      "delta_rms": [
+        0.0004683870642668938,
+        0.00036682361628126046
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.5.self_attn.o_proj",
+      "raw_coefficients": [
+        0.8849652097383304,
+        1.1299879238141841
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9690810095650859,
+        1.0319054755275725
+      ],
+      "delta_rms": [
+        0.0013388243973545912,
+        0.0012573140945447844
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.5.mlp.gate_proj",
+      "raw_coefficients": [
+        0.9690810095650859,
+        1.0319054755275725
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.703699767529401,
+        1.4210605802967236
+      ],
+      "delta_rms": [
+        0.002453659802905762,
+        0.0012150360490194518
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.5.mlp.up_proj",
+      "raw_coefficients": [
+        0.703699767529401,
+        1.4210605802967236
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8130806220118683,
+        1.2298903367363776
+      ],
+      "delta_rms": [
+        0.0005021665895421236,
+        0.0003319823815039913
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.5.mlp.down_proj",
+      "raw_coefficients": [
+        0.8130806220118683,
+        1.2298903367363776
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.3084936023350342,
+        0.7642375921559563
+      ],
+      "delta_rms": [
+        0.001281912211382207,
+        0.002194833052659461
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.6.self_attn.q_proj",
+      "raw_coefficients": [
+        1.3084936023350342,
+        0.7642375921559563
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9852248430968399,
+        1.0149967360310543
+      ],
+      "delta_rms": [
+        0.0029004551505725103,
+        0.002815378975312087
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.6.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9852248430968399,
+        1.0149967360310543
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.856958865005614,
+        1.1669171541780465
+      ],
+      "delta_rms": [
+        0.0037482236051714097,
+        0.0027526148150058376
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.6.self_attn.v_proj",
+      "raw_coefficients": [
+        0.856958865005614,
+        1.1669171541780465
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8535423343131106,
+        1.171588051112604
+      ],
+      "delta_rms": [
+        0.0009270647161762831,
+        0.0006753986447309484
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.6.self_attn.o_proj",
+      "raw_coefficients": [
+        0.8535423343131106,
+        1.171588051112604
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7480441915739088,
+        1.3368194169063303
+      ],
+      "delta_rms": [
+        0.002324339943219119,
+        0.0013006311636256855
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.6.mlp.gate_proj",
+      "raw_coefficients": [
+        0.7480441915739088,
+        1.3368194169063303
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8957241566543408,
+        1.1164151291120077
+      ],
+      "delta_rms": [
+        0.002124668760574946,
+        0.001704667989629941
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.6.mlp.up_proj",
+      "raw_coefficients": [
+        0.8957241566543408,
+        1.1164151291120077
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.897226411264215,
+        1.1145458798866323
+      ],
+      "delta_rms": [
+        0.0006077932932615006,
+        0.0004892828596333276
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.6.mlp.down_proj",
+      "raw_coefficients": [
+        0.897226411264215,
+        1.1145458798866323
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0608748332620153,
+        0.9426182699849376
+      ],
+      "delta_rms": [
+        0.002635395363957002,
+        0.0029660199747264054
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.7.self_attn.q_proj",
+      "raw_coefficients": [
+        1.0608748332620153,
+        0.9426182699849376
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0370301302143623,
+        0.9642921366164088
+      ],
+      "delta_rms": [
+        0.00356114873752377,
+        0.003829771496369729
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.7.self_attn.k_proj",
+      "raw_coefficients": [
+        1.0370301302143623,
+        0.9642921366164088
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0636516185070273,
+        0.9401574562577448
+      ],
+      "delta_rms": [
+        0.006035051412698391,
+        0.006827784176111388
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.7.self_attn.v_proj",
+      "raw_coefficients": [
+        1.0636516185070273,
+        0.9401574562577448
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1038958257510814,
+        0.9058825811933917
+      ],
+      "delta_rms": [
+        0.0008356965132330418,
+        0.0010183680663529
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.7.self_attn.o_proj",
+      "raw_coefficients": [
+        1.1038958257510814,
+        0.9058825811933917
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9208165622057845,
+        1.0859926298507647
+      ],
+      "delta_rms": [
+        0.002029771455421055,
+        0.0017210495930355338
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.7.mlp.gate_proj",
+      "raw_coefficients": [
+        0.9208165622057845,
+        1.0859926298507647
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.769536903174914,
+        1.2994828394509137
+      ],
+      "delta_rms": [
+        0.002376417544497271,
+        0.001407283684189076
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.7.mlp.up_proj",
+      "raw_coefficients": [
+        0.769536903174914,
+        1.2994828394509137
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8699250362348339,
+        1.1495243364050656
+      ],
+      "delta_rms": [
+        0.0006562230104081295,
+        0.0004966096045366928
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.7.mlp.down_proj",
+      "raw_coefficients": [
+        0.8699250362348339,
+        1.1495243364050656
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1401463753052234,
+        0.8770803658717018
+      ],
+      "delta_rms": [
+        0.0020336510151506663,
+        0.0026436116047990417
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.8.self_attn.q_proj",
+      "raw_coefficients": [
+        1.1401463753052234,
+        0.8770803658717018
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9492029885284415,
+        1.0535154356712568
+      ],
+      "delta_rms": [
+        0.004266651585741687,
+        0.003844194682933318
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.8.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9492029885284415,
+        1.0535154356712568
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9450919474215205,
+        1.0580981064628519
+      ],
+      "delta_rms": [
+        0.004951088972081512,
+        0.004422306674495509
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.8.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9450919474215205,
+        1.0580981064628519
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.027628828187625,
+        0.9731140004739334
+      ],
+      "delta_rms": [
+        0.0009401092749026763,
+        0.0009927751446038653
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.8.self_attn.o_proj",
+      "raw_coefficients": [
+        1.027628828187625,
+        0.9731140004739334
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1271061826664415,
+        0.8872278542863271
+      ],
+      "delta_rms": [
+        0.0013605550539679849,
+        0.0017284060749184957
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.8.mlp.gate_proj",
+      "raw_coefficients": [
+        1.1271061826664415,
+        0.8872278542863271
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.821765261293619,
+        1.2168925204088143
+      ],
+      "delta_rms": [
+        0.0024497291239893256,
+        0.0016542975323715326
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.8.mlp.up_proj",
+      "raw_coefficients": [
+        0.821765261293619,
+        1.2168925204088143
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0688917437845336,
+        0.9355484367943433
+      ],
+      "delta_rms": [
+        0.000519428472704073,
+        0.0005934623843340813
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.8.mlp.down_proj",
+      "raw_coefficients": [
+        1.0688917437845336,
+        0.9355484367943433
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.949064139909627,
+        1.0536695655735377
+      ],
+      "delta_rms": [
+        0.003231146115193366,
+        0.002910366787588782
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.9.self_attn.q_proj",
+      "raw_coefficients": [
+        0.949064139909627,
+        1.0536695655735377
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9916846281485878,
+        1.0083850970514048
+      ],
+      "delta_rms": [
+        0.0030591831605543667,
+        0.0030085181979421166
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.9.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9916846281485878,
+        1.0083850970514048
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.127637821612759,
+        0.8868095596241974
+      ],
+      "delta_rms": [
+        0.003448108444898472,
+        0.004384501106570815
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.9.self_attn.v_proj",
+      "raw_coefficients": [
+        1.127637821612759,
+        0.8868095596241974
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.071472457590444,
+        0.9332951051759435
+      ],
+      "delta_rms": [
+        0.0010783284840578708,
+        0.0012379784962929278
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.9.self_attn.o_proj",
+      "raw_coefficients": [
+        1.071472457590444,
+        0.9332951051759435
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9738999812749135,
+        1.0267994858064577
+      ],
+      "delta_rms": [
+        0.0014657654902667891,
+        0.0013902509723240286
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.9.mlp.gate_proj",
+      "raw_coefficients": [
+        0.9738999812749135,
+        1.0267994858064577
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0107442987110964,
+        0.9893699141070619
+      ],
+      "delta_rms": [
+        0.0018168538538812446,
+        0.0018561052324490162
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.9.mlp.up_proj",
+      "raw_coefficients": [
+        1.0107442987110964,
+        0.9893699141070619
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.870305924749016,
+        1.1490212482333566
+      ],
+      "delta_rms": [
+        0.0006687780876192658,
+        0.0005065541937472994
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.9.mlp.down_proj",
+      "raw_coefficients": [
+        0.870305924749016,
+        1.1490212482333566
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0487274963575786,
+        0.9535365511757649
+      ],
+      "delta_rms": [
+        0.0031275382198999156,
+        0.003439758363823526
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.10.self_attn.q_proj",
+      "raw_coefficients": [
+        1.0487274963575786,
+        0.9535365511757649
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9744937702768761,
+        1.0261738253245856
+      ],
+      "delta_rms": [
+        0.0031940980509535927,
+        0.003033237230859248
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.10.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9744937702768761,
+        1.0261738253245856
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9349937736426226,
+        1.0695258387701567
+      ],
+      "delta_rms": [
+        0.004959624697830276,
+        0.004335770155312751
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.10.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9349937736426226,
+        1.0695258387701567
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.89766581834464,
+        1.1140003100976614
+      ],
+      "delta_rms": [
+        0.001833123477325783,
+        0.0014771380864841606
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.10.self_attn.o_proj",
+      "raw_coefficients": [
+        0.89766581834464,
+        1.1140003100976614
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1988999234537634,
+        0.8340979763508725
+      ],
+      "delta_rms": [
+        0.001638870254454345,
+        0.002355648231173063
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.10.mlp.gate_proj",
+      "raw_coefficients": [
+        1.1988999234537634,
+        0.8340979763508725
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8357438535413572,
+        1.196538862670217
+      ],
+      "delta_rms": [
+        0.002313746700655216,
+        0.001616077541692974
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.10.mlp.up_proj",
+      "raw_coefficients": [
+        0.8357438535413572,
+        1.196538862670217
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7990693252749235,
+        1.251455872938115
+      ],
+      "delta_rms": [
+        0.0008237010854592595,
+        0.0005259428516970973
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.10.mlp.down_proj",
+      "raw_coefficients": [
+        0.7990693252749235,
+        1.251455872938115
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1086956563633463,
+        0.9019607809054822
+      ],
+      "delta_rms": [
+        0.0028337855432067705,
+        0.0034833063580264768
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.11.self_attn.q_proj",
+      "raw_coefficients": [
+        1.1086956563633463,
+        0.9019607809054822
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7837931815381842,
+        1.2758467712586024
+      ],
+      "delta_rms": [
+        0.0047839626318982075,
+        0.0029389401424093618
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.11.self_attn.k_proj",
+      "raw_coefficients": [
+        0.7837931815381842,
+        1.2758467712586024
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.862567194150896,
+        1.1593299707907296
+      ],
+      "delta_rms": [
+        0.00634450683513105,
+        0.004720453707685628
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.11.self_attn.v_proj",
+      "raw_coefficients": [
+        0.862567194150896,
+        1.1593299707907296
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8077665367991647,
+        1.2379814642515086
+      ],
+      "delta_rms": [
+        0.0029147346869678003,
+        0.0019018258445443511
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.11.self_attn.o_proj",
+      "raw_coefficients": [
+        0.8077665367991647,
+        1.2379814642515086
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0813136169786552,
+        0.9248010792596352
+      ],
+      "delta_rms": [
+        0.001814103486645633,
+        0.002121120797446281
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.11.mlp.gate_proj",
+      "raw_coefficients": [
+        1.0813136169786552,
+        0.9248010792596352
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9168533368887295,
+        1.0906869831476234
+      ],
+      "delta_rms": [
+        0.0021700249350703384,
+        0.0018241664506797354
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.11.mlp.up_proj",
+      "raw_coefficients": [
+        0.9168533368887295,
+        1.0906869831476234
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9202322539661865,
+        1.0866821888604923
+      ],
+      "delta_rms": [
+        0.0008169219303648958,
+        0.000691791875306614
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.11.mlp.down_proj",
+      "raw_coefficients": [
+        0.9202322539661865,
+        1.0866821888604923
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.132808209021075,
+        0.8827619645024976
+      ],
+      "delta_rms": [
+        0.002831343102515089,
+        0.003633333603008013
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.12.self_attn.q_proj",
+      "raw_coefficients": [
+        1.132808209021075,
+        0.8827619645024976
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.156245272899305,
+        0.8648684007092049
+      ],
+      "delta_rms": [
+        0.004325201889343486,
+        0.00578237594851154
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.12.self_attn.k_proj",
+      "raw_coefficients": [
+        1.156245272899305,
+        0.8648684007092049
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1025777365114997,
+        0.9069655289466931
+      ],
+      "delta_rms": [
+        0.00664200504545833,
+        0.008074537184918563
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.12.self_attn.v_proj",
+      "raw_coefficients": [
+        1.1025777365114997,
+        0.9069655289466931
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9841813704676363,
+        1.0160728804741015
+      ],
+      "delta_rms": [
+        0.001338252145301253,
+        0.0012962483850364045
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.12.self_attn.o_proj",
+      "raw_coefficients": [
+        0.9841813704676363,
+        1.0160728804741015
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9719622329437951,
+        1.0288465601912191
+      ],
+      "delta_rms": [
+        0.0018095060379308796,
+        0.0017094595027131122
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.12.mlp.gate_proj",
+      "raw_coefficients": [
+        0.9719622329437951,
+        1.0288465601912191
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9970835088118702,
+        1.0029250219889858
+      ],
+      "delta_rms": [
+        0.0021734717737746305,
+        0.0021608124386017836
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.12.mlp.up_proj",
+      "raw_coefficients": [
+        0.9970835088118702,
+        1.0029250219889858
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9157138236064697,
+        1.092044232838569
+      ],
+      "delta_rms": [
+        0.0007620318085210633,
+        0.0006389879091955503
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.12.mlp.down_proj",
+      "raw_coefficients": [
+        0.9157138236064697,
+        1.092044232838569
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.2015673226665258,
+        0.8322463345464436
+      ],
+      "delta_rms": [
+        0.0023944619587737384,
+        0.0034570380494358894
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.13.self_attn.q_proj",
+      "raw_coefficients": [
+        1.2015673226665258,
+        0.8322463345464436
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9110126290305796,
+        1.0976796238973252
+      ],
+      "delta_rms": [
+        0.0039051126112132346,
+        0.00324102482104069
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.13.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9110126290305796,
+        1.0976796238973252
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0576236269572319,
+        0.9455159420719312
+      ],
+      "delta_rms": [
+        0.004085009811093896,
+        0.004569360177151115
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.13.self_attn.v_proj",
+      "raw_coefficients": [
+        1.0576236269572319,
+        0.9455159420719312
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8613413693597431,
+        1.1609798804199145
+      ],
+      "delta_rms": [
+        0.001507910463113016,
+        0.0011187322752741226
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.13.self_attn.o_proj",
+      "raw_coefficients": [
+        0.8613413693597431,
+        1.1609798804199145
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8848330696159009,
+        1.130156675127538
+      ],
+      "delta_rms": [
+        0.0021116274149866818,
+        0.0016532555251924717
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.13.mlp.gate_proj",
+      "raw_coefficients": [
+        0.8848330696159009,
+        1.130156675127538
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9874807696163658,
+        1.0126779485422261
+      ],
+      "delta_rms": [
+        0.0019389920913329877,
+        0.0018907466143464724
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.13.mlp.up_proj",
+      "raw_coefficients": [
+        0.9874807696163658,
+        1.0126779485422261
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9002327123850081,
+        1.1108238861379254
+      ],
+      "delta_rms": [
+        0.0007869556575579729,
+        0.000637763767029923
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.13.mlp.down_proj",
+      "raw_coefficients": [
+        0.9002327123850081,
+        1.1108238861379254
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8120244449068572,
+        1.2314900201245842
+      ],
+      "delta_rms": [
+        0.0038912313959342066,
+        0.002565814552007453
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.14.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8120244449068572,
+        1.2314900201245842
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7047057183501321,
+        1.419032049777055
+      ],
+      "delta_rms": [
+        0.004634276385804319,
+        0.002301428688664487
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.14.self_attn.k_proj",
+      "raw_coefficients": [
+        0.7047057183501321,
+        1.419032049777055
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.16019100411863,
+        0.8619270417112711
+      ],
+      "delta_rms": [
+        0.005345670870007075,
+        0.007195503742460338
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.14.self_attn.v_proj",
+      "raw_coefficients": [
+        1.16019100411863,
+        0.8619270417112711
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1818247313429426,
+        0.8461491568751233
+      ],
+      "delta_rms": [
+        0.001271130829106617,
+        0.0017754007534068442
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.14.self_attn.o_proj",
+      "raw_coefficients": [
+        1.1818247313429426,
+        0.8461491568751233
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.014207590950851,
+        0.9859914369823135
+      ],
+      "delta_rms": [
+        0.001598260636882892,
+        0.0016439981215309958
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.14.mlp.gate_proj",
+      "raw_coefficients": [
+        1.014207590950851,
+        0.9859914369823135
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.2595342398536913,
+        0.7939442758746765
+      ],
+      "delta_rms": [
+        0.0013663125887503024,
+        0.00216755449994048
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.14.mlp.up_proj",
+      "raw_coefficients": [
+        1.2595342398536913,
+        0.7939442758746765
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.173525174474376,
+        0.8521334026327145
+      ],
+      "delta_rms": [
+        0.0005892094089434595,
+        0.0008114364162888544
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.14.mlp.down_proj",
+      "raw_coefficients": [
+        1.173525174474376,
+        0.8521334026327145
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0870839891352655,
+        0.9198921242465014
+      ],
+      "delta_rms": [
+        0.0032893804997838096,
+        0.0038872306667673234
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.15.self_attn.q_proj",
+      "raw_coefficients": [
+        1.0870839891352655,
+        0.9198921242465014
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.2262938476625889,
+        0.8154652344591612
+      ],
+      "delta_rms": [
+        0.002580967624161132,
+        0.003881250340027379
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.15.self_attn.k_proj",
+      "raw_coefficients": [
+        1.2262938476625889,
+        0.8154652344591612
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7947025539817095,
+        1.2583324351855745
+      ],
+      "delta_rms": [
+        0.007679761961255912,
+        0.004850170172782352
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.15.self_attn.v_proj",
+      "raw_coefficients": [
+        0.7947025539817095,
+        1.2583324351855745
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1219527208842515,
+        0.8913031551025287
+      ],
+      "delta_rms": [
+        0.0014456377329343253,
+        0.0018197368410437544
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.15.self_attn.o_proj",
+      "raw_coefficients": [
+        1.1219527208842515,
+        0.8913031551025287
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0758902966832227,
+        0.929462792891451
+      ],
+      "delta_rms": [
+        0.0026326851697128627,
+        0.0030474382083702073
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.15.mlp.gate_proj",
+      "raw_coefficients": [
+        1.0758902966832227,
+        0.929462792891451
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9204807888650147,
+        1.0863887786653703
+      ],
+      "delta_rms": [
+        0.0022487710710825232,
+        0.001905349733112856
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.15.mlp.up_proj",
+      "raw_coefficients": [
+        0.9204807888650147,
+        1.0863887786653703
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.898662599531502,
+        1.1127646800048516
+      ],
+      "delta_rms": [
+        0.0010784869006499162,
+        0.0008709800545560996
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.15.mlp.down_proj",
+      "raw_coefficients": [
+        0.898662599531502,
+        1.1127646800048516
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9790985222048821,
+        1.0213476757661208
+      ],
+      "delta_rms": [
+        0.0030791027266930423,
+        0.0029517323052219192
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.16.self_attn.q_proj",
+      "raw_coefficients": [
+        0.9790985222048821,
+        1.0213476757661208
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0723395219338276,
+        0.9325404683365838
+      ],
+      "delta_rms": [
+        0.003115285644665923,
+        0.003582304502931905
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.16.self_attn.k_proj",
+      "raw_coefficients": [
+        1.0723395219338276,
+        0.9325404683365838
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9192285210709259,
+        1.0878687693838884
+      ],
+      "delta_rms": [
+        0.0077056758161953625,
+        0.006511150226681163
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.16.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9192285210709259,
+        1.0878687693838884
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9870730214808224,
+        1.0130962737688691
+      ],
+      "delta_rms": [
+        0.0018311225724040089,
+        0.0017840868010703182
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.16.self_attn.o_proj",
+      "raw_coefficients": [
+        0.9870730214808224,
+        1.0130962737688691
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9033163582397995,
+        1.107031873029066
+      ],
+      "delta_rms": [
+        0.003338901271126567,
+        0.002724478138559519
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.16.mlp.gate_proj",
+      "raw_coefficients": [
+        0.9033163582397995,
+        1.107031873029066
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9190910593601014,
+        1.088031473939296
+      ],
+      "delta_rms": [
+        0.002208505108915397,
+        0.0018655869327071479
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.16.mlp.up_proj",
+      "raw_coefficients": [
+        0.9190910593601014,
+        1.088031473939296
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8988141639724113,
+        1.1125770377053097
+      ],
+      "delta_rms": [
+        0.0013010787769985105,
+        0.0010510984799956945
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.16.mlp.down_proj",
+      "raw_coefficients": [
+        0.8988141639724113,
+        1.1125770377053097
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9777624727397609,
+        1.0227432816049156
+      ],
+      "delta_rms": [
+        0.003427153985700973,
+        0.003276425879093064
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.17.self_attn.q_proj",
+      "raw_coefficients": [
+        0.9777624727397609,
+        1.0227432816049156
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.014796758491161,
+        0.9854189931458183
+      ],
+      "delta_rms": [
+        0.004051670013015686,
+        0.004172460267442539
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.17.self_attn.k_proj",
+      "raw_coefficients": [
+        1.014796758491161,
+        0.9854189931458183
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7490055181284123,
+        1.3351036485001655
+      ],
+      "delta_rms": [
+        0.012758633460916862,
+        0.007157711595455466
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.17.self_attn.v_proj",
+      "raw_coefficients": [
+        0.7490055181284123,
+        1.3351036485001655
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.831849651219231,
+        1.202140312897064
+      ],
+      "delta_rms": [
+        0.0023372480424097915,
+        0.0016173145081591616
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.17.self_attn.o_proj",
+      "raw_coefficients": [
+        0.831849651219231,
+        1.202140312897064
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9193855641241516,
+        1.0876829472003353
+      ],
+      "delta_rms": [
+        0.002332026794500021,
+        0.0019711918583744602
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.17.mlp.gate_proj",
+      "raw_coefficients": [
+        0.9193855641241516,
+        1.0876829472003353
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1074270919455478,
+        0.9029939824238742
+      ],
+      "delta_rms": [
+        0.002382638662912229,
+        0.0029220555806398875
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.17.mlp.up_proj",
+      "raw_coefficients": [
+        1.1074270919455478,
+        0.9029939824238742
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6726133942810666,
+        1.4867381596955347
+      ],
+      "delta_rms": [
+        0.0019434450600295016,
+        0.0008792316050412734
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.17.mlp.down_proj",
+      "raw_coefficients": [
+        0.6726133942810666,
+        1.4867381596955347
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8392378937996582,
+        1.1915572537751957
+      ],
+      "delta_rms": [
+        0.006041001415825458,
+        0.004254799581468209
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.18.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8392378937996582,
+        1.1915572537751957
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7223437090978959,
+        1.3843825140373371
+      ],
+      "delta_rms": [
+        0.006308209757905972,
+        0.00329150042570564
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.18.self_attn.k_proj",
+      "raw_coefficients": [
+        0.7223437090978959,
+        1.3843825140373371
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7861112690092559,
+        1.2720845501430227
+      ],
+      "delta_rms": [
+        0.008430863283830772,
+        0.005210028401139372
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.18.self_attn.v_proj",
+      "raw_coefficients": [
+        0.7861112690092559,
+        1.2720845501430227
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1220060882336358,
+        0.8912607609592308
+      ],
+      "delta_rms": [
+        0.0010713560996131945,
+        0.0013487276890082143
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.18.self_attn.o_proj",
+      "raw_coefficients": [
+        1.1220060882336358,
+        0.8912607609592308
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0698659513049118,
+        0.9346965372440385
+      ],
+      "delta_rms": [
+        0.0027384294050456916,
+        0.003134442317662752
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.18.mlp.gate_proj",
+      "raw_coefficients": [
+        1.0698659513049118,
+        0.9346965372440385
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8246768536373306,
+        1.2125961770230205
+      ],
+      "delta_rms": [
+        0.0033441383076429306,
+        0.0022743214187312118
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.18.mlp.up_proj",
+      "raw_coefficients": [
+        0.8246768536373306,
+        1.2125961770230205
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.890160859968343,
+        1.1233924619372315
+      ],
+      "delta_rms": [
+        0.00132655198542438,
+        0.0010511416945968946
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.18.mlp.down_proj",
+      "raw_coefficients": [
+        0.890160859968343,
+        1.1233924619372315
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9433145803933983,
+        1.0600917454100642
+      ],
+      "delta_rms": [
+        0.004391113991322708,
+        0.003907399402097859
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.19.self_attn.q_proj",
+      "raw_coefficients": [
+        0.9433145803933983,
+        1.0600917454100642
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9730945973413848,
+        1.0276493187117923
+      ],
+      "delta_rms": [
+        0.005600996592316513,
+        0.005303657020415211
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.19.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9730945973413848,
+        1.0276493187117923
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8412769374098151,
+        1.1886692188173764
+      ],
+      "delta_rms": [
+        0.008014448196342222,
+        0.005672200749302215
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.19.self_attn.v_proj",
+      "raw_coefficients": [
+        0.8412769374098151,
+        1.1886692188173764
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9245337781368601,
+        1.081626246274334
+      ],
+      "delta_rms": [
+        0.0018652152718619144,
+        0.0015943164547577843
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.19.self_attn.o_proj",
+      "raw_coefficients": [
+        0.9245337781368601,
+        1.081626246274334
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7689969212671878,
+        1.3003953232376468
+      ],
+      "delta_rms": [
+        0.0032217173221185907,
+        0.001905182722231003
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.19.mlp.gate_proj",
+      "raw_coefficients": [
+        0.7689969212671878,
+        1.3003953232376468
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7513868001618252,
+        1.3308724611406952
+      ],
+      "delta_rms": [
+        0.003830170934662976,
+        0.0021624460394969393
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.19.mlp.up_proj",
+      "raw_coefficients": [
+        0.7513868001618252,
+        1.3308724611406952
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8288118477090676,
+        1.2065464589630523
+      ],
+      "delta_rms": [
+        0.0016234871490409528,
+        0.001115220531901427
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.19.mlp.down_proj",
+      "raw_coefficients": [
+        0.8288118477090676,
+        1.2065464589630523
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8298581789404059,
+        1.2050251782501409
+      ],
+      "delta_rms": [
+        0.007754029072957744,
+        0.005339925307851073
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.20.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8298581789404059,
+        1.2050251782501409
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1557827333197415,
+        0.8652145175483902
+      ],
+      "delta_rms": [
+        0.004920694355616053,
+        0.0065732294787192655
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.20.self_attn.k_proj",
+      "raw_coefficients": [
+        1.1557827333197415,
+        0.8652145175483902
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8903887255726621,
+        1.1231049667175879
+      ],
+      "delta_rms": [
+        0.00987660283285605,
+        0.00783009252913878
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.20.self_attn.v_proj",
+      "raw_coefficients": [
+        0.8903887255726621,
+        1.1231049667175879
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8790755644540088,
+        1.1375586359530958
+      ],
+      "delta_rms": [
+        0.0018540273761339053,
+        0.0014327438697896708
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.20.self_attn.o_proj",
+      "raw_coefficients": [
+        0.8790755644540088,
+        1.1375586359530958
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8691231983508763,
+        1.1505848674819137
+      ],
+      "delta_rms": [
+        0.0045632638401333706,
+        0.0034469760343149654
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.20.mlp.gate_proj",
+      "raw_coefficients": [
+        0.8691231983508763,
+        1.1505848674819137
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7635087083850082,
+        1.3097427560652501
+      ],
+      "delta_rms": [
+        0.004952068922107756,
+        0.0028867865304411495
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.20.mlp.up_proj",
+      "raw_coefficients": [
+        0.7635087083850082,
+        1.3097427560652501
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6181927334672487,
+        1.6176184964053433
+      ],
+      "delta_rms": [
+        0.002950244895512424,
+        0.0011274722441709827
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.20.mlp.down_proj",
+      "raw_coefficients": [
+        0.6181927334672487,
+        1.6176184964053433
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0701826352752963,
+        0.9344199457532382
+      ],
+      "delta_rms": [
+        0.004512591250562149,
+        0.005168229572148033
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.21.self_attn.q_proj",
+      "raw_coefficients": [
+        1.0701826352752963,
+        0.9344199457532382
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0056884138438682,
+        0.9943437611833208
+      ],
+      "delta_rms": [
+        0.005903517073560558,
+        0.005970871396370865
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.21.self_attn.k_proj",
+      "raw_coefficients": [
+        1.0056884138438682,
+        0.9943437611833208
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9124149653917484,
+        1.095992544982695
+      ],
+      "delta_rms": [
+        0.008365169912424048,
+        0.006964012895052123
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.21.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9124149653917484,
+        1.095992544982695
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9020569260348705,
+        1.1085774867841802
+      ],
+      "delta_rms": [
+        0.0016734741747934999,
+        0.0013617171446373164
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.21.self_attn.o_proj",
+      "raw_coefficients": [
+        0.9020569260348705,
+        1.1085774867841802
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8450367971028375,
+        1.1833804201526434
+      ],
+      "delta_rms": [
+        0.004643261606344339,
+        0.0033156936257485803
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.21.mlp.gate_proj",
+      "raw_coefficients": [
+        0.8450367971028375,
+        1.1833804201526434
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8217091437337786,
+        1.216975626504632
+      ],
+      "delta_rms": [
+        0.004460733159169308,
+        0.003011913422763963
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.21.mlp.up_proj",
+      "raw_coefficients": [
+        0.8217091437337786,
+        1.216975626504632
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6117779160230526,
+        1.6345800883115216
+      ],
+      "delta_rms": [
+        0.0031091062274004617,
+        0.00116365208538552
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.21.mlp.down_proj",
+      "raw_coefficients": [
+        0.6117779160230526,
+        1.6345800883115216
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0098103870785813,
+        0.9902849216010117
+      ],
+      "delta_rms": [
+        0.005098569628373562,
+        0.005199098216754818
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.22.self_attn.q_proj",
+      "raw_coefficients": [
+        1.0098103870785813,
+        0.9902849216010117
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7104849242371658,
+        1.4074894003890104
+      ],
+      "delta_rms": [
+        0.00676729019208341,
+        0.003416052481876181
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.22.self_attn.k_proj",
+      "raw_coefficients": [
+        0.7104849242371658,
+        1.4074894003890104
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6802397588577263,
+        1.4700699084087974
+      ],
+      "delta_rms": [
+        0.011948775751732844,
+        0.005529010756231024
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.22.self_attn.v_proj",
+      "raw_coefficients": [
+        0.6802397588577263,
+        1.4700699084087974
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9500277016551939,
+        1.0526008854875932
+      ],
+      "delta_rms": [
+        0.0020701320577743466,
+        0.0018684031412904228
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.22.self_attn.o_proj",
+      "raw_coefficients": [
+        0.9500277016551939,
+        1.0526008854875932
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.785820482980247,
+        1.2725552739570634
+      ],
+      "delta_rms": [
+        0.004272179128357086,
+        0.00263812970228354
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.22.mlp.gate_proj",
+      "raw_coefficients": [
+        0.785820482980247,
+        1.2725552739570634
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6713095749369076,
+        1.4896257067299898
+      ],
+      "delta_rms": [
+        0.005038229255037647,
+        0.0022705109910184144
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.22.mlp.up_proj",
+      "raw_coefficients": [
+        0.6713095749369076,
+        1.4896257067299898
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.5095503305063366,
+        1.9625146725080267
+      ],
+      "delta_rms": [
+        0.003418253789967194,
+        0.0008875206758104876
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.22.mlp.down_proj",
+      "raw_coefficients": [
+        0.5095503305063366,
+        1.9625146725080267
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8485275956702956,
+        1.1785120544135617
+      ],
+      "delta_rms": [
+        0.007073831255963325,
+        0.005093152000712259
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.23.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8485275956702956,
+        1.1785120544135617
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9281017789989839,
+        1.0774680348943655
+      ],
+      "delta_rms": [
+        0.006036295931313908,
+        0.005199501805142658
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.23.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9281017789989839,
+        1.0774680348943655
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7865650905302879,
+        1.2713506002736763
+      ],
+      "delta_rms": [
+        0.010710077578519803,
+        0.006626160508612976
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.23.self_attn.v_proj",
+      "raw_coefficients": [
+        0.7865650905302879,
+        1.2713506002736763
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.870564734930725,
+        1.148679655717475
+      ],
+      "delta_rms": [
+        0.0016736915243843666,
+        0.0012684622827862195
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.23.self_attn.o_proj",
+      "raw_coefficients": [
+        0.870564734930725,
+        1.148679655717475
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7154951004629351,
+        1.3976336097242124
+      ],
+      "delta_rms": [
+        0.004828080973632834,
+        0.002471655129955169
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.23.mlp.gate_proj",
+      "raw_coefficients": [
+        0.7154951004629351,
+        1.3976336097242124
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8698267221494295,
+        1.1496542639307508
+      ],
+      "delta_rms": [
+        0.004654650382923005,
+        0.003521701621395786
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.23.mlp.up_proj",
+      "raw_coefficients": [
+        0.8698267221494295,
+        1.1496542639307508
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.5940371912094882,
+        1.6833962835962377
+      ],
+      "delta_rms": [
+        0.002891132342010965,
+        0.0010202233143785594
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.23.mlp.down_proj",
+      "raw_coefficients": [
+        0.5940371912094882,
+        1.6833962835962377
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8354770092572322,
+        1.1969210270537958
+      ],
+      "delta_rms": [
+        0.005849392032871423,
+        0.004083003348705353
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.24.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8354770092572322,
+        1.1969210270537958
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0794540706407132,
+        0.9263942090713011
+      ],
+      "delta_rms": [
+        0.005990169777837325,
+        0.0069798721615473795
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.24.self_attn.k_proj",
+      "raw_coefficients": [
+        1.0794540706407132,
+        0.9263942090713011
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7491191699575764,
+        1.334901094650443
+      ],
+      "delta_rms": [
+        0.015030483597525311,
+        0.008434799732925212
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.24.self_attn.v_proj",
+      "raw_coefficients": [
+        0.7491191699575764,
+        1.334901094650443
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8607581163348534,
+        1.1617665648719582
+      ],
+      "delta_rms": [
+        0.0035921572836667757,
+        0.0026614456213140494
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.24.self_attn.o_proj",
+      "raw_coefficients": [
+        0.8607581163348534,
+        1.1617665648719582
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7945146185937589,
+        1.2586300825652992
+      ],
+      "delta_rms": [
+        0.005611171892859171,
+        0.0035420717795275887
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.24.mlp.gate_proj",
+      "raw_coefficients": [
+        0.7945146185937589,
+        1.2586300825652992
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7644005635958643,
+        1.3082146293768253
+      ],
+      "delta_rms": [
+        0.0052392143663360004,
+        0.0030613160291094762
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.24.mlp.up_proj",
+      "raw_coefficients": [
+        0.7644005635958643,
+        1.3082146293768253
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.5875556824703393,
+        1.701966349462515
+      ],
+      "delta_rms": [
+        0.0030125136909020774,
+        0.0010399850374058143
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.24.mlp.down_proj",
+      "raw_coefficients": [
+        0.5875556824703393,
+        1.701966349462515
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9137095813167784,
+        1.09443965615296
+      ],
+      "delta_rms": [
+        0.007272293049364467,
+        0.00607138438377186
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.25.self_attn.q_proj",
+      "raw_coefficients": [
+        0.9137095813167784,
+        1.09443965615296
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9376814155655916,
+        1.066460296002368
+      ],
+      "delta_rms": [
+        0.007545805023653423,
+        0.006634622182076607
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.25.self_attn.k_proj",
+      "raw_coefficients": [
+        0.9376814155655916,
+        1.066460296002368
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9579591401745886,
+        1.0438858590751057
+      ],
+      "delta_rms": [
+        0.008941479067694125,
+        0.00820546760463499
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.25.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9579591401745886,
+        1.0438858590751057
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9142713349906809,
+        1.093767202063918
+      ],
+      "delta_rms": [
+        0.0023044415034530166,
+        0.0019262643876999327
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.25.self_attn.o_proj",
+      "raw_coefficients": [
+        0.9142713349906809,
+        1.093767202063918
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7837168519361091,
+        1.2759710315397466
+      ],
+      "delta_rms": [
+        0.005087306264360579,
+        0.003124685084369272
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.25.mlp.gate_proj",
+      "raw_coefficients": [
+        0.7837168519361091,
+        1.2759710315397466
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.654447935304307,
+        1.5280054318377783
+      ],
+      "delta_rms": [
+        0.006482720087876377,
+        0.0027765626275056787
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.25.mlp.up_proj",
+      "raw_coefficients": [
+        0.654447935304307,
+        1.5280054318377783
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7541031574650394,
+        1.326078521354501
+      ],
+      "delta_rms": [
+        0.002933863409854424,
+        0.0016684047176048914
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.25.mlp.down_proj",
+      "raw_coefficients": [
+        0.7541031574650394,
+        1.326078521354501
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8135129465385865,
+        1.229236737110204
+      ],
+      "delta_rms": [
+        0.008142411423147549,
+        0.005388674865304123
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.26.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8135129465385865,
+        1.229236737110204
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0222086304792348,
+        0.9782738769591265
+      ],
+      "delta_rms": [
+        0.004684160002974347,
+        0.004894527896901076
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.26.self_attn.k_proj",
+      "raw_coefficients": [
+        1.0222086304792348,
+        0.9782738769591265
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8452851280474953,
+        1.1830327623412433
+      ],
+      "delta_rms": [
+        0.010536829159606404,
+        0.007528637641248504
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.26.self_attn.v_proj",
+      "raw_coefficients": [
+        0.8452851280474953,
+        1.1830327623412433
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0848735254394313,
+        0.9217664331839484
+      ],
+      "delta_rms": [
+        0.0019803767832994807,
+        0.002330805576392431
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.26.self_attn.o_proj",
+      "raw_coefficients": [
+        1.0848735254394313,
+        0.9217664331839484
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8214089549730602,
+        1.2174203774449928
+      ],
+      "delta_rms": [
+        0.006768996545102398,
+        0.004567127741033759
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.26.mlp.gate_proj",
+      "raw_coefficients": [
+        0.8214089549730602,
+        1.2174203774449928
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7401915697831514,
+        1.3510016066421329
+      ],
+      "delta_rms": [
+        0.007570861458016801,
+        0.004147950527718824
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.26.mlp.up_proj",
+      "raw_coefficients": [
+        0.7401915697831514,
+        1.3510016066421329
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8163180367472029,
+        1.2250127462388531
+      ],
+      "delta_rms": [
+        0.0032170625537532235,
+        0.0021437705003770863
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.26.mlp.down_proj",
+      "raw_coefficients": [
+        0.8163180367472029,
+        1.2250127462388531
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7462390723480361,
+        1.340053123797856
+      ],
+      "delta_rms": [
+        0.006528600287927362,
+        0.0036355996162201034
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.27.self_attn.q_proj",
+      "raw_coefficients": [
+        0.7462390723480361,
+        1.340053123797856
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0055000110388175,
+        0.9945300736166723
+      ],
+      "delta_rms": [
+        0.003614923124694739,
+        0.003654796710738806
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.27.self_attn.k_proj",
+      "raw_coefficients": [
+        1.0055000110388175,
+        0.9945300736166723
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8869211499747478,
+        1.1274959448519992
+      ],
+      "delta_rms": [
+        0.0057427576416910295,
+        0.004517420426078304
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.27.self_attn.v_proj",
+      "raw_coefficients": [
+        0.8869211499747478,
+        1.1274959448519992
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0546521975690362,
+        0.9481798855632133
+      ],
+      "delta_rms": [
+        0.0016055644046795957,
+        0.0017858552512196979
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.27.self_attn.o_proj",
+      "raw_coefficients": [
+        1.0546521975690362,
+        0.9481798855632133
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6383446769022584,
+        1.5665517958930475
+      ],
+      "delta_rms": [
+        0.008821665201432157,
+        0.0035946867748077745
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.27.mlp.gate_proj",
+      "raw_coefficients": [
+        0.6383446769022584,
+        1.5665517958930475
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8902710349300625,
+        1.12325343717215
+      ],
+      "delta_rms": [
+        0.006107969835848362,
+        0.004841070097922108
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.27.mlp.up_proj",
+      "raw_coefficients": [
+        0.8902710349300625,
+        1.12325343717215
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9222651807396328,
+        1.0842868416630735
+      ],
+      "delta_rms": [
+        0.004643575803488515,
+        0.003949700497253917
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.27.mlp.down_proj",
+      "raw_coefficients": [
+        0.9222651807396328,
+        1.0842868416630735
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8348646990281651,
+        1.1977988782662183
+      ],
+      "delta_rms": [
+        0.004984061415866199,
+        0.0034738861501673675
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.28.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8348646990281651,
+        1.1977988782662183
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7751327658217532,
+        1.2901015723930274
+      ],
+      "delta_rms": [
+        0.005161289682242989,
+        0.0031010618328162795
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.28.self_attn.k_proj",
+      "raw_coefficients": [
+        0.7751327658217532,
+        1.2901015723930274
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7916899310458887,
+        1.2631207759317038
+      ],
+      "delta_rms": [
+        0.010821533154865946,
+        0.006782644225661798
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.28.self_attn.v_proj",
+      "raw_coefficients": [
+        0.7916899310458887,
+        1.2631207759317038
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8457471022032051,
+        1.1823865519550227
+      ],
+      "delta_rms": [
+        0.0028281411747632314,
+        0.0020229358996198712
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.28.self_attn.o_proj",
+      "raw_coefficients": [
+        0.8457471022032051,
+        1.1823865519550227
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.5842963773735522,
+        1.7114602087643618
+      ],
+      "delta_rms": [
+        0.007720872726940164,
+        0.0026359233719903106
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.28.mlp.gate_proj",
+      "raw_coefficients": [
+        0.5842963773735522,
+        1.7114602087643618
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7990280486632504,
+        1.2515205213045644
+      ],
+      "delta_rms": [
+        0.005411500115217868,
+        0.0034549496422929473
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.28.mlp.up_proj",
+      "raw_coefficients": [
+        0.7990280486632504,
+        1.2515205213045644
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0770997628662409,
+        0.9284191070091105
+      ],
+      "delta_rms": [
+        0.005587461083774191,
+        0.006482258888170936
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.28.mlp.down_proj",
+      "raw_coefficients": [
+        1.0770997628662409,
+        0.9284191070091105
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8186526024335,
+        1.2215193563514397
+      ],
+      "delta_rms": [
+        0.005466401799675828,
+        0.0036635392112151447
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.29.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8186526024335,
+        1.2215193563514397
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.944070599811975,
+        1.0592428153139861
+      ],
+      "delta_rms": [
+        0.005863198105603066,
+        0.005225688456269896
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.29.self_attn.k_proj",
+      "raw_coefficients": [
+        0.944070599811975,
+        1.0592428153139861
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9264968763060017,
+        1.0793344538700007
+      ],
+      "delta_rms": [
+        0.008211062214091434,
+        0.007048346752234999
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.29.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9264968763060017,
+        1.0793344538700007
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0662599004020765,
+        0.9378576457980925
+      ],
+      "delta_rms": [
+        0.003344435967305024,
+        0.00380232328155215
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.29.self_attn.o_proj",
+      "raw_coefficients": [
+        1.0662599004020765,
+        0.9378576457980925
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8011353874647781,
+        1.2482284713006329
+      ],
+      "delta_rms": [
+        0.005755427958778128,
+        0.0036939367381813334
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.29.mlp.gate_proj",
+      "raw_coefficients": [
+        0.8011353874647781,
+        1.2482284713006329
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0540231305093157,
+        0.9487457827579068
+      ],
+      "delta_rms": [
+        0.004232492643052633,
+        0.004702150171903681
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.29.mlp.up_proj",
+      "raw_coefficients": [
+        1.0540231305093157,
+        0.9487457827579068
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9492411293816801,
+        1.0534731050385304
+      ],
+      "delta_rms": [
+        0.008648483922926999,
+        0.0077927918683204245
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.29.mlp.down_proj",
+      "raw_coefficients": [
+        0.9492411293816801,
+        1.0534731050385304
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8359259067327207,
+        1.1962782729256176
+      ],
+      "delta_rms": [
+        0.006584381399021873,
+        0.0046009821592686
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.30.self_attn.q_proj",
+      "raw_coefficients": [
+        0.8359259067327207,
+        1.1962782729256176
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.00304712590034,
+        0.9969621308693698
+      ],
+      "delta_rms": [
+        0.004107861886926861,
+        0.004132934373028278
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.30.self_attn.k_proj",
+      "raw_coefficients": [
+        1.00304712590034,
+        0.9969621308693698
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.8369175294542568,
+        1.1948608612034775
+      ],
+      "delta_rms": [
+        0.007634948420232143,
+        0.005347754183642323
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.30.self_attn.v_proj",
+      "raw_coefficients": [
+        0.8369175294542568,
+        1.1948608612034775
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.6853383013704366,
+        1.4591333914949014
+      ],
+      "delta_rms": [
+        0.003575046601982064,
+        0.0016791585881071249
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.30.self_attn.o_proj",
+      "raw_coefficients": [
+        0.6853383013704366,
+        1.4591333914949014
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9526229275652761,
+        1.0497332901233134
+      ],
+      "delta_rms": [
+        0.0038675437618545566,
+        0.003509758998375586
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.30.mlp.gate_proj",
+      "raw_coefficients": [
+        0.9526229275652761,
+        1.0497332901233134
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7573717555999461,
+        1.3203555487857583
+      ],
+      "delta_rms": [
+        0.006868257655157966,
+        0.003939714846492313
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.30.mlp.up_proj",
+      "raw_coefficients": [
+        0.7573717555999461,
+        1.3203555487857583
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.0479474888193883,
+        0.9542462868312174
+      ],
+      "delta_rms": [
+        0.013304449897846932,
+        0.01461086624384017
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.30.mlp.down_proj",
+      "raw_coefficients": [
+        1.0479474888193883,
+        0.9542462868312174
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.74010595525391,
+        1.3511578888146192
+      ],
+      "delta_rms": [
+        0.005822385312667631,
+        0.0031892512928068605
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.31.self_attn.q_proj",
+      "raw_coefficients": [
+        0.74010595525391,
+        1.3511578888146192
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        1.1553239668440407,
+        0.8655580847436811
+      ],
+      "delta_rms": [
+        0.007026366797374667,
+        0.009378607980131192
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.31.self_attn.k_proj",
+      "raw_coefficients": [
+        1.1553239668440407,
+        0.8655580847436811
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9240001636398738,
+        1.0822508905850659
+      ],
+      "delta_rms": [
+        0.010708480256999522,
+        0.009142646678214203
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.31.self_attn.v_proj",
+      "raw_coefficients": [
+        0.9240001636398738,
+        1.0822508905850659
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9988446755936551,
+        1.00115666072471
+      ],
+      "delta_rms": [
+        0.00624994491188187,
+        0.006235511826358848
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.31.self_attn.o_proj",
+      "raw_coefficients": [
+        0.9988446755936551,
+        1.00115666072471
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.7214360084113804,
+        1.3861243247367485
+      ],
+      "delta_rms": [
+        0.007511414472346968,
+        0.003909465246187527
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.31.mlp.gate_proj",
+      "raw_coefficients": [
+        0.7214360084113804,
+        1.3861243247367485
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9903106953947526,
+        1.0097841057865027
+      ],
+      "delta_rms": [
+        0.00564438500365622,
+        0.005535534582110293
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.31.mlp.up_proj",
+      "raw_coefficients": [
+        0.9903106953947526,
+        1.0097841057865027
+      ]
+    },
+    {
+      "clipped": false,
+      "coefficients": [
+        0.9567687716666232,
+        1.0451846147299217
+      ],
+      "delta_rms": [
+        0.026972498142954056,
+        0.024690799647565494
+      ],
+      "epsilon_fallback": false,
+      "expert_ids": [
+        0,
+        1
+      ],
+      "layer_name": "model.layers.31.mlp.down_proj",
+      "raw_coefficients": [
+        0.9567687716666232,
+        1.0451846147299217
+      ]
+    }
+  ],
+  "direct_rms_mean_absolute_logit_difference": 0.39681897923350334,
+  "direction_consistency": {
+    "accuracy_delta": -0.02749999999999997,
+    "consistent": true,
+    "nll_delta": 0.006151475906371995
+  },
+  "modes": {
+    "base_only": {
+      "accuracy": 0.5,
+      "mean_nll": 13.845518856048583,
+      "mean_synergy": -13.21205322265625,
+      "median_synergy": -13.220462799072266,
+      "pair_harmful_rate": 1.0,
+      "positive_synergy_rate": 0.0,
+      "worst_10_percent_synergy": -14.099874496459961
+    },
+    "direct_sum": {
+      "accuracy": 0.5425,
+      "mean_nll": 0.7054713010787964,
+      "mean_synergy": -0.0720056676864624,
+      "median_synergy": -0.06670188903808594,
+      "pair_harmful_rate": 0.935,
+      "positive_synergy_rate": 0.065,
+      "worst_10_percent_synergy": -0.17947821617126464
+    },
+    "rms_calibrated": {
+      "accuracy": 0.515,
+      "mean_nll": 0.7116227769851684,
+      "mean_synergy": -0.07815714359283447,
+      "median_synergy": -0.069671630859375,
+      "pair_harmful_rate": 0.9,
+      "positive_synergy_rate": 0.1,
+      "worst_10_percent_synergy": -0.1949251651763916
+    },
+    "single_left": {
+      "accuracy": 0.42,
+      "mean_nll": 0.7589324617385864,
+      "mean_synergy": -0.12546682834625245,
+      "median_synergy": -0.09510135650634766,
+      "pair_harmful_rate": 0.7475,
+      "positive_synergy_rate": 0.0,
+      "worst_10_percent_synergy": -0.3433656692504883
+    },
+    "single_right": {
+      "accuracy": 0.8025,
+      "mean_nll": 0.6526986742019654,
+      "mean_synergy": -0.019233040809631348,
+      "median_synergy": 0.0,
+      "pair_harmful_rate": 0.2525,
+      "positive_synergy_rate": 0.0,
+      "worst_10_percent_synergy": -0.1289228916168213
+    }
+  },
+  "pair": [
+    0,
+    1
+  ],
+  "performance": {
+    "base_only": {
+      "mean_seconds_per_sample": 0.08508604701503883,
+      "p50_seconds_per_sample": 0.08505640993826091,
+      "p95_seconds_per_sample": 0.08556938369292766,
+      "peak_cuda_memory_bytes": 19029479424,
+      "throughput_samples_per_second": 11.752808305023873
+    },
+    "direct_sum": {
+      "mean_seconds_per_sample": 0.21114488832215417,
+      "p50_seconds_per_sample": 0.21094200352672487,
+      "p95_seconds_per_sample": 0.21319601184222847,
+      "peak_cuda_memory_bytes": 20998705152,
+      "throughput_samples_per_second": 4.736084344482215
+    },
+    "rms_calibrated": {
+      "mean_seconds_per_sample": 0.2143719572697443,
+      "p50_seconds_per_sample": 0.2140587690519169,
+      "p95_seconds_per_sample": 0.21683502092491835,
+      "peak_cuda_memory_bytes": 21655113728,
+      "throughput_samples_per_second": 4.664789241727637
+    },
+    "single_left": {
+      "mean_seconds_per_sample": 0.1291610831038418,
+      "p50_seconds_per_sample": 0.12860726180952042,
+      "p95_seconds_per_sample": 0.1331647023325786,
+      "peak_cuda_memory_bytes": 19685888000,
+      "throughput_samples_per_second": 7.7422701634983095
+    },
+    "single_right": {
+      "mean_seconds_per_sample": 0.12863964430645716,
+      "p50_seconds_per_sample": 0.1283854355569929,
+      "p95_seconds_per_sample": 0.13025384861975908,
+      "peak_cuda_memory_bytes": 20342296576,
+      "throughput_samples_per_second": 7.773653335185755
+    }
+  },
+  "stats_bytes": 445042,
+  "status": "COMPLETED",
+  "test_sample_count": 400
+}

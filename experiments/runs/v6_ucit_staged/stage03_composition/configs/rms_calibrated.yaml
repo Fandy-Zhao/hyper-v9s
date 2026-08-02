@@ -1,0 +1,9 @@
+mode: rms_calibrated
+formula_version: v1-geometric-pair-equalization
+pair_scale: 0.7071067811865476
+epsilon: 1.0e-8
+coefficient_clip: [0.25, 4.0]
+calibration_split: train_calibration
+calibration_seed: 42
+test_data_allowed: false
+learned_parameters: false
