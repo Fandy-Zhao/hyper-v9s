@@ -1,0 +1,103 @@
+{
+  "configs": {
+    "oracle_direct": {
+      "config": {
+        "answer_mask_version": "stage04_answer_mask_v1",
+        "cache_schema_version": 1,
+        "composition_mode": "direct_sum",
+        "delta_pair_raw": 0.02,
+        "full_seed42_subset": {
+          "samples_per_task": 32,
+          "sampling_seed": 42,
+          "split": "train",
+          "stratification": "answer_token_length_quartile_round_robin"
+        },
+        "include_eos": false,
+        "lambda_expert": 0.01,
+        "max_pairs": 6,
+        "mini2_samples_per_task": 32,
+        "oracle_name": "oracle_direct",
+        "pair_enumeration": "all_if_pool_le_4_else_best_single_top_k",
+        "rms_calibration_samples_per_boundary": 16,
+        "scoring": "teacher_forcing_answer_token_mean_nll",
+        "smoke": {
+          "train_samples": 64,
+          "validation_samples": 32
+        },
+        "target_averaging": "token_mean",
+        "tie_break": [
+          "score",
+          "cardinality",
+          "expert_ids_lexicographic"
+        ],
+        "top_k_for_pair": 4,
+        "valid_splits": [
+          "train",
+          "validation",
+          "val",
+          "train_calibration"
+        ]
+      },
+      "config_sha256": "10f2cdce7726e9f5cecdcebbd056555cd98393415e9665a5a80a4ce1f6b99fe5",
+      "file_sha256": "9fc04ffc74c4ec81c82ed7461c3d8a55ff46400039d44062e6e2f5025367b1e9"
+    },
+    "oracle_rms": {
+      "config": {
+        "answer_mask_version": "stage04_answer_mask_v1",
+        "cache_schema_version": 1,
+        "composition_mode": "rms_calibrated",
+        "delta_pair_raw": 0.02,
+        "full_seed42_subset": {
+          "samples_per_task": 32,
+          "sampling_seed": 42,
+          "split": "train",
+          "stratification": "answer_token_length_quartile_round_robin"
+        },
+        "include_eos": false,
+        "lambda_expert": 0.01,
+        "max_pairs": 6,
+        "mini2_samples_per_task": 32,
+        "oracle_name": "oracle_rms",
+        "pair_enumeration": "all_if_pool_le_4_else_best_single_top_k",
+        "rms_calibration": {
+          "coefficient_clip": [
+            0.25,
+            4.0
+          ],
+          "epsilon": 1e-08,
+          "pair_scale": 0.7071067811865475,
+          "source_split": "train_calibration",
+          "stage03_composition_config_sha256": "29eacd7c25718e085a864a742b3c0d8ab343759b2be958202b11cc846923d0f2"
+        },
+        "rms_calibration_samples_per_boundary": 16,
+        "scoring": "teacher_forcing_answer_token_mean_nll",
+        "smoke": {
+          "train_samples": 64,
+          "validation_samples": 32
+        },
+        "target_averaging": "token_mean",
+        "tie_break": [
+          "score",
+          "cardinality",
+          "expert_ids_lexicographic"
+        ],
+        "top_k_for_pair": 4,
+        "valid_splits": [
+          "train",
+          "validation",
+          "val",
+          "train_calibration"
+        ]
+      },
+      "config_sha256": "12fa7623df4d392c748a61d8bf980c9610f1dcde25276eaae7b47701a24e0a8d",
+      "file_sha256": "110f133904bfa77e69d201450c9d386dd65e36957dfc635449a6f2641aa07647"
+    }
+  },
+  "direct_and_rms_labels_may_be_mixed": false,
+  "frozen_utc": "2026-08-02T07:51:22+00:00",
+  "future_experts_permitted": false,
+  "git_head": "4ce1c5322c785e2ddd7f58a07c1a356807937102",
+  "stage": 4,
+  "status": "PREREGISTERED_BEFORE_FORMAL_RESULTS",
+  "test_answers_permitted": false
+}

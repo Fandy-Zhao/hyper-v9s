@@ -1,0 +1,25 @@
+{
+  "answer_mask_version": "stage04_answer_mask_v1",
+  "cache_schema_version": 1,
+  "composition_mode": "direct_sum",
+  "delta_pair_raw": 0.02,
+  "full_seed42_subset": {
+    "sampling_seed": 42,
+    "samples_per_task": 32,
+    "split": "train",
+    "stratification": "answer_token_length_quartile_round_robin"
+  },
+  "include_eos": false,
+  "lambda_expert": 0.01,
+  "max_pairs": 6,
+  "mini2_samples_per_task": 32,
+  "oracle_name": "oracle_direct",
+  "pair_enumeration": "all_if_pool_le_4_else_best_single_top_k",
+  "rms_calibration_samples_per_boundary": 16,
+  "scoring": "teacher_forcing_answer_token_mean_nll",
+  "smoke": {"train_samples": 64, "validation_samples": 32},
+  "target_averaging": "token_mean",
+  "tie_break": ["score", "cardinality", "expert_ids_lexicographic"],
+  "top_k_for_pair": 4,
+  "valid_splits": ["train", "validation", "val", "train_calibration"]
+}

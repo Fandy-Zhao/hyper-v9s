@@ -1,0 +1,97 @@
+{
+  "cache_root": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache",
+  "composition_mode": "rms_calibrated",
+  "config_hash": "12fa7623df4d392c748a61d8bf980c9610f1dcde25276eaae7b47701a24e0a8d",
+  "oracle_branch": "rms",
+  "run_count": 22,
+  "runs": [
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/controlled/a_independent_b/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/controlled_regression/a_independent_b/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/controlled/a_residual_b/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/controlled_regression/a_residual_b/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/controlled/independent_b_c/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/controlled_regression/independent_b_c/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/controlled/residual_b_c/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/controlled_regression/residual_b_c/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/smoke/historical_only/ImageNet-R/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/smoke/historical_only/ImageNet-R/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/smoke/post_task_diagnostic/ImageNet-R/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/smoke/post_task_diagnostic/ImageNet-R/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/mini2/historical_only/ArxivQA/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/mini2/historical_only/ArxivQA/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/mini2/historical_only/ImageNet-R/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/mini2/historical_only/ImageNet-R/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/mini2/post_task_diagnostic/ArxivQA/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/mini2/post_task_diagnostic/ArxivQA/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/mini2/post_task_diagnostic/ImageNet-R/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/mini2/post_task_diagnostic/ImageNet-R/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/historical_only/ArxivQA/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/historical_only/ArxivQA/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/historical_only/CLEVR/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/historical_only/CLEVR/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/historical_only/Flickr30k/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/historical_only/Flickr30k/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/historical_only/IconQA/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/historical_only/IconQA/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/historical_only/ImageNet-R/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/historical_only/ImageNet-R/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/historical_only/VizWiz/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/historical_only/VizWiz/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/post_task_diagnostic/ArxivQA/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/post_task_diagnostic/ArxivQA/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/post_task_diagnostic/CLEVR/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/post_task_diagnostic/CLEVR/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/post_task_diagnostic/Flickr30k/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/post_task_diagnostic/Flickr30k/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/post_task_diagnostic/IconQA/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/post_task_diagnostic/IconQA/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/post_task_diagnostic/ImageNet-R/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/post_task_diagnostic/ImageNet-R/rms_summary.json"
+    },
+    {
+      "cache": "/data/ckpt/zhaozhuofan/v6_ucit_staged/stage04_oracle_teacher/cache/full_seed42/post_task_diagnostic/VizWiz/rms.json",
+      "summary": "experiments/runs/v6_ucit_staged/stage04_oracle_teacher/full_seed42/post_task_diagnostic/VizWiz/rms_summary.json"
+    }
+  ]
+}

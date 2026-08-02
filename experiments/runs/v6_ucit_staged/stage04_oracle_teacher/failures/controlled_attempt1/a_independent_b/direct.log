@@ -1,0 +1,13 @@
+[2026-08-02 08:08:39,209] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
+[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
+[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:08<00:08,  8.58s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:12<00:00,  5.73s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:12<00:00,  6.16s/it]
+Traceback (most recent call last):
+  File "/home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_staged/stage04_oracle_teacher/scripts/oracle_generate.py", line 362, in <module>
+    main()
+  File "/home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_staged/stage04_oracle_teacher/scripts/oracle_generate.py", line 284, in main
+    details = answer_token_nll(logits, batch["labels"], eos_token_id=bundle.tokenizer.eos_token_id, include_eos=cfg.include_eos)
+NameError: name 'answer_token_nll' is not defined

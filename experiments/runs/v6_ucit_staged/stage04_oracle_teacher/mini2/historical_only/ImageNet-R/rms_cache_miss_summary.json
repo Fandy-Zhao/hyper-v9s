@@ -1,0 +1,85 @@
+{
+  "BestSingleCorrectPairWrongRate": 0.0,
+  "EmptyOracleRate": 1.0,
+  "PairBetterThanBestSingleRate": 0.0,
+  "PairEvaluatedRate": 0.0,
+  "PairExclusiveCorrectRate": 0.0,
+  "PairOracleRate": 0.0,
+  "PairPassedThresholdRate": 0.0,
+  "PairSelectedRate": 0.0,
+  "SingleOracleRate": 0.0,
+  "accuracy_transitions": {
+    "both_wrong": 0,
+    "single_correct_pair_correct": 0,
+    "single_correct_pair_wrong": 0,
+    "single_wrong_pair_correct": 0
+  },
+  "average_evaluated_pairs": 0.0,
+  "average_evaluated_singles": 0.0,
+  "average_selected_cardinality": 0.0,
+  "best_pair_mean_nll": null,
+  "best_single_distribution": {
+    "[]": 32
+  },
+  "best_single_mean_nll": null,
+  "collapse_checks": {
+    "all_empty": true,
+    "all_pair": false,
+    "all_single": false,
+    "duplicate_pair": false,
+    "one_expert": false,
+    "task_id_fixed_set": true
+  },
+  "composition_mode": "rms_calibrated",
+  "config_hash": "12fa7623df4d392c748a61d8bf980c9610f1dcde25276eaae7b47701a24e0a8d",
+  "empty_mean_nll": 2.403274431824684,
+  "error_set_jaccard": 1.0,
+  "harmful_pair_rate": 0.0,
+  "mean_pair_synergy": 0.0,
+  "median_pair_synergy": 0.0,
+  "pair_expert_cooccurrence": {},
+  "pair_gain_ci95": [
+    0.0,
+    0.0
+  ],
+  "performance": {
+    "cache_bytes": 50474,
+    "cache_hit": false,
+    "cache_hit_latency_seconds": 0.0,
+    "candidate_sets_per_sample": 1.0,
+    "duration_seconds": 85.53936578612775,
+    "mean_forward_seconds_per_sample": {
+      "empty": 0.08850543515291065,
+      "pair": null,
+      "single": null
+    },
+    "peak_cuda_memory_bytes": 15390054912,
+    "rms_statistics_cache_hit": null,
+    "samples_per_second": 0.3740967647575143,
+    "stage03_single_token_nll_max_absolute_difference": null
+  },
+  "positive_pair_synergy_rate": 0.0,
+  "provenance": {
+    "answer_mask_version": "stage04_answer_mask_v1",
+    "answer_template_hash": "6741eb5756fde23c094082f41eb86186b218dab3aaca52c0c8df05b3b3177ec1",
+    "base_checkpoint_hash": "57b7f0af91ec0f78e14c19283d91b9bb9cd28d9294743fb14ac84b7324580013",
+    "code_version": "4ce1c5322c785e2ddd7f58a07c1a356807937102:6e627688f86348a7fdfbf6078ecc9f42bb0f82a7dc70330d771c2315d1512bff",
+    "composer_version": "29eacd7c25718e085a864a742b3c0d8ab343759b2be958202b11cc846923d0f2",
+    "composition_mode": "rms_calibrated",
+    "dataset_manifest_hash": "450ab96c957c32b011395386e1c2ee618ea1e85f84270d42c3136fdd4f78ba2a",
+    "expert_checkpoint_hashes": {},
+    "expert_registry_hash": "99ce9162cf361b4b7bb10922d19c4fbb663f16674847b0c17958bed2a7d0c555",
+    "model_identifier": "/data/ckpt/zhaozhuofan/models/llava-v1.5-7b",
+    "oracle_config_hash": "12fa7623df4d392c748a61d8bf980c9610f1dcde25276eaae7b47701a24e0a8d",
+    "rms_statistics_hash": "none",
+    "sample_id": "102af9644a9a7c21faf073b4ce3cd8d7dc6351ae17cc237aad161361ba9fbe62",
+    "split": "train",
+    "target_averaging": "token_mean",
+    "tokenizer_hash": "176c050f823d852635172bc7d34ab06a134b54fd1836a2a022b68b988186c4c5"
+  },
+  "samples": 32,
+  "selected_expert_frequency": {},
+  "selected_set_mean_nll": 2.403274431824684,
+  "temporal_scope": "historical_only",
+  "worst_10_percent_pair_synergy": 0.0
+}
