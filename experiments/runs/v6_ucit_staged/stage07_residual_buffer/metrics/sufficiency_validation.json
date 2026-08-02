@@ -1,0 +1,155 @@
+{
+  "config": {
+    "epochs": 40,
+    "learning_rate": 0.001,
+    "max_task_id": null,
+    "seed": 42,
+    "teacher_gain_threshold": 0.02,
+    "test_data_used": false,
+    "threshold_candidates": [
+      0.3,
+      0.5,
+      0.7
+    ]
+  },
+  "config_hash": "a934b6f328147dd9ada33fdd08325fe806d3405a1a0db78c69c69e38da64fab3",
+  "max_task_id": null,
+  "metrics": {
+    "accuracy": 0.6979166666666666,
+    "auprc": 0.7344260872712447,
+    "auroc": 0.8314606741573034,
+    "ece": 0.040785438376284844,
+    "f1": 0.5915492957746479,
+    "false_insufficient_rate": 0.5280898876404494,
+    "false_sufficient_rate": 0.10679611650485436,
+    "precision": 0.7924528301886793,
+    "recall": 0.47191011235955055
+  },
+  "per_task_calibration": {
+    "ArxivQA": {
+      "accuracy": 0.625,
+      "auprc": 0.34357706129871524,
+      "auroc": 0.4125,
+      "ece": 0.029123900458216667,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "mean_predicted_probability": 0.34587609954178333,
+      "precision": 0.0,
+      "recall": 0.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.375
+    },
+    "CLEVR": {
+      "accuracy": 0.75,
+      "auprc": 0.7043154187842973,
+      "auroc": 0.4010416666666667,
+      "ece": 0.019349131733179092,
+      "f1": 0.8571428571428571,
+      "false_insufficient_rate": 0.0,
+      "false_sufficient_rate": 1.0,
+      "mean_predicted_probability": 0.7693491317331791,
+      "precision": 0.75,
+      "recall": 1.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.75
+    },
+    "Flickr30k": {
+      "accuracy": 0.5625,
+      "auprc": 0.9086333979336805,
+      "auroc": 0.6518518518518519,
+      "ece": 0.14747478067874908,
+      "f1": 0.6818181818181819,
+      "false_insufficient_rate": 0.4444444444444444,
+      "false_sufficient_rate": 0.4,
+      "mean_predicted_probability": 0.6962752193212509,
+      "precision": 0.8823529411764706,
+      "recall": 0.5555555555555556,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.84375
+    },
+    "IconQA": {
+      "accuracy": 0.4375,
+      "auprc": 0.7336838581092734,
+      "auroc": 0.5666666666666667,
+      "ece": 0.020541122183203697,
+      "f1": 0.24999999999999997,
+      "false_insufficient_rate": 0.85,
+      "false_sufficient_rate": 0.08333333333333333,
+      "mean_predicted_probability": 0.6044588778167963,
+      "precision": 0.75,
+      "recall": 0.15,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.625
+    },
+    "ImageNet-R": {
+      "accuracy": 1.0,
+      "auprc": 0.0,
+      "auroc": 0.0,
+      "ece": 0.009916820999933407,
+      "f1": 0.0,
+      "false_insufficient_rate": 0.0,
+      "false_sufficient_rate": 0.0,
+      "mean_predicted_probability": 0.009916820999933407,
+      "precision": 0.0,
+      "recall": 0.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.0
+    },
+    "VizWiz": {
+      "accuracy": 0.8125,
+      "auprc": 0.2896974004037408,
+      "auroc": 0.5384615384615384,
+      "ece": 0.11525293858721854,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "mean_predicted_probability": 0.3027529385872185,
+      "precision": 0.0,
+      "recall": 0.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.1875
+    }
+  },
+  "predicted_insufficient_rate": 0.7239583333333334,
+  "status": "VALIDATED_THRESHOLD_FROZEN",
+  "teacher_definition": "nonempty_and_selected_score_better_than_empty_and_raw_nll_gain_ge_0.02",
+  "teacher_insufficient_rate": 0.5364583333333333,
+  "test_data_used": false,
+  "threshold": 0.7,
+  "threshold_candidates": {
+    "0.3": {
+      "accuracy": 0.671875,
+      "auprc": 0.7344260872712447,
+      "auroc": 0.8314606741573034,
+      "ece": 0.040785438376284844,
+      "f1": 0.7341772151898734,
+      "false_insufficient_rate": 0.02247191011235955,
+      "false_sufficient_rate": 0.5922330097087378,
+      "precision": 0.5878378378378378,
+      "recall": 0.9775280898876404
+    },
+    "0.5": {
+      "accuracy": 0.7760416666666666,
+      "auprc": 0.7344260872712447,
+      "auroc": 0.8314606741573034,
+      "ece": 0.040785438376284844,
+      "f1": 0.7675675675675675,
+      "false_insufficient_rate": 0.20224719101123595,
+      "false_sufficient_rate": 0.24271844660194175,
+      "precision": 0.7395833333333334,
+      "recall": 0.797752808988764
+    },
+    "0.7": {
+      "accuracy": 0.6979166666666666,
+      "auprc": 0.7344260872712447,
+      "auroc": 0.8314606741573034,
+      "ece": 0.040785438376284844,
+      "f1": 0.5915492957746479,
+      "false_insufficient_rate": 0.5280898876404494,
+      "false_sufficient_rate": 0.10679611650485436,
+      "precision": 0.7924528301886793,
+      "recall": 0.47191011235955055
+    }
+  }
+}

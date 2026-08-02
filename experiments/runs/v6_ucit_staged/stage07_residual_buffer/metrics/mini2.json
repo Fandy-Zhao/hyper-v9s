@@ -1,0 +1,99 @@
+{
+  "config": {
+    "epochs": 40,
+    "learning_rate": 0.001,
+    "max_task_id": 1,
+    "seed": 42,
+    "teacher_gain_threshold": 0.02,
+    "test_data_used": false,
+    "threshold_candidates": [
+      0.3,
+      0.5,
+      0.7
+    ]
+  },
+  "config_hash": "417f7f2df1c7ae4bb734254da79d15a01f93f6e21206f68ec1a254b69d189826",
+  "max_task_id": 1,
+  "metrics": {
+    "accuracy": 0.8125,
+    "auprc": 0.35170734193567005,
+    "auroc": 0.782051282051282,
+    "ece": 0.07146817703323906,
+    "f1": 0.0,
+    "false_insufficient_rate": 1.0,
+    "false_sufficient_rate": 0.0,
+    "precision": 0.0,
+    "recall": 0.0
+  },
+  "per_task_calibration": {
+    "ArxivQA": {
+      "accuracy": 0.625,
+      "auprc": 0.35170734193567005,
+      "auroc": 0.43333333333333335,
+      "ece": 0.13200700934976342,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "mean_predicted_probability": 0.2928452929481864,
+      "precision": 0.0,
+      "recall": 0.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.375
+    },
+    "ImageNet-R": {
+      "accuracy": 1.0,
+      "auprc": 0.0,
+      "auroc": 0.0,
+      "ece": 0.010929344716714695,
+      "f1": 0.0,
+      "false_insufficient_rate": 0.0,
+      "false_sufficient_rate": 0.0,
+      "mean_predicted_probability": 0.010929344716714695,
+      "precision": 0.0,
+      "recall": 0.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.0
+    }
+  },
+  "predicted_insufficient_rate": 1.0,
+  "status": "VALIDATED_THRESHOLD_FROZEN",
+  "teacher_definition": "nonempty_and_selected_score_better_than_empty_and_raw_nll_gain_ge_0.02",
+  "teacher_insufficient_rate": 0.8125,
+  "test_data_used": false,
+  "threshold": 0.5,
+  "threshold_candidates": {
+    "0.3": {
+      "accuracy": 0.734375,
+      "auprc": 0.35170734193567005,
+      "auroc": 0.782051282051282,
+      "ece": 0.07146817703323906,
+      "f1": 0.1904761904761905,
+      "false_insufficient_rate": 0.8333333333333334,
+      "false_sufficient_rate": 0.1346153846153846,
+      "precision": 0.2222222222222222,
+      "recall": 0.16666666666666666
+    },
+    "0.5": {
+      "accuracy": 0.8125,
+      "auprc": 0.35170734193567005,
+      "auroc": 0.782051282051282,
+      "ece": 0.07146817703323906,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
+    },
+    "0.7": {
+      "accuracy": 0.8125,
+      "auprc": 0.35170734193567005,
+      "auroc": 0.782051282051282,
+      "ece": 0.07146817703323906,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
+    }
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "config": {
+    "epochs": 40,
+    "learning_rate": 0.001,
+    "max_task_id": 2,
+    "seed": 42,
+    "teacher_gain_threshold": 0.02,
+    "test_data_used": false,
+    "threshold_candidates": [
+      0.3,
+      0.5,
+      0.7
+    ]
+  },
+  "config_hash": "44b20aa35b1d4132b953f51246021cbbb04172c069ca53aab8cf2343ef25c5a1",
+  "max_task_id": 2,
+  "metrics": {
+    "accuracy": 0.8125,
+    "auprc": 0.3411934556939582,
+    "auroc": 0.75997150997151,
+    "ece": 0.027810647685934477,
+    "f1": 0.0,
+    "false_insufficient_rate": 1.0,
+    "false_sufficient_rate": 0.0,
+    "precision": 0.0,
+    "recall": 0.0
+  },
+  "per_task_calibration": {
+    "ArxivQA": {
+      "accuracy": 0.625,
+      "auprc": 0.3490083129289842,
+      "auroc": 0.425,
+      "ece": 0.06833541207015516,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "mean_predicted_probability": 0.30666458792984486,
+      "precision": 0.0,
+      "recall": 0.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.375
+    },
+    "ImageNet-R": {
+      "accuracy": 1.0,
+      "auprc": 0.0,
+      "auroc": 0.0,
+      "ece": 0.017371733410982415,
+      "f1": 0.0,
+      "false_insufficient_rate": 0.0,
+      "false_sufficient_rate": 0.0,
+      "mean_predicted_probability": 0.017371733410982415,
+      "precision": 0.0,
+      "recall": 0.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.0
+    },
+    "VizWiz": {
+      "accuracy": 0.8125,
+      "auprc": 0.23884314610121063,
+      "auroc": 0.4935897435897436,
+      "ece": 0.04746803641319275,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "mean_predicted_probability": 0.23496803641319275,
+      "precision": 0.0,
+      "recall": 0.0,
+      "samples": 32,
+      "teacher_sufficient_rate": 0.1875
+    }
+  },
+  "predicted_insufficient_rate": 1.0,
+  "status": "VALIDATED_THRESHOLD_FROZEN",
+  "teacher_definition": "nonempty_and_selected_score_better_than_empty_and_raw_nll_gain_ge_0.02",
+  "teacher_insufficient_rate": 0.8125,
+  "test_data_used": false,
+  "threshold": 0.5,
+  "threshold_candidates": {
+    "0.3": {
+      "accuracy": 0.7604166666666666,
+      "auprc": 0.3411934556939582,
+      "auroc": 0.75997150997151,
+      "ece": 0.027810647685934477,
+      "f1": 0.41025641025641024,
+      "false_insufficient_rate": 0.5555555555555556,
+      "false_sufficient_rate": 0.16666666666666666,
+      "precision": 0.38095238095238093,
+      "recall": 0.4444444444444444
+    },
+    "0.5": {
+      "accuracy": 0.8125,
+      "auprc": 0.3411934556939582,
+      "auroc": 0.75997150997151,
+      "ece": 0.027810647685934477,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
+    },
+    "0.7": {
+      "accuracy": 0.8125,
+      "auprc": 0.3411934556939582,
+      "auroc": 0.75997150997151,
+      "ece": 0.027810647685934477,
+      "f1": 0.0,
+      "false_insufficient_rate": 1.0,
+      "false_sufficient_rate": 0.0,
+      "precision": 0.0,
+      "recall": 0.0
+    }
+  }
+}
