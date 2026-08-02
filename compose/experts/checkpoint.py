@@ -1,6 +1,10 @@
 import json
 import os
 import re
+import hashlib
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, Iterable, Optional
 
 import torch
@@ -8,6 +12,7 @@ import torch
 from compose.adapters.lora import ComposeLinear
 
 from .pool import ExpertPool
+from .registry import ExpertRegistry
 
 
 MANIFEST_NAME = "compose_experts.json"
@@ -167,3 +172,85 @@ def load_expert_checkpoint(
         "unexpected_tensor_count": 0,
     }
     return manifest
+
+
+def _registry_checkpoint_payload(
+    registry: ExpertRegistry,
+    source_git_commit: str,
+    source_model_identifier: str,
+    source_adapter_config_hash: str,
+    timestamp: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> Dict[str, object]:
+    if not source_git_commit:
+        raise ValueError("source_git_commit must not be empty")
+    if not source_model_identifier:
+        raise ValueError("source_model_identifier must not be empty")
+    if not source_adapter_config_hash:
+        raise ValueError("source_adapter_config_hash must not be empty")
+    payload = registry.state_dict()
+    payload["provenance"] = {
+        "source_git_commit": source_git_commit,
+        "source_model_identifier": source_model_identifier,
+        "source_adapter_config_hash": source_adapter_config_hash,
+        "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+        "run_id": run_id,
+    }
+    return payload
+
+
+def save_registry_checkpoint(
+    registry: ExpertRegistry,
+    path,
+    source_git_commit: str,
+    source_model_identifier: str,
+    source_adapter_config_hash: str,
+    timestamp: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> str:
+    """Atomically save metadata/provenance only and return its SHA-256.
+
+    Existing paths are intentionally rejected.  Registry checkpoints never
+    contain tensors; adapter weights remain owned by the existing Hyper loader.
+    """
+
+    target = Path(path)
+    if target.exists():
+        raise FileExistsError("registry checkpoint already exists: {}".format(target))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = _registry_checkpoint_payload(
+        registry,
+        source_git_commit,
+        source_model_identifier,
+        source_adapter_config_hash,
+        timestamp=timestamp,
+        run_id=run_id,
+    )
+    encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=target.name + ".", suffix=".tmp", dir=str(target.parent)
+    )
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def load_registry_checkpoint(path):
+    target = Path(path)
+    if not target.is_file():
+        raise FileNotFoundError("registry checkpoint does not exist: {}".format(target))
+    encoded = target.read_bytes()
+    payload = json.loads(encoded.decode("utf-8"))
+    registry = ExpertRegistry()
+    registry.load_state_dict(payload)
+    return registry, payload.get("provenance", {}), hashlib.sha256(encoded).hexdigest()

@@ -1,0 +1,175 @@
+{
+  "active_expert_ids": [
+    0
+  ],
+  "experts": [
+    {
+      "active": true,
+      "adapter_name": "default",
+      "alpha": 96.0,
+      "checkpoint_path": null,
+      "checkpoint_sha256": null,
+      "creation_task": 0,
+      "creation_task_name": null,
+      "expert_id": 0,
+      "extra": {
+        "physical_hyper_expert": true
+      },
+      "metadata_version": 1,
+      "name": "default",
+      "origin_task_id": null,
+      "parent_expert_id": null,
+      "positive_contribution_count": 0,
+      "rank": 8,
+      "reuse_tasks": [],
+      "source_checkpoint": null,
+      "status": "trainable",
+      "support_count": 0,
+      "tags": [],
+      "trainable": true,
+      "trained_steps": 0
+    },
+    {
+      "active": false,
+      "adapter_name": "default",
+      "alpha": 96.0,
+      "checkpoint_path": null,
+      "checkpoint_sha256": null,
+      "creation_task": null,
+      "creation_task_name": null,
+      "expert_id": 1,
+      "extra": {
+        "physical_hyper_expert": true
+      },
+      "metadata_version": 1,
+      "name": "default",
+      "origin_task_id": null,
+      "parent_expert_id": null,
+      "positive_contribution_count": 0,
+      "rank": 8,
+      "reuse_tasks": [],
+      "source_checkpoint": null,
+      "status": "registered",
+      "support_count": 0,
+      "tags": [],
+      "trainable": false,
+      "trained_steps": 0
+    },
+    {
+      "active": false,
+      "adapter_name": "default",
+      "alpha": 96.0,
+      "checkpoint_path": null,
+      "checkpoint_sha256": null,
+      "creation_task": null,
+      "creation_task_name": null,
+      "expert_id": 2,
+      "extra": {
+        "physical_hyper_expert": true
+      },
+      "metadata_version": 1,
+      "name": "default",
+      "origin_task_id": null,
+      "parent_expert_id": null,
+      "positive_contribution_count": 0,
+      "rank": 8,
+      "reuse_tasks": [],
+      "source_checkpoint": null,
+      "status": "registered",
+      "support_count": 0,
+      "tags": [],
+      "trainable": false,
+      "trained_steps": 0
+    },
+    {
+      "active": false,
+      "adapter_name": "default",
+      "alpha": 96.0,
+      "checkpoint_path": null,
+      "checkpoint_sha256": null,
+      "creation_task": null,
+      "creation_task_name": null,
+      "expert_id": 3,
+      "extra": {
+        "physical_hyper_expert": true
+      },
+      "metadata_version": 1,
+      "name": "default",
+      "origin_task_id": null,
+      "parent_expert_id": null,
+      "positive_contribution_count": 0,
+      "rank": 8,
+      "reuse_tasks": [],
+      "source_checkpoint": null,
+      "status": "registered",
+      "support_count": 0,
+      "tags": [],
+      "trainable": false,
+      "trained_steps": 0
+    },
+    {
+      "active": false,
+      "adapter_name": "default",
+      "alpha": 96.0,
+      "checkpoint_path": null,
+      "checkpoint_sha256": null,
+      "creation_task": null,
+      "creation_task_name": null,
+      "expert_id": 4,
+      "extra": {
+        "physical_hyper_expert": true
+      },
+      "metadata_version": 1,
+      "name": "default",
+      "origin_task_id": null,
+      "parent_expert_id": null,
+      "positive_contribution_count": 0,
+      "rank": 8,
+      "reuse_tasks": [],
+      "source_checkpoint": null,
+      "status": "registered",
+      "support_count": 0,
+      "tags": [],
+      "trainable": false,
+      "trained_steps": 0
+    },
+    {
+      "active": false,
+      "adapter_name": "default",
+      "alpha": 96.0,
+      "checkpoint_path": null,
+      "checkpoint_sha256": null,
+      "creation_task": null,
+      "creation_task_name": null,
+      "expert_id": 5,
+      "extra": {
+        "physical_hyper_expert": true
+      },
+      "metadata_version": 1,
+      "name": "default",
+      "origin_task_id": null,
+      "parent_expert_id": null,
+      "positive_contribution_count": 0,
+      "rank": 8,
+      "reuse_tasks": [],
+      "source_checkpoint": null,
+      "status": "registered",
+      "support_count": 0,
+      "tags": [],
+      "trainable": false,
+      "trained_steps": 0
+    }
+  ],
+  "metadata_version": 1,
+  "provenance": {
+    "run_id": "run_smoke_gb24_retry2",
+    "source_adapter_config_hash": "ef3a9400c581f7f1195fc66560d92d2b4046d9ad7c9cc825f7836762ce3558ce",
+    "source_git_commit": "5668cfd",
+    "source_model_identifier": "/data/ckpt/zhaozhuofan/models/llava-v1.5-7b",
+    "timestamp": "2026-08-02T03:00:00+08:00"
+  },
+  "registry_version": 1,
+  "trainable_expert_ids": [
+    0
+  ]
+}

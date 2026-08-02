@@ -1,0 +1,62 @@
+{
+  "accuracy_matrix": [
+    [
+      47.66,
+      null
+    ],
+    [
+      50.0,
+      78.91
+    ]
+  ],
+  "difference_vs_stage01": {
+    "accuracy_matrix": [
+      [
+        0.0,
+        null
+      ],
+      [
+        0.0,
+        -1.5600000000000023
+      ]
+    ],
+    "metrics": {
+      "BWT": 3.552713678800501e-15,
+      "MAA": -0.39000000000000057,
+      "MFN": -0.7800000000000011,
+      "MFT": -0.7800000000000011
+    }
+  },
+  "metrics": {
+    "BWT": 2.3400000000000034,
+    "MAA": 56.0575,
+    "MFN": 64.455,
+    "MFT": 63.285
+  },
+  "sample_counts": {
+    "test_per_task": 128,
+    "train_per_task": 512
+  },
+  "stage01_baseline": {
+    "accuracy_matrix": [
+      [
+        47.66,
+        null
+      ],
+      [
+        50.0,
+        80.47
+      ]
+    ],
+    "metrics": {
+      "BWT": 2.34,
+      "MAA": 56.4475,
+      "MFN": 65.235,
+      "MFT": 64.065
+    }
+  },
+  "task_order": [
+    "ImageNet-R",
+    "ArxivQA"
+  ]
+}
