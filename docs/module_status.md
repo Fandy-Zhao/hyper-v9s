@@ -1,7 +1,7 @@
 # Module Status
 
 ## Overview
-Status of each module in the HiDe-LLaVA project as of 2026-07-30.
+Status of each module in the HiDe-LLaVA project as of 2026-08-03.
 
 ## Modules
 
@@ -13,9 +13,9 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-30.
 | LLaVA Serve | `llava/serve/` | Gradio web UI, controller, worker | Stable | Manual | Not needed for research; inherited from LLaVA |
 | Hyper PEFT | `Hyper/peft/` | Custom PEFT framework | Active | Import test | Modified from HuggingFace PEFT; adds HyperMOELora |
 | HyperMOELora | `Hyper/peft/tuners/clitmoelora.py` | CLIP-guided multi-expert LoRA with task routing | Active | Integration test only | Core innovation; Gaussian stats + expert management |
-| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Stages A--E validated | 42 unit tests + bf16 CUDA grouped execution + full Task1/PEFT parity + strict reloads | Explicit none/l1/l2 gates; active-row grouped execution; decoder-only 224-layer boundary |
+| Compose Foundation | `compose/` | Independent fixed-selection LoRA expert composition for LLaVA | Engineering validated; formal unseen composition failed | 159 tests + 12-run P1 matrix on GPUs 4--7 | Arithmetic-mean RMS and validation-only scalars execute correctly, but C2/C3 fail the frozen unseen B+C synergy/accuracy gates |
 | Compose Oracle | `compose/oracle/` | Per-sample NLL, fixed empty/single/pair audit, cache, and matched controls | Validated | Deterministic repeated smoke + 6,000-sample formal audit | Stop condition C triggered after rank-16 capacity control |
-| Compose Set Router | not implemented | Future set selection for Compose experts | Stopped | No implementation by design | Requires a future fixed-set audit that beats a parameter-matched single adapter |
+| Compose Candidate Pool / Set Router | `compose/expansion/`, `compose/router/` | Two-slot candidate experts and answer-free multi-label Query-Key routing | Diagnostic only | Unit tests + gate-limited seed-0 P2/P3 smokes | P2 `FAIL_SLOT_SPECIALIZATION`; P3 `ROUTER_QUERY_INSUFFICIENT`; no full continual benchmark authorized |
 | Instance Router | `llava/model/routing/instance_router.py` | Modality-aware per-instance fusion | Active | Integration test only | MLP-based router with Gaussian prior initialization |
 | Scripts - Train | `scripts/Hyper/Train_*/` | Shell scripts for sequential task training | Stable | `bash -n` syntax | Multiple training orders: UCIT, UCIT_AIRFCV, UCIT_IFRCAV, UCIT_LlaVANext, CoIN |
 | Scripts - Eval | `scripts/Hyper/Eval_*/` | Shell scripts for evaluation | Stable | `bash -n` syntax | Per-task eval scripts + aggregated Eval_all.sh |
@@ -61,7 +61,8 @@ Status of each module in the HiDe-LLaVA project as of 2026-07-30.
 - `eval/` - strict Compose/PEFT loading, fixed-selection generation, metrics, and run summaries
 - `oracle/` - per-sample NLL, stable candidate sets, cache, deterministic evaluator, and capacity comparison
 - `scripts/Compose/` - full/smoke training, evaluation, Oracle, and matched baseline launchers
-- `tests/compose/` - 42 tests covering normalization, grouped execution, strict loading, supervision, Oracle invariants, checkpoints, and import isolation
+- `expansion/` and `router/` - two-slot candidate pool and answer-free multi-label Query-Key router, currently diagnostic-only
+- `tests/compose/` - 159 tests plus 8 subtests covering foundation, Oracle, arithmetic-RMS composition, scheduling, candidate slots, and multi-label routing
 
 ## Risks
 - `llava/model/llava_arch copy.py` is a stale copy — archived to deprecated

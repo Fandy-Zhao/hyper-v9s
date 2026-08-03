@@ -12,6 +12,7 @@ from compose.experts import ExpertMetadata, ExpertRegistry
 from compose.lora import (AdapterBridge, CompositionRuntime, ExpertComposer,
                           OnlineMoments, RMSCompositionConfig, RMSStatistics,
                           StatisticKey, stable_hash)
+from compose.lora.rms_composition import frozen_coefficients, rms_compose
 
 
 def registry(count=3):
@@ -45,6 +46,42 @@ def stats_for(bridge, layer, inputs, config_hash="cfg"):
 
 
 class CompositionMathTest(unittest.TestCase):
+    def test_arithmetic_mean_rms_coefficients_and_fixed_pair_scale(self):
+        config = RMSCompositionConfig()
+        coefficients, audit = frozen_coefficients(1.0, 3.0, config)
+        self.assertAlmostEqual(coefficients[0], 2.0)
+        self.assertAlmostEqual(coefficients[1], 2.0 / 3.00000001)
+        self.assertEqual(audit["reference_rms"], 2.0)
+        base = torch.zeros(2)
+        output, effective, _ = rms_compose(
+            base, (torch.ones(2), torch.ones(2)), (1.0, 1.0), config
+        )
+        self.assertAlmostEqual(effective[0], 1.0)
+        self.assertAlmostEqual(effective[1], 1.0)
+        torch.testing.assert_close(output, torch.full((2,), math.sqrt(2.0)), atol=1e-7, rtol=1e-7)
+
+    def test_validation_scalars_are_bounded_and_applied(self):
+        with self.assertRaisesRegex(ValueError, "expert_scalars"):
+            RMSCompositionConfig(expert_scalars=(-0.1, 1.0))
+        config = RMSCompositionConfig(expert_scalars=(0.5, 2.0))
+        output, effective, audit = rms_compose(
+            torch.zeros(1), (torch.ones(1), torch.ones(1)), (1.0, 1.0), config
+        )
+        self.assertAlmostEqual(effective[0], 0.5)
+        self.assertAlmostEqual(effective[1], 2.0)
+        self.assertEqual(audit["expert_scalars"], [0.5, 2.0])
+        torch.testing.assert_close(output, torch.tensor([2.5 / math.sqrt(2.0)]))
+
+    def test_fixed_equal_norm_pair_has_inverse_sqrt_two_amplitude(self):
+        model, layer, _ = model_and_bridge()
+        inputs = torch.randn(3, 3)
+        left = layer.experts["0"](inputs)
+        right = layer.experts["1"](inputs)
+        layer.set_default_selection((0, 1), (1.0 / math.sqrt(2.0),) * 2)
+        torch.testing.assert_close(
+            model(inputs), layer.base_layer(inputs) + (left + right) / math.sqrt(2.0)
+        )
+
     def test_base_single_and_direct_sum_regressions(self):
         model, layer, bridge = model_and_bridge()
         inputs = torch.randn(4, 3)

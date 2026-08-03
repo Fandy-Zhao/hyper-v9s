@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-08-03
+- Added arithmetic-mean per-layer RMS composition, validation-only C3 scalar selection, layer contribution/cosine audits, and a resumable one-process-per-GPU scheduler with an explicitly authorized 4--7 fallback.
+- Completed the 12-run P1 formal matrix over checkpoint seeds 42/43/44 (analysis seeds 0/1/2), using physical GPUs 4--7 for 3.434 recorded GPU-hours; all runs completed without OOM.
+- Applied the frozen unseen-composition gate: both independent and residual B+C fail C2/C3 synergy, bootstrap, and best-single accuracy requirements, yielding `FAIL_COMPOSITION`.
+- Added two-slot candidate-pool and answer-free multi-label Query-Key router implementations. Gate-limited seed-0 diagnostics yield `FAIL_SLOT_SPECIALIZATION` and `ROUTER_QUERY_INSUFFICIENT`; the full continual benchmark remains prohibited.
+- Expanded the Compose suite to 159 passing tests plus 8 subtests and added complete configs, logs, metrics, gate decisions, reports, and a reproduction script under `outputs/compose_p1_p3_20260803T090000Z/`.
+
 ## 2026-07-30
 - Made Compose gate normalization explicit with `none`, `l1`, and `l2` modes; the default now preserves supplied gates and default selections use unit gates.
 - Changed mixed-sample Compose execution to run each expert only on rows with a positive gate and scatter weighted deltas back with autograd-safe `index_add_`.
