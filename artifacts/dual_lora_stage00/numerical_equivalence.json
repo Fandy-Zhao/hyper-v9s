@@ -1,0 +1,1016 @@
+{
+  "device": "cuda:0",
+  "git_commit": "bdd1a2dde3b3665d68737b28361ea0d05f2ad3fa",
+  "max_samples": 200,
+  "pair_checkpoint": "/data/ckpt/zhaozhuofan/compose/format_controlled_composition_v1/assembled/seed42/a_independent_b",
+  "passed": true,
+  "question_file": "experiments/data/controlled_format_v1_training/instructions/A_plus_B/test_eval.json",
+  "t1_synthetic_arithmetic": {
+    "passed": true,
+    "points": [
+      {
+        "alpha": 1.0,
+        "beta": 0.0,
+        "max_abs_diff": 0.0
+      },
+      {
+        "alpha": 0.0,
+        "beta": 1.0,
+        "max_abs_diff": 0.0
+      },
+      {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "max_abs_diff": 0.0
+      },
+      {
+        "alpha": 0.7071067811865475,
+        "beta": 0.7071067811865475,
+        "max_abs_diff": 0.0
+      },
+      {
+        "alpha": 0.5,
+        "beta": 0.5,
+        "max_abs_diff": 0.0
+      },
+      {
+        "alpha": 1.5,
+        "beta": 0.25,
+        "max_abs_diff": 0.0
+      },
+      {
+        "alpha": 0.0,
+        "beta": 0.0,
+        "no_selection": 0.0
+      }
+    ]
+  },
+  "t2_cross_bundle": {
+    "pair_vs_base_checkpoint": {
+      "max_abs_logit_diff": 0.0,
+      "prediction_mismatches": 0,
+      "samples": 200
+    },
+    "pair_vs_expert_a_checkpoint": {
+      "max_abs_logit_diff": 0.0,
+      "prediction_mismatches": 0,
+      "samples": 200
+    },
+    "pair_vs_expert_b_checkpoint": {
+      "max_abs_logit_diff": 0.0,
+      "prediction_mismatches": 0,
+      "samples": 200
+    },
+    "passed": true
+  },
+  "t2_model_fixed_points": {
+    "alpha_0_beta_0_vs_base": {
+      "max_abs_logit_diff": 0.0,
+      "note": "gates (0,0) are not expressible in ComposeSelection; base forward obtained by clearing the selection",
+      "prediction_mismatches": 0,
+      "samples": 200
+    },
+    "alpha_0_beta_1_vs_expert_b": {
+      "max_abs_logit_diff": 0.0,
+      "prediction_mismatches": 0,
+      "samples": 200
+    },
+    "alpha_1_beta_0_vs_expert_a": {
+      "max_abs_logit_diff": 0.0,
+      "prediction_mismatches": 0,
+      "samples": 200
+    },
+    "passed": true
+  },
+  "t3_explicit_delta_sum": {
+    "layers": [
+      {
+        "layer": "model.layers.0.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.0.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.0.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.0.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.0.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.0.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.0.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.1.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.1.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.1.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.1.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.1.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.1.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.1.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.2.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.2.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.2.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.2.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.2.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.2.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.2.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.3.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.3.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.3.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.3.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.3.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.3.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.3.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.4.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.4.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.4.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.4.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.4.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.4.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.4.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.5.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.5.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.5.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.5.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.5.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.5.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.5.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.6.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.6.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.6.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.6.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.6.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.6.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.6.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.7.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.7.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.7.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.7.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.7.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.7.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.7.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.8.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.8.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.8.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.8.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.8.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.8.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.8.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.9.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.9.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.9.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.9.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.9.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.9.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.9.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.10.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.10.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.10.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.10.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.10.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.10.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.10.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.11.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.11.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.11.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.11.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.11.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.11.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.11.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.12.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.12.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.12.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.12.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.12.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.12.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.12.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.13.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.13.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.13.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.13.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.13.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.13.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.13.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.14.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.14.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.14.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.14.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.14.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.14.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.14.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.15.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.15.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.15.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.15.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.15.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.15.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.15.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.16.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.16.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.16.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.16.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.16.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.16.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.16.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.17.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.17.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.17.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.17.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.17.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.17.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.17.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.18.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.18.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.18.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.18.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.18.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.18.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.18.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.19.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.19.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.19.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.19.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.19.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.19.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.19.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.20.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.20.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.20.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.20.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.20.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.20.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.20.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.21.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.21.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.21.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.21.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.21.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.21.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.21.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.22.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.22.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.22.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.22.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.22.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.22.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.22.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.23.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.23.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.23.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.23.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.23.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.23.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.23.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.24.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.24.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.24.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.24.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.24.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.24.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.24.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.25.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.25.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.25.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.25.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.25.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.25.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.25.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.26.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.26.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.26.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.26.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.26.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.26.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.26.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.27.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.27.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.27.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.27.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.27.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.27.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.27.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.28.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.28.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.28.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.28.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.28.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.28.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.28.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.29.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.29.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.29.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.29.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.29.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.29.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.29.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.30.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.30.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.30.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.30.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.30.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.30.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.30.mlp.down_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.31.self_attn.q_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.31.self_attn.k_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.31.self_attn.v_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.31.self_attn.o_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.31.mlp.gate_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.31.mlp.up_proj",
+        "max_abs_diff": 0.0
+      },
+      {
+        "layer": "model.layers.31.mlp.down_proj",
+        "max_abs_diff": 0.0
+      }
+    ],
+    "layers_checked": 224,
+    "max_abs_diff_any_layer": 0.0,
+    "passed": true
+  },
+  "t4_t5_stability": {
+    "batch_16_note": "batch 16 exceeds the 24 GiB GPU during the CE loss computation; batch 12 used instead",
+    "batch_8_vs_12": {
+      "max_abs_logit_diff": 0.125,
+      "near_tie_mismatches": 5,
+      "prediction_mismatches": 5,
+      "samples": 64
+    },
+    "batch_8_vs_4": {
+      "max_abs_logit_diff": 0.125,
+      "near_tie_mismatches": 5,
+      "prediction_mismatches": 5,
+      "samples": 64
+    },
+    "batch_passed": true,
+    "repeat_inference": {
+      "max_abs_logit_diff": 0.0,
+      "prediction_mismatches": 0,
+      "samples": 64
+    },
+    "repeat_passed": true
+  },
+  "t6_save_reload": {
+    "max_abs_logit_diff": 0.0,
+    "passed": true,
+    "prediction_mismatches": 0,
+    "samples": 64
+  }
+}
