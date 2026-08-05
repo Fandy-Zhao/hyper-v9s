@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from .lora import ComposeLinear
 from .runtime import use_selection
-from .types import ComposeSelection
+from .types import PAD_EXPERT_ID, ComposeSelection, pad_selection
 
 
 class ExpertManager:
@@ -54,13 +54,24 @@ class ExpertManager:
         device: Optional[torch.device] = None,
         normalization: str = "none",
     ) -> ComposeSelection:
+        """Build a fixed selection expanded over ``batch_size`` rows.
+
+        Empty (``expert_ids=[]``) selects backbone only; one and two experts
+        use the same padded ``[batch, 2]`` slot structure.
+        """
         self._require_experts(expert_ids)
-        if len(expert_ids) not in (1, 2):
-            raise ValueError("fixed selection supports one or two experts")
+        if len(expert_ids) > 2:
+            raise ValueError("fixed selection supports zero, one, or two experts")
         if gates is None:
             gates = [1.0] * len(expert_ids)
-        ids_tensor = torch.tensor(expert_ids, dtype=torch.long, device=device)
-        gate_tensor = torch.tensor(gates, dtype=torch.float32, device=device)
+        if len(gates) != len(expert_ids):
+            raise ValueError("gates must match expert_ids")
+        padded_ids, padded_gates = pad_selection(
+            tuple(int(value) for value in expert_ids),
+            tuple(float(value) for value in gates),
+        )
+        ids_tensor = torch.tensor(padded_ids, dtype=torch.long, device=device)
+        gate_tensor = torch.tensor(padded_gates, dtype=torch.float32, device=device)
         return ComposeSelection(
             ids_tensor.unsqueeze(0).expand(batch_size, -1),
             gate_tensor.unsqueeze(0).expand(batch_size, -1),
@@ -68,7 +79,9 @@ class ExpertManager:
         )
 
     def selection_context(self, selection: ComposeSelection):
-        self._require_experts(torch.unique(selection.expert_ids).tolist())
+        self._require_experts(
+            [int(value) for value in torch.unique(selection.expert_ids) if int(value) != PAD_EXPERT_ID]
+        )
         return use_selection(selection)
 
     def freeze_base(self) -> None:
@@ -88,6 +101,9 @@ class ExpertManager:
 
     def _require_experts(self, expert_ids: Iterable[int]) -> None:
         available = set(self.expert_ids())
-        missing = sorted(set(int(value) for value in expert_ids) - available)
+        missing = sorted(
+            set(int(value) for value in expert_ids if int(value) != PAD_EXPERT_ID)
+            - available
+        )
         if missing:
             raise KeyError("unregistered experts: {}".format(missing))

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from .runtime import get_current_selection
-from .types import ComposeSelection
+from .types import PAD_EXPERT_ID, ComposeSelection, pad_selection
 
 
 class LoRAExpert(nn.Module):
@@ -97,14 +97,18 @@ class ComposeLinear(nn.Module):
         gates: Optional[Sequence[float]] = None,
         normalization: str = "none",
     ) -> None:
-        if len(expert_ids) not in (1, 2):
-            raise ValueError("default selection supports one or two experts")
+        if len(expert_ids) not in (0, 1, 2):
+            raise ValueError("default selection supports zero, one, or two experts")
         if gates is None:
             gates = [1.0] * len(expert_ids)
         if len(gates) != len(expert_ids):
             raise ValueError("gates must match expert_ids")
-        self._default_expert_ids = tuple(int(value) for value in expert_ids)
-        self._default_gates = tuple(float(value) for value in gates)
+        padded_ids, padded_gates = pad_selection(
+            tuple(int(value) for value in expert_ids),
+            tuple(float(value) for value in gates),
+        )
+        self._default_expert_ids = padded_ids
+        self._default_gates = padded_gates
         self._default_normalization = normalization
 
     def clear_default_selection(self) -> None:
@@ -144,6 +148,9 @@ class ComposeLinear(nn.Module):
         delta = torch.zeros_like(result)
         for expert_id_tensor in torch.unique(selection.expert_ids):
             expert_id = int(expert_id_tensor.item())
+            if expert_id == PAD_EXPERT_ID:
+                # Empty slot (empty selection); contributes nothing.
+                continue
             key = str(expert_id)
             if key not in self.experts:
                 raise KeyError("expert {} is not registered".format(expert_id))

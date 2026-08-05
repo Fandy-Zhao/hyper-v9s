@@ -35,8 +35,9 @@ def _reference_forward(layer, inputs, selection):
 
 
 def _mixed_selection():
+    # A zero-weight slot is expressed as the -1 pad (unified V6 selection).
     return ComposeSelection(
-        expert_ids=torch.tensor([[0, 1], [1, 0], [2, 3]], dtype=torch.long),
+        expert_ids=torch.tensor([[0, 1], [1, -1], [2, 3]], dtype=torch.long),
         gates=torch.tensor([[0.6, 0.8], [1.0, 0.0], [0.5, 0.5]]),
         normalization="none",
     )

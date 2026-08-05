@@ -55,9 +55,11 @@ class ComposeSelectionTest(unittest.TestCase):
 
     def test_single_expert_default_is_one(self):
         selection = ComposeSelection(
-            torch.tensor([[3]]), torch.tensor([[1.0]]), normalization="none"
+            torch.tensor([[3, -1]]),
+            torch.tensor([[1.0, 0.0]]),
+            normalization="none",
         )
-        torch.testing.assert_close(selection.gates, torch.ones(1, 1))
+        torch.testing.assert_close(selection.gates, torch.tensor([[1.0, 0.0]]))
 
     def test_duplicate_expert_ids_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "duplicate expert IDs"):
@@ -68,7 +70,9 @@ class ComposeSelectionTest(unittest.TestCase):
     def test_invalid_normalization_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "normalization"):
             ComposeSelection(
-                torch.tensor([[0]]), torch.tensor([[1.0]]), normalization="softmax"
+                torch.tensor([[0, -1]]),
+                torch.tensor([[1.0, 0.0]]),
+                normalization="softmax",
             )
 
     def test_gate_validation_is_independent_of_normalization(self):
@@ -80,7 +84,7 @@ class ComposeSelectionTest(unittest.TestCase):
         for gates in invalid_gates:
             with self.subTest(gates=gates), self.assertRaises(ValueError):
                 ComposeSelection(
-                    torch.tensor([[0]]), gates, normalization="none"
+                    torch.tensor([[0, -1]]), gates, normalization="none"
                 )
 
     def test_to_preserves_normalization(self):

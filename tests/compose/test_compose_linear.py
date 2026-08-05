@@ -27,8 +27,8 @@ class ComposeLinearTest(unittest.TestCase):
         layer = _linear_with_experts()
         inputs = torch.tensor([[[3.0, 5.0]], [[7.0, 11.0]]])
         selection = ComposeSelection(
-            torch.tensor([[0], [1]], dtype=torch.long),
-            torch.tensor([[1.0], [1.0]]),
+            torch.tensor([[0, -1], [1, -1]], dtype=torch.long),
+            torch.tensor([[1.0, 0.0], [1.0, 0.0]]),
         )
         with use_selection(selection):
             output = layer(inputs)
@@ -47,5 +47,5 @@ class ComposeLinearTest(unittest.TestCase):
         torch.testing.assert_close(output, torch.tensor([[[16.5]]]))
 
     def test_selection_rejects_more_than_two_experts(self):
-        with self.assertRaisesRegex(ValueError, "top_k"):
+        with self.assertRaisesRegex(ValueError, "exactly 2 slots"):
             ComposeSelection(torch.tensor([[0, 1, 2]]), torch.ones(1, 3))
