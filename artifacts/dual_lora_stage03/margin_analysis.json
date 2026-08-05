@@ -1,0 +1,26 @@
+{
+  "a_independent_b": {
+    "lost_sample_count": 138,
+    "mean_best_single_margin": 0.1068840579710145,
+    "mean_pair_margin": 0.10235507246376811,
+    "pair_margin_le_single_rate": 0.5797101449275363
+  },
+  "a_residual_b": {
+    "lost_sample_count": 0,
+    "mean_best_single_margin": null,
+    "mean_pair_margin": null,
+    "pair_margin_le_single_rate": null
+  },
+  "independent_b_c": {
+    "lost_sample_count": 200,
+    "mean_best_single_margin": 0.9225,
+    "mean_pair_margin": 0.371875,
+    "pair_margin_le_single_rate": 0.875
+  },
+  "residual_b_c": {
+    "lost_sample_count": 23,
+    "mean_best_single_margin": 0.28804347826086957,
+    "mean_pair_margin": 1.4184782608695652,
+    "pair_margin_le_single_rate": 0.043478260869565216
+  }
+}
