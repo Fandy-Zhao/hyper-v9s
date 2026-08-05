@@ -1,0 +1,84 @@
+# V6 UCIT Two-Task Dry Run Configuration (Stage E12)
+# 仅运行 seed 42；任务 = 正式序列前两个（ImageNet-R -> ArxivQA）。
+# 规模为工程 Dry Run 设定（非正式论文实验）；正式运行以
+# v6_ucit_formal_locked.yaml 为准。
+
+schema_version: 1
+purpose: "two-task engineering dry run (2026-08-05)"
+
+data:
+  seed: 42
+  data_root: /data/dataset/zhaozhuofan/UCIT
+  images_root: /data/dataset/zhaozhuofan/UCIT/datasets
+  base_model: /data/ckpt/zhaozhuofan/models/llava-v1.5-7b
+  vision_tower: /data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336
+  projector_path: /data/ckpt/zhaozhuofan/models/llava-v1.5-7b/mm_projector.bin
+
+tasks:
+  - task_id: 0
+    name: ImageNet-R
+    train_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/ImageNet-R/train.json
+    test_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/ImageNet-R/test_3000.json
+    cold_start_train_samples: 2000
+    validation_samples: 256
+  - task_id: 1
+    name: ArxivQA
+    train_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/ArxivQA/train_4w.json
+    test_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/ArxivQA/test_3000.json
+    teacher_search_train_samples: 256
+    teacher_search_validation_samples: 128
+    candidate_train_max_samples: 1500
+
+training:
+  rank: 8
+  lora_alpha: 16.0
+  learning_rate: 2.0e-4
+  scheduler: cosine
+  warmup_ratio: 0.03
+  epochs_per_task: 1
+  global_batch_size: 24
+  per_device_batch_size: 1
+  grad_accumulation_steps: 24
+  precision: bf16
+
+router:
+  query_dim: 128
+  top_m: 8
+  max_active_experts: 2
+  tau_none: 0.5
+  tau_second: 0.5
+  temperature: 1.0
+  calibration_epochs: 5
+  calibration_lr: 2.0e-4
+  calibration_subset_capacity: 512
+
+candidate:
+  task1_candidate_count: 1
+  task2_candidate_count: 2
+  candidate_rank: 8
+  max_commit_per_task: 2
+  key_initialization: kmeans_plus_plus
+  key_init_seed: 42
+
+teacher:
+  lambda_expert: 0.01
+  delta_pair_raw: 0.02
+  top_k_for_pair: 4
+  max_pairs: 6
+
+residual:
+  min_old_gain: 0.02
+  min_residual_samples: 8
+  recall_audit_ratio: 0.05
+
+commit_conditions:
+  tau_support: 8
+  tau_gain: 0.0
+  tau_key: 0.5
+
+eval:
+  max_test_samples: 500  # dry-run subset; official runs use the full 3000
+
+output:
+  runs_root: /home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_engineering/dry_run
+  checkpoint_root: /data/ckpt/zhaozhuofan/v6_ucit_engineering/dry_run
