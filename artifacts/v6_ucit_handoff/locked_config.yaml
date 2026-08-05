@@ -1,0 +1,184 @@
+# V6 UCIT FORMAL LOCKED CONFIGURATION (batch handoff, 2026-08-05)
+# 下一批正式六任务运行的唯一默认配置来源。禁止依靠聊天记录重建参数。
+# 正式运行追加：训练规模 full（每任务全量 train）、评估 3000 样本、
+# GPU 4 卡（batch 6 x accum 1 = global 24）、六任务顺序见 task_sequence.json。
+#
+# V6 UCIT Engineering Configuration — 默认值唯一来源
+# 本文件是 V6 工程批次（Stage E0–E12）的配置基座；
+# 正式六任务运行锁定的最终配置为 v6_ucit_formal_locked.yaml（批次末尾生成）。
+
+schema_version: 1
+purpose: "V6 engineering closure defaults (2026-08-05)"
+
+# ---------------------------------------------------------------
+# 任务序列（正式，多源确认，禁止改动）
+# ---------------------------------------------------------------
+task_sequence:
+  - task_id: 0
+    name: ImageNet-R
+    train_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/ImageNet-R/train.json
+    test_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/ImageNet-R/test_3000.json
+    metric_type: Accuracy
+  - task_id: 1
+    name: ArxivQA
+    train_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/ArxivQA/train_4w.json
+    test_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/ArxivQA/test_3000.json
+    metric_type: Accuracy
+  - task_id: 2
+    name: VizWiz
+    train_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/VizWiz/train.json
+    test_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/VizWiz/test.json
+    metric_type: Average
+  - task_id: 3
+    name: IconQA
+    train_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/IconQA/train.json
+    test_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/IconQA/test.json
+    metric_type: Accuracy
+  - task_id: 4
+    name: CLEVR
+    train_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/CLEVR/train_4w.json
+    test_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/CLEVR/test.json
+    metric_type: Accuracy
+  - task_id: 5
+    name: Flickr30k
+    train_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/Flickr30k/train_brief_4w.json
+    test_instructions: /data/dataset/zhaozhuofan/UCIT/instructions/Flickr30k/test.json
+    metric_type: Average
+
+data:
+  data_root: /data/dataset/zhaozhuofan/UCIT
+  images_root: /data/dataset/zhaozhuofan/UCIT/datasets
+  base_model: /data/ckpt/zhaozhuofan/models/llava-v1.5-7b
+  vision_tower: /data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336
+  projector_path: /data/ckpt/zhaozhuofan/models/llava-v1.5-7b/mm_projector.bin
+  seed: 42
+
+# ---------------------------------------------------------------
+# V6 专家默认值
+# ---------------------------------------------------------------
+expert:
+  rank: 8
+  lora_alpha: 16.0
+  dropout: 0.0
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+  backbone_frozen: true
+  vision_encoder_frozen: true
+  multimodal_projector_frozen: true
+  committed_old_experts_frozen: true
+  precision: bf16
+  optimizer: AdamW
+  learning_rate: 2.0e-4
+  scheduler: cosine
+  warmup_ratio: 0.03
+  epochs_per_task: 1
+  global_batch_size: 24
+
+# ---------------------------------------------------------------
+# Router 默认值
+# ---------------------------------------------------------------
+router:
+  query_dim: 128
+  matching: cosine
+  activation: independent_sigmoid
+  top_m: 8
+  max_active_experts: 2
+  router_lr: 2.0e-4
+  router_epochs: 5
+  anchor_per_expert: 32
+  query_and_keys_l2_normalized: true
+  temperature: 1.0
+  tau_none: 0.5
+  tau_second: 0.5
+  feature_extractor_version: frozen_clip_l14_336_v1
+
+# ---------------------------------------------------------------
+# Candidate Pool 默认值
+# ---------------------------------------------------------------
+candidate:
+  task1_candidate_count: 1
+  task_t_candidate_count: 2
+  candidate_rank: 8
+  candidate_alpha: 16.0
+  max_commit_per_task: 2
+  empty_slot_allowed_to_die: true
+  force_50_50_balance: false
+  key_initialization: kmeans_plus_plus
+  key_init_seed: 42
+  lambda_key: 0.1
+  lambda_margin: 0.1
+  lambda_balance: 0.001
+  lambda_diversity: 0.01
+  margin: 0.1
+  use_contribution_corrected_assignment: false
+  allow_empty_slot_reinit: true
+
+# ---------------------------------------------------------------
+# 教师 / Residual 阈值
+# ---------------------------------------------------------------
+teacher:
+  lambda_expert: 0.01
+  delta_pair_raw: 0.02
+  top_k_for_pair: 4
+  max_pairs: 6
+  answer_mask_version: v6_answer_mask_v1
+  min_recall_audit_ratio: 0.05
+
+residual:
+  min_old_gain: 0.02
+  min_residual_samples: 8
+  router_calibration_subset_capacity: 512
+  calibration_subset_seed: 42
+
+# ---------------------------------------------------------------
+# 提交条件（E7 使用）
+# ---------------------------------------------------------------
+commit_conditions:
+  tau_support: 8
+  tau_gain: 0.0
+  tau_key: 0.5
+  min_validation_accuracy_delta: 0.0
+  max_positive_jaccard: 0.8
+
+# ---------------------------------------------------------------
+# RMS 统计（E9 使用）
+# ---------------------------------------------------------------
+rms:
+  epsilon: 1.0e-8
+  kappa_min: 0.25
+  kappa_max: 4.0
+  fp32_accumulation: true
+  calibration_split: validation
+
+# ---------------------------------------------------------------
+# 功能开关（默认全关）
+# ---------------------------------------------------------------
+features:
+  shadow_update:
+    enabled: false
+  hyperbolic_router:
+    enabled: false
+  pair_interaction:
+    enabled: false
+  learnable_composition_gate:
+    enabled: false
+  automatic_expert_merge:
+    enabled: false
+  token_level_routing:
+    enabled: false
+  router_phased_logic: true  # Router 保留，但训练阶段教师由答案监督
+
+# ---------------------------------------------------------------
+# 输出布局
+# ---------------------------------------------------------------
+output:
+  runs_root: /home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_engineering
+  artifacts_root: /home/zhaozhuofan/Hyper-LlaVA/artifacts/v6_ucit_engineering
+  checkpoint_root: /data/ckpt/zhaozhuofan/v6_ucit_engineering
+  eval_result_root: /home/zhaozhuofan/Hyper-LlaVA/runs/results/UCIT/v6_engineering

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "fields": {
+    "expert_id": "int",
+    "created_task_id": "int (alias creation_task)",
+    "created_task_name": "str",
+    "created_seed": "int",
+    "status": "candidate|provisional|formal|archived|rejected",
+    "checkpoint_path": "str",
+    "checkpoint_sha256": "str",
+    "key_path": "str",
+    "key_sha256": "str",
+    "rms_stats_path": "str",
+    "rank": "int",
+    "lora_alpha": "float (alias alpha)",
+    "target_modules": "list[str]",
+    "support_count": "int",
+    "mean_conditional_gain": "float",
+    "key_accuracy": "float",
+    "reuse_tasks": "list[int]",
+    "parent_contexts": "list[dict]",
+    "config_hash": "str",
+    "pool_version": "int (registry-level monotonic)"
+  },
+  "persistence": "atomic json (mkstemp + fsync + os.replace)",
+  "file": "state/expert_registry.json per task"
+}

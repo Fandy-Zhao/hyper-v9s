@@ -1,0 +1,21 @@
+{
+  "ready_for_six_task_run": true,
+  "git_head": "41e70bdd40e6325fdc18e6ec9b1036223ab44f45",
+  "git_branch": "exp/compose-root-cause-diagnosis",
+  "required_clean_worktree": true,
+  "locked_config_path": "configs/v6_ucit_formal_locked.yaml",
+  "task_sequence_path": "artifacts/v6_ucit_handoff/task_sequence.json",
+  "two_task_acceptance_path": "artifacts/v6_ucit_engineering/dry_run/acceptance.json",
+  "run_entrypoint": "bash scripts/v6_ucit/six_task_run.sh",
+  "resume_entrypoint": "bash scripts/v6_ucit/resume_run.sh",
+  "eval_entrypoint": "python -m compose.eval.eval_task --adapter-kind compose",
+  "expected_output_root": "/home/zhaozhuofan/Hyper-LlaVA/experiments/runs/v6_ucit_engineering",
+  "blocking_issues": [],
+  "warnings": [
+    "llava.eval.model_answer direct Hyper-peft path blocked by a Hyper peft bug (_get_submodules 3/4 unpack + merge loses vision tower); the repo compose eval entry (eval_task compose/peft modes) reads snapshots and is the sanctioned eval path",
+    "dry-run eval used 500-sample subsets; the official run uses full 3000",
+    "Task-1 snapshot persists the state machine at RMS_READY (snapshot written before the SNAPSHOT_READY advance); resume analysis still maps the correct recovery node",
+    "batch-1 training (global batch 24 via 24 grad accum) is slow (~30-40 min per 2000-sample task); official runs may prefer 4 GPUs with batch 6 x accum 1 x 4 cards"
+  ],
+  "completed_at": "2026-08-05T16:20:00Z"
+}

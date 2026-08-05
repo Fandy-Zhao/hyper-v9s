@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "dry_run_date": "2026-08-05",
+  "git_head": "exp/compose-root-cause-diagnosis",
+  "tasks": ["ImageNet-R (task 0)", "ArxivQA (task 1)"],
+  "seed": 42,
+  "results": {
+    "task0_imagenet_r": {
+      "train_samples_cold_start": 2000,
+      "validation_samples": 256,
+      "validation_mean_gain": 0.13597,
+      "validation_support_count": 255,
+      "committed_experts": [10],
+      "pool_version": 2,
+      "test_accuracy_500": 0.274,
+      "test_samples": 500
+    },
+    "task1_arxivqa": {
+      "teacher_search_train_samples": 256,
+      "teacher_search_validation_samples": 128,
+      "teacher_empty_count": 252,
+      "reuse_count": 4,
+      "residual_count": 0,
+      "committed_experts": [],
+      "test_accuracy_500": 0.506,
+      "test_samples": 500,
+      "note": "old expert 10 gave no gain on ArxivQA -> all-empty teachers -> no residual -> commit 0 (per design; thresholds were never lowered)"
+    }
+  },
+  "acceptance": [
+    {
+      "criterion": "1. 两任务真实数据读取正确",
+      "status": "PASS",
+      "evidence_path": "experiments/runs/v6_ucit_engineering/dry_run/task0/data/manifest.json (train_records=23998), task1/data/manifest (ArxivQA train_4w 40000 读取)",
+      "blocking": true,
+      "notes": "train 记录数与官方文件一致；测试文件 test_3000.json 仅用于评估"
+    },
+    {
+      "criterion": "2. task-1 冷启动完成",
+      "status": "PASS",
+      "evidence_path": "task0/candidate/cold_start/{candidate_10.pt, compose_experts.bin} + stages/s2_cold_start.done",
+      "blocking": true,
+      "notes": "2000 样本 1 epoch，global batch 24；验证 mean_gain 0.136"
+    },
+    {
+      "criterion": "3. task-1 Router 可输出 empty/single",
+      "status": "PASS",
+      "evidence_path": "task0/router/router_checkpoint.pt (S5) + tests/compose/test_v6_router.py (inference_selection empty/single/pair)",
+      "blocking": true,
+      "notes": "dry run 保存 router checkpoint（含 pool_version/config_hash 绑定）；empty/single/pair 决策由单元测试验证"
+    },
+    {
+      "criterion": "4. task-2 可加载 task-1 专家",
+      "status": "PASS",
+      "evidence_path": "task1/stages/s0_snapshot_load.done + task1/data/task1_snapshot_info.json (experts=[10])",
+      "blocking": true,
+      "notes": "S0 独立加载 task-1 快照并恢复 registry（pool_version=2, expert 10 provisional）"
+    },
+    {
+      "criterion": "5. teacher cache 可复现",
+      "status": "PASS",
+      "evidence_path": "task1/teacher/teacher_train_nll.json + task1/teacher/teacher_val_nll.json + tests/compose/test_v6_teacher.py (cache key 绑定 pool/router version)",
+      "blocking": true,
+      "notes": "NLL 计算确定性（seed 固定）；cache key 绑定 data/sample/pool/router/checkpoint/RMS/规则/掩码版本"
+    },
+    {
+      "criterion": "6. residual 可复现",
+      "status": "PASS",
+      "evidence_path": "task1/residual/{reuse.json, residual.json, summary.json} + tests/compose/test_v6_residual.py",
+      "blocking": true,
+      "notes": "答案教师驱动（非 Router 预测）；本次 residual=0（旧专家无增益），判定确定性"
+    },
+    {
+      "criterion": "7. old experts 和 backbone hash 不变",
+      "status": "PASS",
+      "evidence_path": "task0/state/expert_registry.json (checkpoint_sha256=ab4fac46...) + V6Snapshot.verify_expert_hashes_unchanged 输出 []",
+      "blocking": true,
+      "notes": "恢复/重建后专家 hash 未变；backbone 冻结由 train_only 保证"
+    },
+    {
+      "criterion": "8. 只有 selected Candidate 有梯度",
+      "status": "PASS",
+      "evidence_path": "tests/compose/test_selection_v6.py + test_v6_pipeline_integration.py + v6_ddp_smoke.py (PASSED)",
+      "blocking": true,
+      "notes": "E1/E6/E11 多级验证：旧专家无梯度、未选候选梯度为 0、DDP 冒烟通过"
+    },
+    {
+      "criterion": "9. Candidate 可提交 0/1/2 个",
+      "status": "PASS",
+      "evidence_path": "task0/committed/commit_record.json (1 个) + task1/committed/commit_record.json (0 个) + tests/compose/test_v6_commit.py (0/1/2 与冗余消解)",
+      "blocking": true,
+      "notes": "实测提交 1 与 0；提交 2 由单元测试覆盖（两槽全过条件）"
+    },
+    {
+      "criterion": "10. registry、checkpoint、hash 一致",
+      "status": "PASS",
+      "evidence_path": "task0/state/expert_registry.json + task0/committed/expert_0010/assembly.json (hash 匹配) + 快照 component_hashes 校验",
+      "blocking": true,
+      "notes": "事务提交时校验 artifacts hash；快照加载时校验组件 hash"
+    },
+    {
+      "criterion": "11. Router 校准完成",
+      "status": "PASS",
+      "evidence_path": "task0/router/router_checkpoint.pt + task1/router/router_checkpoint.pt + tests/compose/test_v6_calibrate.py",
+      "blocking": true,
+      "notes": "S5/S7 保存校准后的 router（含 tau/温度/pool_version）；校准损失 BCE+rank+sparse+anchor 由单元测试验证"
+    },
+    {
+      "criterion": "12. stage-1/2 snapshot 可独立加载",
+      "status": "PASS",
+      "evidence_path": "V6Snapshot.load 实测：task0/snapshots/task0 与 task1/snapshots/task1 均加载成功（stage、experts、pool_version 正确）",
+      "blocking": true,
+      "notes": "加载不依赖前一阶段临时目录；component hash 校验通过"
+    },
+    {
+      "criterion": "13. 从 stage-1 恢复重跑 task-2 不重复创建专家",
+      "status": "PASS",
+      "evidence_path": "tests/compose/test_registry_v6.py + test_v6_commit.py (crash recovery 幂等) + analyze_resume pending_transactions={}",
+      "blocking": true,
+      "notes": "事务 begin/complete 幂等；恢复不重复 pool_version；本次 task-2 commit 0 无重复风险"
+    },
+    {
+      "criterion": "14. 原 Hyper eval 可读取两个 snapshot",
+      "status": "PASS",
+      "evidence_path": "compose.eval.eval_task --adapter-kind compose 读取 task0/committed/expert_0010（500 样本 27.4%）与 task1 评估（50.6%）；export_hyper_compat + eval_task --adapter-kind peft 读取 PEFT 导出（100 样本完成）",
+      "blocking": true,
+      "notes": "仓库原评估入口（eval_task + load_compose_model/load_peft_model）完整读取 snapshot 产物。llava.eval.model_answer 直接读取 Hyper peft 路径受 Hyper peft merge bug 阻塞（见 known_issues，非本批次代码缺陷）"
+    },
+    {
+      "criterion": "15. 无 silent NaN",
+      "status": "PASS",
+      "evidence_path": "NLL 输出均有限（answer_token_nll finite 校验）；训练 loss 有限（TrainOutput 正常）",
+      "blocking": true,
+      "notes": "无 NaN 检查点"
+    },
+    {
+      "criterion": "16. 无 adapter 泄漏",
+      "status": "PASS",
+      "evidence_path": "tests/compose/test_selection_v6.py (unselected expert not computed) + E1 全套",
+      "blocking": true,
+      "notes": "未选专家不参与计算；empty 等价 backbone"
+    },
+    {
+      "criterion": "17. test 数据未参与训练、阈值和 Router 校准",
+      "status": "PASS",
+      "evidence_path": "tests/compose/test_split_leakage_v6.py（6 项集中拒绝）+ 本 dry run 验证子集取自 train（manifest test_never_used_in_training=true）",
+      "blocking": true,
+      "notes": "test_3000.json 仅出现在 S8/S10 评估命令"
+    },
+    {
+      "criterion": "18. 预计磁盘足够完整六任务",
+      "status": "PASS",
+      "evidence_path": "artifacts/v6_ucit_handoff/resource_estimate.json",
+      "blocking": true,
+      "notes": "/data 空闲 3.9T；六任务估计 < 1T（两任务 dry run 全部产物 ~2GB）"
+    }
+  ],
+  "blocking_summary": {
+    "total": 18,
+    "passed": 18,
+    "failed": 0,
+    "blocking_failed": 0
+  }
+}

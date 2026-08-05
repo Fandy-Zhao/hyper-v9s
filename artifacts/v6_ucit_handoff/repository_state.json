@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "date": "2026-08-05",
+  "branch": "exp/compose-root-cause-diagnosis",
+  "head": "41e70bdd40e6325fdc18e6ec9b1036223ab44f45",
+  "worktree": {
+    "clean_for_batch": true,
+    "untracked_preserved": "format-controlled / p1_real / dual_lora artifacts (untouched, not committed)"
+  },
+  "python": "/home/zhaozhuofan/miniconda3/envs/hyper/bin/python",
+  "environment": {
+    "torch": "2.3.1+cu118",
+    "transformers": "4.33.3",
+    "python": "3.10.20",
+    "flash_attn": "2.5.9.post1 (unused by training path)",
+    "deepspeed": "available (not used in dry run)"
+  },
+  "gpu_available": "0,1,4,5,6,7 idle; 2,3 shared with libolin"
+}

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "commits": [
+    [
+      "8a11de1",
+      "docs(v6-ucit-engineering)",
+      "Stage E0 repo and UCIT path audit"
+    ],
+    [
+      "458d8a4",
+      "feat(compose-selection)",
+      "Stage E1 unified empty/single/pair ComposeSelection"
+    ],
+    [
+      "8dde5fd",
+      "feat(compose-expert-registry)",
+      "Stage E2 registry lifecycle + task state machine"
+    ],
+    [
+      "07170ac",
+      "feat(compose-router)",
+      "Stage E3 dual-mode query-key router"
+    ],
+    [
+      "15c2dbf",
+      "feat(compose-teacher)",
+      "Stage E4 answer-supervised teacher + Top-M retrieval"
+    ],
+    [
+      "64b90f4",
+      "feat(compose-residual)",
+      "Stage E5 residual buffers and splits"
+    ],
+    [
+      "5b22af5",
+      "feat(compose-candidate)",
+      "Stage E6 candidate pools + configs"
+    ],
+    [
+      "a482615",
+      "feat(compose-commit)",
+      "Stage E7 validation stats + transactional commits"
+    ],
+    [
+      "108894d",
+      "feat(compose-router)",
+      "Stage E8 teacher regeneration + Router calibration"
+    ],
+    [
+      "ffddac5",
+      "feat(compose-rms)",
+      "Stage E9 RMS runner + calibration report"
+    ],
+    [
+      "acc35d3",
+      "feat(compose-snapshot)",
+      "Stage E10 snapshots + resume analysis"
+    ],
+    [
+      "c4d9569",
+      "test(compose)",
+      "Stage E11 acceptance tests + mock DDP smoke"
+    ],
+    [
+      "41e70bd",
+      "feat(v6-ucit)",
+      "Stage E12 two-task real UCIT dry run - ACCEPTED"
+    ]
+  ],
+  "note": "all local; no push"
+}

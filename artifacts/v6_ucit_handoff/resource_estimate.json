@@ -1,0 +1,14 @@
+{
+  "disk_free_gb": 3990,
+  "per_task_estimate_gb": {
+    "checkpoints": 1.0,
+    "features": 0.5,
+    "snapshots": 0.1,
+    "logs": 0.1
+  },
+  "six_task_total_estimate_gb": 15,
+  "dry_run_actual_gb": 0.12,
+  "gpu_needed": "4x 24GB (batch 6 x accum 1 x 4 = global 24); or 1x 24GB (batch 1 x accum 24, slow)",
+  "ram_gb_available": 464,
+  "conclusion": "sufficient"
+}

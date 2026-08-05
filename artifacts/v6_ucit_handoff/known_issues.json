@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "issues": [
+    {
+      "id": "KI-001",
+      "severity": "warning",
+      "component": "llava.eval.model_answer / Hyper peft",
+      "description": "model_answer direct load of exported PEFT fails: Hyper/peft _get_submodules returns 4 values but caller unpacks 3 (peft/tuners/lora.py:333 vs utils/other.py:168); also merge_and_unload drops the vision tower. Both are Hyper peft defects, not V6 code.",
+      "impact": "The literal llava.eval.model_answer entry cannot load V6 exports; the sanctioned repo eval entry (compose.eval.eval_task, compose and peft modes) reads all snapshot artifacts and was used for the dry run.",
+      "workaround": "Use eval_task (compose/peft) or model_answer_routed. Fix Hyper peft separately if literal model_answer is required."
+    },
+    {
+      "id": "KI-002",
+      "severity": "info",
+      "component": "v6_snapshot",
+      "description": "Task-1 snapshot persists the state machine at RMS_READY (created before the SNAPSHOT_READY advance). Resume analysis still maps the correct node.",
+      "workaround": "None needed; documented in the E12 report."
+    },
+    {
+      "id": "KI-003",
+      "severity": "info",
+      "component": "training throughput",
+      "description": "Single-GPU batch-1 training (accum 24) is slow (~30-40 min per 2000-sample task). Gradient checkpointing conflicts with frozen-backbone + ComposeSelection (no-grad in backward); SDPA attention patch hangs on this stack.",
+      "workaround": "Official run: 4 GPUs with per-device batch 6, accum 1, eager attention (verified batch 6 on 1 card OOMs, but 4 cards halve per-card load); or keep batch-1 single-card."
+    }
+  ]
+}

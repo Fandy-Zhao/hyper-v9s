@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "components": {
+    "compose_selection": "E1 unified [batch,2] -1-padded",
+    "expert_registry": "E2 lifecycle candidate/provisional/formal/archived + pool_version",
+    "task_state_machine": "E2 16 stages one-way",
+    "commit_transaction": "E2 two-phase, idempotent",
+    "v6_router": "E3 dual-mode training_retrieval/inference_selection",
+    "v6_teacher": "E4 Top-M answer teacher + recall audit",
+    "v6_residual": "E5 answer-teacher driven, train/val splits",
+    "v6_candidate": "E6 1/2 slots, kmeans++/orthogonal keys",
+    "v6_commit": "E7 conditional gains + redundancy resolution",
+    "v6_calibrate": "E8 BCE+rank+sparse+anchor calibration",
+    "v6_rms": "E9 fp32 Welford, all-reduce, hash-bound",
+    "v6_snapshot": "E10 independent-load, hash-verified",
+    "train_v6_candidate": "E12 per-sample teacher-set candidate training",
+    "v6_nll_eval": "E12 answer NLL calculator",
+    "v6_assemble_expert": "E12 candidate -> compose checkpoint",
+    "v6_query_features": "E12 frozen CLIP features",
+    "export_hyper_compat": "E12 snapshot -> PEFT export",
+    "v6_task1_dry_run": "E12 staged idempotent runner task 1",
+    "v6_task2_dry_run": "E12 staged idempotent runner task 2"
+  },
+  "test_baseline": "339 passed + 14 subtests"
+}

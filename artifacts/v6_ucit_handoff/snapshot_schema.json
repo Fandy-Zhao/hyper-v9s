@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "components": [
+    "manifest.json",
+    "expert_registry.json",
+    "task_state.json",
+    "random_states.pt",
+    "router_checkpoint.pt",
+    "rms_statistics.json",
+    "teacher_cache_manifest.json",
+    "residual_manifest.json",
+    "candidate_validation.json",
+    "config.yaml",
+    "lora_checkpoints/",
+    "eval_output/",
+    "stdout.log",
+    "stderr.log"
+  ],
+  "integrity": "component sha256 in manifest, verified before parse",
+  "load": "V6Snapshot.load independent of previous stage dirs"
+}
