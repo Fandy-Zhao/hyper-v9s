@@ -29,6 +29,28 @@ class ExpertStatus(str, Enum):
         return None
 
 
+class ExpertLifecycleStatus(str, Enum):
+    """Commit lifecycle of an expert (V6 Stage E2).
+
+    Distinct from :class:`ExpertStatus` (training role): lifecycle tracks the
+    submission state machine ``candidate -> provisional -> formal -> archived``
+    while ``ExpertStatus`` tracks frozen/trainable roles during execution.
+    """
+
+    CANDIDATE = "candidate"
+    PROVISIONAL = "provisional"
+    FORMAL = "formal"
+    ARCHIVED = "archived"
+    REJECTED = "rejected"
+
+    @classmethod
+    def _missing_(cls, value):
+        if value in ("pending", "committed"):
+            # Legacy internal spellings read back as the canonical status.
+            return cls.PROVISIONAL
+        return None
+
+
 @dataclass
 class ExpertMetadata:
     expert_id: int
@@ -48,6 +70,22 @@ class ExpertMetadata:
     parent_expert_id: Optional[int] = None
     metadata_version: int = METADATA_VERSION
     extra: Dict[str, Any] = field(default_factory=dict)
+
+    # V6 Stage E2 canonical lifecycle fields (all optional for
+    # backward-compatible loads; defaults are inferred in __post_init__).
+    lifecycle_status: Optional[ExpertLifecycleStatus] = None
+    created_seed: Optional[int] = None
+    key_path: Optional[str] = None
+    key_sha256: Optional[str] = None
+    rms_stats_path: Optional[str] = None
+    mean_conditional_gain: float = 0.0
+    key_accuracy: float = 0.0
+    parent_contexts: List[Dict[str, Any]] = field(default_factory=list)
+    config_hash: Optional[str] = None
+    pool_version_created: Optional[int] = None
+    target_modules: List[str] = field(default_factory=list)
+    lora_alpha: Optional[float] = None  # canonical alias of ``alpha``
+    created_task_id: Optional[int] = None  # canonical alias of ``creation_task``
 
     # Backward-compatible fields used by the pre-V6 ExpertPool/checkpoints.
     name: Optional[str] = None
@@ -94,6 +132,10 @@ class ExpertMetadata:
             self.creation_task = int(self.creation_task)
         if self.parent_expert_id is not None:
             self.parent_expert_id = int(self.parent_expert_id)
+        if self.created_seed is not None:
+            self.created_seed = int(self.created_seed)
+        if self.pool_version_created is not None:
+            self.pool_version_created = int(self.pool_version_created)
 
         if self.creation_task_name is None and self.origin_task_id is not None:
             self.creation_task_name = self.origin_task_id
@@ -104,12 +146,42 @@ class ExpertMetadata:
         if self.source_checkpoint is None and self.checkpoint_path is not None:
             self.source_checkpoint = self.checkpoint_path
 
+        # Canonical alias synchronization (task book field names).
+        if self.lora_alpha is not None:
+            self.alpha = float(self.lora_alpha)
+        elif self.alpha is not None:
+            self.lora_alpha = float(self.alpha)
+        if self.created_task_id is not None:
+            self.creation_task = int(self.created_task_id)
+        if self.creation_task is not None and self.created_task_id is None:
+            self.created_task_id = self.creation_task
+
+        self.mean_conditional_gain = float(self.mean_conditional_gain)
+        self.key_accuracy = float(self.key_accuracy)
+        self.parent_contexts = [dict(value) for value in self.parent_contexts]
+        self.target_modules = list(
+            dict.fromkeys(str(value) for value in self.target_modules)
+        )
+
+        if self.lifecycle_status is None:
+            # Infer from persistence: an expert with a written checkpoint was
+            # committed (provisional); a bare registration is still a candidate.
+            self.lifecycle_status = (
+                ExpertLifecycleStatus.PROVISIONAL
+                if (self.checkpoint_path or self.source_checkpoint)
+                else ExpertLifecycleStatus.CANDIDATE
+            )
+        elif not isinstance(self.lifecycle_status, ExpertLifecycleStatus):
+            self.lifecycle_status = ExpertLifecycleStatus(self.lifecycle_status)
+
         if self.status is ExpertStatus.ARCHIVED and (self.active or self.trainable):
             raise ValueError("archived experts cannot be active or trainable")
 
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
         data["status"] = self.status.value
+        if self.lifecycle_status is not None:
+            data["lifecycle_status"] = self.lifecycle_status.value
         return data
 
     @classmethod

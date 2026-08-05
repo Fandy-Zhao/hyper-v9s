@@ -11,10 +11,16 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
-from .metadata import ExpertMetadata, ExpertStatus, METADATA_VERSION
+from .metadata import (
+    ExpertLifecycleStatus,
+    ExpertMetadata,
+    ExpertStatus,
+    METADATA_VERSION,
+)
 
 
 REGISTRY_VERSION = 1
+POOL_VERSION_INITIAL = 1
 
 
 def _ordered_unique(values: Iterable[int]) -> Tuple[int, ...]:
@@ -26,6 +32,18 @@ class ExpertRegistry:
         self._experts = OrderedDict()  # type: OrderedDict[int, ExpertMetadata]
         self._active_ids = ()  # type: Tuple[int, ...]
         self._trainable_ids = ()  # type: Tuple[int, ...]
+        self._pool_version = POOL_VERSION_INITIAL
+
+    @property
+    def pool_version(self) -> int:
+        """Monotonic pool version; incremented only by commit transactions."""
+        return self._pool_version
+
+    def increment_pool_version(self) -> int:
+        """Advance the pool version. Called exclusively by commit transactions
+        (``CommitTransaction.complete``); recovery must never bump it."""
+        self._pool_version += 1
+        return self._pool_version
 
     @property
     def active_expert_ids(self) -> Tuple[int, ...]:
@@ -119,6 +137,64 @@ class ExpertRegistry:
         metadata.active = False
         metadata.trainable = False
 
+    # ------------------------------------------------------------------
+    # V6 Stage E2 lifecycle transitions (candidate -> provisional ->
+    # formal -> archived). Transitions mutate in memory; the caller
+    # persists the registry atomically (save_atomic).
+    # ------------------------------------------------------------------
+
+    _LIFECYCLE_TRANSITIONS = {
+        ExpertLifecycleStatus.CANDIDATE: {ExpertLifecycleStatus.PROVISIONAL},
+        ExpertLifecycleStatus.PROVISIONAL: {ExpertLifecycleStatus.FORMAL, ExpertLifecycleStatus.ARCHIVED},
+        ExpertLifecycleStatus.FORMAL: {ExpertLifecycleStatus.ARCHIVED},
+        ExpertLifecycleStatus.REJECTED: set(),
+        ExpertLifecycleStatus.ARCHIVED: set(),
+    }
+
+    def _set_lifecycle(self, expert_id: int, target: ExpertLifecycleStatus,
+                       condition_record: Dict[str, Any]) -> ExpertLifecycleStatus:
+        metadata = self.get(expert_id)
+        current = metadata.lifecycle_status
+        allowed = self._LIFECYCLE_TRANSITIONS.get(current, set())
+        if target not in allowed:
+            raise ValueError(
+                "illegal lifecycle transition {} -> {} for expert {}".format(
+                    current.value if current else None, target.value, expert_id
+                )
+            )
+        metadata.lifecycle_status = target
+        # Record the promotion/archival condition for auditability.
+        conditions = dict(metadata.extra.get("lifecycle_conditions") or {})
+        conditions[target.value] = condition_record
+        metadata.extra["lifecycle_conditions"] = conditions
+        return target
+
+    def mark_provisional(self, expert_id: int, condition_record: Dict[str, Any]) -> None:
+        """Commit-time transition: a validated candidate becomes provisional.
+
+        ``condition_record`` must capture the validation metrics (support
+        count, mean gain, key accuracy) that justified the commit.
+        """
+        self._set_lifecycle(expert_id, ExpertLifecycleStatus.PROVISIONAL, condition_record)
+
+    def mark_formal(self, expert_id: int, condition_record: Dict[str, Any]) -> None:
+        """Promotion interface: provisional -> formal under recorded conditions."""
+        self._set_lifecycle(expert_id, ExpertLifecycleStatus.FORMAL, condition_record)
+
+    def mark_rejected(self, expert_id: int, condition_record: Dict[str, Any]) -> None:
+        """Mark a candidate that failed validation as rejected (terminal)."""
+        metadata = self.get(expert_id)
+        if metadata.lifecycle_status is not ExpertLifecycleStatus.CANDIDATE:
+            raise ValueError(
+                "only candidates can be rejected; expert {} is {}".format(
+                    expert_id, metadata.lifecycle_status.value
+                )
+            )
+        metadata.lifecycle_status = ExpertLifecycleStatus.REJECTED
+        conditions = dict(metadata.extra.get("lifecycle_conditions") or {})
+        conditions["rejected"] = condition_record
+        metadata.extra["lifecycle_conditions"] = conditions
+
     def validate(self) -> None:
         if len(self._experts) != len(set(self._experts)):
             raise ValueError("expert IDs must be unique")
@@ -142,6 +218,7 @@ class ExpertRegistry:
         return {
             "metadata_version": METADATA_VERSION,
             "registry_version": REGISTRY_VERSION,
+            "pool_version": self._pool_version,
             "experts": [metadata.to_dict() for metadata in self._experts.values()],
             "active_expert_ids": list(self._active_ids),
             "trainable_expert_ids": list(self._trainable_ids),
@@ -166,13 +243,28 @@ class ExpertRegistry:
         self._experts = replacement
         self._active_ids = ()
         self._trainable_ids = ()
+        # Pool version is restored as-is; recovery never re-increments it.
+        restored_pool_version = int(state.get("pool_version", POOL_VERSION_INITIAL))
+        if restored_pool_version < POOL_VERSION_INITIAL:
+            raise ValueError("pool_version must be at least {}".format(POOL_VERSION_INITIAL))
+        self._pool_version = restored_pool_version
         self.set_active_ids(state.get("active_expert_ids", []))
         self.set_trainable_ids(state.get("trainable_expert_ids", []))
         self.validate()
 
     def save_json(self, path) -> None:
+        self.save_atomic(path, allow_overwrite=False)
+
+    def save_atomic(self, path, allow_overwrite: bool = False) -> None:
+        """Atomically persist the registry (mkstemp + fsync + os.replace).
+
+        ``allow_overwrite=False`` keeps the original first-write guard
+        (registry checkpoint files are normally write-once); commit
+        transactions pass ``allow_overwrite=True`` for the final registry
+        update of a task.
+        """
         target = Path(path)
-        if target.exists():
+        if target.exists() and not allow_overwrite:
             raise FileExistsError("registry checkpoint already exists: {}".format(target))
         target.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(prefix=target.name + ".", suffix=".tmp", dir=str(target.parent))
