@@ -248,6 +248,19 @@ class CompatTrainer(ComposeTrainer):
             count += 1
         return (total / count) if count else torch.zeros((), dtype=logits.dtype, device=logits.device)
 
+    def _save(self, output_dir=None, state_dict=None) -> None:
+        # Save only the real experts (0,1); the null filler expert must not
+        # leak into checkpoints.
+        output_dir = output_dir or self.args.output_dir
+        if not self.args.should_save:
+            return
+        self.expert_pool.sync_training_step(self.state.global_step)
+        os.makedirs(output_dir, exist_ok=True)
+        self.model.config.save_pretrained(output_dir)
+        save_expert_checkpoint(self.expert_pool, output_dir, [0, 1])
+        if self.tokenizer is not None:
+            self.tokenizer.save_pretrained(output_dir)
+
     def training_step(self, model, inputs) -> torch.Tensor:
         model.train()
         inputs = self._prepare_inputs(inputs)

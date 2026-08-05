@@ -346,11 +346,21 @@ def main() -> None:
     per_sample_dir.mkdir(parents=True, exist_ok=True)
     parquet_path = per_sample_dir / "{}_{}.parquet".format(args.pair, args.phase)
 
+    # Resume: skip (mode, alpha, beta) points already present in the parquet.
+    done_keys = set()
+    if parquet_path.is_file():
+        existing = pd.read_parquet(parquet_path)
+        for _, row in existing.iterrows():
+            done_keys.add((str(row["mode"]), float(row["alpha"]), float(row["beta"])))
+        print("resume: {} points already completed".format(len(done_keys)))
+    pending = [(a, b) for a, b in points if any((m, a, b) not in done_keys for m in modes)]
+    print("pending points: {} of {}".format(len(pending), len(points)))
+
     all_rows: List[Dict[str, Any]] = []
     grid_rows: List[Dict[str, Any]] = []
     checkpoint_interval = 25
     try:
-        for index, (alpha, beta) in enumerate(points):
+        for index, (alpha, beta) in enumerate(pending):
             for mode in modes:
                 if mode == "rms":
                     sample_rows = evaluator.run(alpha, beta, "rms", rms_coefficients)
@@ -364,9 +374,15 @@ def main() -> None:
                 print("[{}/{}] mode={} alpha={} beta={} acc={:.4f} nll={:.4f} brier={:.4f}".format(
                     index + 1, len(points), mode, alpha, beta,
                     metrics["accuracy_percent"], metrics["mean_answer_token_nll"], metrics["brier"]))
-            if (index + 1) % checkpoint_interval == 0 or index == len(points) - 1:
-                pd.DataFrame(all_rows).to_parquet(parquet_path, index=False)
-                pd.DataFrame(grid_rows).to_parquet(out_root / "grid_results.parquet", index=False)
+            if (index + 1) % checkpoint_interval == 0 or index == len(pending) - 1:
+                combined_rows = pd.DataFrame(all_rows)
+                combined_grid = pd.DataFrame(grid_rows)
+                if parquet_path.is_file():
+                    combined_rows = pd.concat([pd.read_parquet(parquet_path), combined_rows], ignore_index=True)
+                if (out_root / "grid_results.parquet").is_file():
+                    combined_grid = pd.concat([pd.read_parquet(out_root / "grid_results.parquet"), combined_grid], ignore_index=True)
+                combined_rows.to_parquet(parquet_path, index=False)
+                combined_grid.to_parquet(out_root / "grid_results.parquet", index=False)
     finally:
         evaluator.close()
         del bundle

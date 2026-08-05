@@ -76,7 +76,6 @@ def oracle_per_sample(frame: pd.DataFrame, recorded: Dict[str, Dict[str, dict]],
             kind = "needs_only_B"
         else:
             kind = "needs_both"
-        row = recorded[s_a if target == "A" else "B"].get(sample_id)
         rows.append({
             "pair": pair, "mode": mode, "sample_id": sample_id, "target": target,
             "best_alpha": alpha, "best_beta": beta, "oracle_correct": bool(best["correct"]),
@@ -86,12 +85,15 @@ def oracle_per_sample(frame: pd.DataFrame, recorded: Dict[str, Dict[str, dict]],
 
 
 def grid_as_matrix(frame: pd.DataFrame, metric: str, mode: str) -> np.ndarray:
+    """Aggregate per-sample rows into a per-point (alpha, beta) matrix."""
     sub = frame[frame["mode"] == mode]
+    aggregated = sub.groupby(["alpha", "beta"]).agg(
+        accuracy=("correct", "mean"), nll=("nll", "mean"))
     matrix = np.full((len(COARSE_VALUES), len(COARSE_VALUES)), np.nan)
-    for _, row in sub.iterrows():
-        i = COARSE_VALUES.index(float(row["alpha"]))
-        j = COARSE_VALUES.index(float(row["beta"]))
-        matrix[i, j] = row[metric]
+    for (alpha, beta), row in aggregated.iterrows():
+        i = COARSE_VALUES.index(float(alpha))
+        j = COARSE_VALUES.index(float(beta))
+        matrix[i, j] = row["accuracy"] if metric == "correct" else row["nll"]
     return matrix
 
 
