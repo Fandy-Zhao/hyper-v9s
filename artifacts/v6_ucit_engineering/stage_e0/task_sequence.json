@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-08-05",
+  "sequence_name": "UCIT_OFFICIAL_6TASK",
+  "authoritative_source": "scripts/Hyper/Train_UCIT/Task{1..6}.sh",
+  "evidence_sources": [
+    {
+      "source": "scripts/Hyper/Train_UCIT/Task{1..6}.sh",
+      "role": "authoritative",
+      "matches": "yes"
+    },
+    {
+      "source": "scripts/Hyper/Eval_UCIT/summarize_continual_metrics.py:11-18",
+      "role": "eval matrix hardcode",
+      "matches": "yes"
+    },
+    {
+      "source": "scripts/Hyper/Train_UCIT_LlaVANext/Task{1..6}.sh",
+      "role": "baseline-method training scripts",
+      "matches": "yes"
+    },
+    {
+      "source": "experiments/runs/v6_ucit_staged/stage00_audit/stage_report.md",
+      "role": "prior locked audit (2026-08-01)",
+      "matches": "yes"
+    }
+  ],
+  "variant_sequences_not_used": [
+    "scripts/Hyper/Train_UCIT_AIRFCV (ArxivQA first; separate variant experiment, not the official run)",
+    "scripts/Hyper/Train_UCIT_IFRCAV (IconQA first; separate variant experiment, not the official run)"
+  ],
+  "tasks": [
+    {
+      "task_id": 0,
+      "task_name": "ImageNet-R",
+      "train_instructions": "instructions/ImageNet-R/train.json",
+      "train_records": 23998,
+      "test_instructions": "instructions/ImageNet-R/test_3000.json",
+      "test_records": 3000,
+      "metric_type": "Accuracy",
+      "images_root": "datasets"
+    },
+    {
+      "task_id": 1,
+      "task_name": "ArxivQA",
+      "train_instructions": "instructions/ArxivQA/train_4w.json",
+      "train_records": 40000,
+      "test_instructions": "instructions/ArxivQA/test_3000.json",
+      "test_records": 3000,
+      "metric_type": "Accuracy",
+      "images_root": "datasets"
+    },
+    {
+      "task_id": 2,
+      "task_name": "VizWiz",
+      "train_instructions": "instructions/VizWiz/train.json",
+      "train_records": null,
+      "test_instructions": "instructions/VizWiz/test.json",
+      "metric_type": "Average",
+      "images_root": "datasets"
+    },
+    {
+      "task_id": 3,
+      "task_name": "IconQA",
+      "train_instructions": "instructions/IconQA/train.json",
+      "train_records": null,
+      "test_instructions": "instructions/IconQA/test.json",
+      "metric_type": "Accuracy",
+      "images_root": "datasets"
+    },
+    {
+      "task_id": 4,
+      "task_name": "CLEVR",
+      "train_instructions": "instructions/CLEVR/train_4w.json",
+      "train_records": null,
+      "test_instructions": "instructions/CLEVR/test.json",
+      "metric_type": "Accuracy",
+      "images_root": "datasets"
+    },
+    {
+      "task_id": 5,
+      "task_name": "Flickr30k",
+      "train_instructions": "instructions/Flickr30k/train_brief_4w.json",
+      "train_records": null,
+      "test_instructions": "instructions/Flickr30k/test.json",
+      "metric_type": "Average",
+      "images_root": "datasets"
+    }
+  ],
+  "data_root": "/data/dataset/zhaozhuofan/UCIT",
+  "images_root": "/data/dataset/zhaozhuofan/UCIT/datasets",
+  "two_task_dry_run": {
+    "task_ids": [0, 1],
+    "task_names": ["ImageNet-R", "ArxivQA"],
+    "seed": 42,
+    "selection_rule": "first two tasks of the official sequence; no reordering allowed"
+  }
+}

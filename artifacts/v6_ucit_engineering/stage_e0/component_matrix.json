@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-08-05",
+  "git_head": "ed35b4844bcc4605f6f81a5c27b82fbc18def2f9",
+  "git_branch": "exp/compose-root-cause-diagnosis",
+  "components": [
+    {
+      "id": "ucit_data_root",
+      "name": "UCIT data root",
+      "status": "READY",
+      "evidence": [
+        "/data/dataset/zhaozhuofan/UCIT/instructions/{ArxivQA,CLEVR,IconQA,ImageNet-R,VizWiz,Flickr30k,debug}/",
+        "/data/dataset/zhaozhuofan/UCIT/datasets/{ArxivQA,CLEVR,IconQA,ImageNet-R,VizWiz,Flickr30k}/",
+        "symlink ucit_instructions -> /data/dataset/zhaozhuofan/UCIT/instructions"
+      ],
+      "notes": "train 记录为 LLaVA conversations 格式 {id,image,conversations}；test 记录为 {question_id,image,text,answer}。ImageNet-R train 23998 条；ArxivQA train_4w 40000 条。"
+    },
+    {
+      "id": "ucit_task_sequence",
+      "name": "UCIT formal task sequence",
+      "status": "READY",
+      "evidence": [
+        "scripts/Hyper/Train_UCIT/Task{1..6}.sh (authoritative)",
+        "scripts/Hyper/Eval_UCIT/summarize_continual_metrics.py:11-18",
+        "scripts/Hyper/Train_UCIT_LlaVANext/Task{1..6}.sh (same order)",
+        "experiments/runs/v6_ucit_staged/stage00_audit/stage_report.md",
+        "artifacts/v6_ucit_engineering/stage_e0/task_sequence.json"
+      ],
+      "notes": "ImageNet-R -> ArxivQA -> VizWiz -> IconQA -> CLEVR -> Flickr30k。Train_UCIT_AIRFCV / Train_UCIT_IFRCAV 是变体实验序列，非正式序列，不构成冲突。前两任务恰为任务书默认 ImgNetR -> ArxivQA。"
+    },
+    {
+      "id": "hyper_ucit_train_entry",
+      "name": "Original Hyper-LLaVA UCIT training entry",
+      "status": "READY",
+      "evidence": [
+        "scripts/Hyper/Train_UCIT/Task{1..6}.sh -> deepspeed llava/train/train_mem_MOE.py (llava/train/train_MOE.py train())",
+        "compose/train/train_compose.py train() (compose variant, HfArgumentParser, deepspeed-capable)",
+        "compose/train/arguments.py: compose_rank=8 compose_alpha=16 默认与 V6 一致"
+      ],
+      "notes": "Hyper 基线 lora_r=48/alpha=96；V6 用 compose 路径 rank=8/alpha=16。global batch 按任务书固定 24。"
+    },
+    {
+      "id": "hyper_task_boundary_eval_entry",
+      "name": "Original Hyper-LLaVA task-boundary eval entry",
+      "status": "READY",
+      "evidence": [
+        "scripts/Hyper/Eval_UCIT/eval_{imagenet,arxivqa,vizwiz,iconqa,clevr,flickr30k}.sh -> llava.eval.model_answer + llava.eval.eval_deepseek_r1",
+        "scripts/Hyper/Eval_UCIT/summarize_continual_metrics.py (MFT/MFN/MAA/BWT)",
+        "compose/eval/eval_task.py (compose variant, --expert-ids 0/1/2 已支持)",
+        "compose/cli/model_answer_routed.py (routed variant)",
+        "compose/eval/metrics.py (UCIT 兼容, case-insensitive exact match)"
+      ],
+      "notes": "原 llava.eval.model_answer 只认 PEFT 格式 (adapter_model.bin+non_lora_trainables.bin+stats.json)，不认 compose 格式。V6 需在 E10 snapshot 中导出兼容格式（compose manifest 或 PEFT），E12 验收第 14 条依赖此决定。"
+    },
+    {
+      "id": "checkpoint_log_structure",
+      "name": "Checkpoint and log structure",
+      "status": "READY",
+      "evidence": [
+        "Hyper PEFT: adapter_model.bin + non_lora_trainables.bin + stats.json + config",
+        "compose: compose_experts.json (manifest) + compose_experts.bin (weights), registry checkpoint (metadata-only, atomic)",
+        "compose/experts/checkpoint.py: atomic registry save with sha256",
+        "compose/teacher/cache.py, compose/expansion/residual_buffer.py: atomic json (mkstemp+fsync+os.replace)"
+      ],
+      "notes": "原子写模式（mkstemp + fsync + os.replace）已在 registry/teacher cache/residual buffer/RMS stats 全面建立。"
+    },
+    {
+      "id": "lora_adapter_manager",
+      "name": "LoRA adapter manager",
+      "status": "READY",
+      "evidence": [
+        "compose/adapters/manager.py ExpertManager (add_expert/expert_ids/train_only/freeze_base/make_selection)",
+        "compose/adapters/inject.py inject_compose_adapters (q/k/v/o/gate/up/down_proj 注入)",
+        "compose/adapters/lora.py ComposeLinear (per-sample grouped forward)",
+        "compose/experts/pool.py ExpertPool (metadata facade + train_only 冻结语义)",
+        "stage00 审计: 双 adapter 同时激活正确、无参数污染、checkpoint 重载一致"
+      ],
+      "notes": "Stage 00 已 bitwise 复现 30 个正式评估结果，底层算子不需重写。"
+    },
+    {
+      "id": "multi_lora_compose_selection",
+      "name": "Multi-LoRA ComposeSelection",
+      "status": "NEEDS_ADAPTER",
+      "evidence": [
+        "compose/adapters/types.py ComposeSelection: top_k 固定 1/2; __post_init__ 拒绝 positive_count==0 (无法表示空集合)",
+        "compose/adapters/manager.py make_selection: len(expert_ids) 限制 1/2",
+        "compose/adapters/lora.py forward: torch.unique(selection.expert_ids) 循环中 -1 槽会 raise KeyError('expert -1 is not registered')",
+        "tests/compose/test_selection.py: 无空集合测试",
+        "compose/eval/eval_task.py: --expert-ids 空串已支持 backbone-only (set_default_selection 之外 clear_default_selection)"
+      ],
+      "notes": "任务书已知缺陷。E1 方案：统一 [batch,2] 形状 + pad 标记 expert_id=-1/gate=0，empty=[-1,-1]/[0,0], single=[x,-1]/[1,0], pair=[x,y]/[0.707,0.707]。forward 跳过 -1 槽。"
+    },
+    {
+      "id": "query_router_key",
+      "name": "Query / Expert Key / Router",
+      "status": "NEEDS_ADAPTER",
+      "evidence": [
+        "compose/router/query_encoder.py MultimodalQueryEncoder (128-D L2-normalized, LayerNorm, gated fusion, 防答案泄漏)",
+        "compose/router/expert_keys.py ExpertKeyStore (128-D normalize, seeded init, initialize_from_queries, metadata_state)",
+        "compose/router/multilabel_router.py MultiLabelQueryKeyRouter (sigmoid+tau_none/tau_second -> empty/single/pair, tune_thresholds 拒绝 test)",
+        "compose/router/set_router.py ExpertSetRouter (top_m=8, k=0 -> 空 candidates)",
+        "compose/router/inference.py predict_sets (cardinality=0 -> empty)",
+        "compose/router/checkpoint.py (atomic, version+key_metadata 严格校验)",
+        "compose/cli/extract_query_features.py (frozen CLIP-L/14@336 image+question features)",
+        "compose/cli/route_test_questions.py + model_answer_routed.py (test 路由推理)",
+        "compose/router/losses.py (InfoNCE+empty_margin+diversity+anchor)",
+        "compose/router/anchor_memory.py (capacity_per_expert=32, train-only)"
+      ],
+      "notes": "缺失: (a) training_retrieval / inference_selection 双模式; (b) 任务书要求的 score=sigmoid((cos-bias)/temperature) 形式（现有 multilabel 用可学 bias+温度，E3 确认接口）; (c) set_losses.py lambda_empty 定义了但未消费。router checkpoint 需加 pool_version/feature extractor version/config hash 绑定。"
+    },
+    {
+      "id": "candidate_residual_teacher_cache",
+      "name": "Candidate / Residual / teacher cache",
+      "status": "NEEDS_ADAPTER",
+      "evidence": [
+        "compose/expansion/candidate_pool.py CandidateExpertPool (kmeans++/正交 keys, top-1 sparse assignment, 只算选中槽梯度, 独立 optimizer, commit/commit_to_registry)",
+        "compose/expansion/residual_buffer.py ResidualBuffer (answer-teacher 判定 teacher_sufficiency, 非 Router; 原子 shard 写; train-only)",
+        "compose/expansion/buffer_sampler.py stratified_residual_sample",
+        "compose/teacher/cache.py (cache key 绑定 18 字段: sample_id/dataset_manifest_hash/split/tokenizer/model/base_hash/registry_hash/expert_checkpoint_hashes/composition_mode/rms_hash/oracle_config_hash/answer_mask_version/answer_template_hash/target_averaging/composer_version/code_version)",
+        "compose/teacher/oracle_set.py select_oracle_set (empty/single/pair + lambda_expert 惩罚 + 条件增益 + token 数恒定)",
+        "compose/teacher/candidate_search.py (empty_and_singles + top-4 singles + max 6 pairs)"
+      ],
+      "notes": "缺失: (a) CandidatePoolConfig 强制 slot_count==2，任务1 需 1; (b) cache key 需补 pool_version/router_version 绑定; (c) compose/expansion/__init__.py 未导出 CandidateExpertPool (import 失败); (d) 教师规则 lambda_expert 与 '增益不足 -> empty / 条件增益不足 -> best_single' 已在 oracle_set.py 实现，E4 校验一致。"
+    },
+    {
+      "id": "resume_and_distributed",
+      "name": "Task resume and distributed training",
+      "status": "NEEDS_ADAPTER",
+      "evidence": [
+        "compose/train/trainer.py ComposeTrainer (LLaVATrainer 子类, deepspeed/fsdp/accelerate 可用, _save 只存 adapter)",
+        "compose/train/train_compose.py train() (local_rank 分支, auto-resume 防护)",
+        "compose/experiments/scheduler.py (resumable one-process-per-GPU scheduler, OOM 降 batch)",
+        "compose/router/checkpoint.py + teacher/cache.py + expansion/residual_buffer.py (resume_sample_ids / merge_shards 幂等)",
+        "tests: test_key_ddp.py, test_set_router_ddp.py, test_residual_buffer.py (DDP merge)"
+      ],
+      "notes": "缺失: V6 任务状态机 (NOT_STARTED..COMPLETED), 阶段级恢复 (old teacher 中/Candidate epoch 中/已提交未 eval 等 6 节点), pool_version 单调, 恢复幂等性验证。"
+    },
+    {
+      "id": "controlled_format_isolation",
+      "name": "Controlled-format specific assumptions",
+      "status": "READY",
+      "evidence": [
+        "compose/eval/eval_controlled_ab.py (A/B 答案域, answer_pos-1 logits shift, scene_id/required_functions)",
+        "compose/data/controlled_format_v1.py (生成器, scene_splits)",
+        "compose/data/audit_training_preflight.py (TASKS 硬编码 A_only/B_only/...)",
+        "compose/eval/failure_cases_format_controlled.py (SEEDS 42/43/44, PAIRS 布局)"
+      ],
+      "notes": "受控假设集中在 4 个文件，与 UCIT 不兼容，V6 不得复用。compose/eval/load_compose.py 与 compose/eval/metrics.py 无受控硬编码，可复用。docs/reports/format_controlled_* 与 experiments/runs/format_controlled_composition* 保持不动。"
+    },
+    {
+      "id": "compute_resources",
+      "name": "GPU / disk / memory / processes",
+      "status": "READY",
+      "evidence": [
+        "8x RTX 4090 24GB (nvidia-smi 2026-08-05 10:43)",
+        "GPU 0/1 完全空闲 (3MiB), GPU 2 有 ~14GB 空闲, GPU 3-7 被其他用户 (libolin) 占用",
+        "/data: 63T 总量, 3.9T free (94% used) — 完整六任务估计 < 1T (见 resource_estimate)",
+        "RAM 503GB, available 464GB",
+        "运行进程: 无本项目 python 进程; libolin openpi 训练占用 GPU 3-7"
+      ],
+      "notes": "dry run 用 GPU 0,1 (2 卡 DDP, global_batch 24 = 12x2 或 6x2x2)。"
+    },
+    {
+      "id": "config_system",
+      "name": "V6 YAML config system",
+      "status": "MISSING",
+      "evidence": [
+        "仓库无顶层 configs/ 目录",
+        "compose 现用 HfArgumentParser dataclass 参数",
+        "任务书第三节要求 configs/v6_ucit_engineering.yaml, v6_ucit_two_task_dry_run.yaml, v6_ucit_formal_locked.yaml"
+      ],
+      "notes": "E0 之后新增 configs/ 目录与三个 YAML；所有阈值进 YAML，禁止散落硬编码。"
+    },
+    {
+      "id": "task_state_machine",
+      "name": "Task state machine (NOT_STARTED..COMPLETED)",
+      "status": "MISSING",
+      "evidence": [
+        "全仓无任务状态机",
+        "registry 只有 ExpertStatus REGISTERED/FROZEN/TRAINABLE/ARCHIVED",
+        "任务书第四节 16 状态单向迁移要求"
+      ],
+      "notes": "E2 实现，原子持久化，中断恢复不半提交。"
+    },
+    {
+      "id": "expert_lifecycle_state_machine",
+      "name": "Expert lifecycle (candidate/provisional/formal/archived)",
+      "status": "MISSING",
+      "evidence": [
+        "ExpertMetadata 无 status 字段 (candidate/provisional/formal)",
+        "candidate_pool.commit() 返回字符串 'provisional'/'rejected' 且 extra['lifecycle_state']",
+        "任务书第五节生命周期要求"
+      ],
+      "notes": "E2 实现原子化 ExpertRegistry 扩展: created_task_id/key_path/key_sha256/rms_stats_path/pool_version/mean_conditional_gain/key_accuracy。"
+    },
+    {
+      "id": "router_dual_mode",
+      "name": "Router dual mode (training_retrieval / inference_selection)",
+      "status": "MISSING",
+      "evidence": [
+        "全仓 grep training_retrieval/inference_selection 零命中",
+        "现有模式仅 offline_diagnostic / continual_anchor (训练数据循环模式)",
+        "任务书第七节双模式要求"
+      ],
+      "notes": "E3 实现。"
+    },
+    {
+      "id": "snapshot",
+      "name": "Task-boundary snapshot + recovery",
+      "status": "MISSING",
+      "evidence": [
+        "无任何 task-boundary snapshot 模块",
+        "任务书第十四节: stage manifest/registry/LoRA/Router/RMS/lifecycle/random states/环境/配置副本/eval 输出"
+      ],
+      "notes": "E10 实现，独立加载，6 个恢复节点。"
+    },
+    {
+      "id": "handoff_package",
+      "name": "Handoff package (artifacts/v6_ucit_handoff/)",
+      "status": "MISSING",
+      "evidence": [
+        "任务书第十七节 13 个文件 + docs/reports/V6_UCIT_ENGINEERING_HANDOFF.md"
+      ],
+      "notes": "批次末尾生成。"
+    },
+    {
+      "id": "two_task_dry_run",
+      "name": "Two-task UCIT dry run (seed 42)",
+      "status": "MISSING",
+      "evidence": [
+        "任务书第十六节 18 项验收"
+      ],
+      "notes": "E12 运行，GPU 0/1。"
+    }
+  ]
+}
