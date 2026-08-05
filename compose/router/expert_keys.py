@@ -27,8 +27,8 @@ class ExpertKeyMetadata:
 class ExpertKeyStore(nn.Module):
     def __init__(self, metadata: Sequence[ExpertKeyMetadata], query_dim: int = 128, seed: int = 42) -> None:
         super().__init__()
-        if query_dim != 128:
-            raise ValueError("V6 query_dim is frozen at 128")
+        if query_dim <= 0:
+            raise ValueError("query_dim must be positive")
         ordered = sorted(metadata, key=lambda item: item.expert_id)
         if len({item.expert_id for item in ordered}) != len(ordered):
             raise ValueError("duplicate expert IDs")
