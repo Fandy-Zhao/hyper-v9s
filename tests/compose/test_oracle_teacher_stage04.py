@@ -35,6 +35,7 @@ def provenance(mode="direct_sum", **changes):
         "oracle_config_hash": "direct" if mode == "direct_sum" else "rms-config",
         "answer_mask_version": "v1", "answer_template_hash": "template",
         "target_averaging": "token_mean", "composer_version": "stage03", "code_version": "head",
+        "pool_version": 1, "router_version": "v6_router_v1",
     }
     value.update(changes)
     return value
@@ -191,7 +192,8 @@ class CacheTest(unittest.TestCase):
     def test_every_provenance_change_invalidates(self):
         fields = ["base_checkpoint_hash", "dataset_manifest_hash", "tokenizer_hash", "rms_statistics_hash",
                   "answer_template_hash", "answer_mask_version", "composition_mode", "oracle_config_hash",
-                  "target_averaging", "composer_version", "expert_checkpoint_hashes"]
+                  "target_averaging", "composer_version", "expert_checkpoint_hashes",
+                  "pool_version", "router_version"]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "cache.json"
             write_shard(path, [{"sample_id": "a"}], provenance(), 0)

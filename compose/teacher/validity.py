@@ -9,6 +9,9 @@ REQUIRED_CACHE_FIELDS = {
     "expert_checkpoint_hashes", "composition_mode", "rms_statistics_hash",
     "oracle_config_hash", "answer_mask_version", "answer_template_hash",
     "target_averaging", "composer_version", "code_version",
+    # V6 Stage E4: the teacher cache must be bound to the expert pool
+    # version and the router version that produced the candidates.
+    "pool_version", "router_version",
 }
 
 
