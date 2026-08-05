@@ -19,8 +19,9 @@ class CandidatePoolConfig:
     max_positive_jaccard: float = 0.8
 
     def __post_init__(self):
-        if self.slot_count != 2:
-            raise ValueError("Compose P2 supports exactly two candidate slots")
+        if self.slot_count not in (1, 2):
+            raise ValueError("candidate pools support one or two slots "
+                             "(task 1: 1, task t>1: 2)")
         if self.query_dim <= 0 or self.min_support <= 0:
             raise ValueError("query_dim and min_support must be positive")
 
@@ -73,7 +74,11 @@ class CandidateExpertPool(nn.Module):
         super().__init__()
         self.config = config or CandidatePoolConfig(query_dim=int(keys.shape[1]))
         if len(adapters) != self.config.slot_count or keys.shape != (self.config.slot_count, self.config.query_dim):
-            raise ValueError("two adapters and two compatible keys are required")
+            raise ValueError(
+                "expected {} adapters and keys of shape ({}, {})".format(
+                    self.config.slot_count, self.config.slot_count, self.config.query_dim
+                )
+            )
         self.slots = nn.ModuleList(CandidateSlot(adapter, key) for adapter, key in zip(adapters, keys))
 
     @property
@@ -115,8 +120,11 @@ class CandidateExpertPool(nn.Module):
         if len(validations) != self.config.slot_count:
             raise ValueError("one validation record per slot is required")
         positive = [set(item.positive_sample_ids) for item in validations]
-        union = positive[0] | positive[1]
-        jaccard = len(positive[0] & positive[1]) / len(union) if union else 0.0
+        if len(positive) == 2:
+            union = positive[0] | positive[1]
+            jaccard = len(positive[0] & positive[1]) / len(union) if union else 0.0
+        else:
+            jaccard = 0.0  # single-slot pool has no cross-slot redundancy
         decisions = []
         for slot_id, item in enumerate(validations):
             passed = (
@@ -135,7 +143,9 @@ class CandidateExpertPool(nn.Module):
             })
         return {"commit_count": sum(item["commit"] for item in decisions), "slots": decisions}
 
-    def commit_to_registry(self, registry: ExpertRegistry, decision: Dict[str, object], first_expert_id: int, creation_task: int):
+    def commit_to_registry(self, registry: ExpertRegistry, decision: Dict[str, object],
+                           first_expert_id: int, creation_task: int,
+                           rank: int = 8, alpha: float = 16.0):
         if not isinstance(registry, ExpertRegistry):
             raise TypeError("registry must be an ExpertRegistry")
         committed = []
@@ -146,8 +156,8 @@ class CandidateExpertPool(nn.Module):
             metadata = ExpertMetadata(
                 expert_id=expert_id,
                 adapter_name="candidate-slot-{}".format(slot["slot_id"]),
-                rank=8,
-                alpha=16,
+                rank=int(rank),
+                alpha=float(alpha),
                 creation_task=int(creation_task),
                 support_count=int(slot["validation"]["support"]),
                 positive_contribution_count=len(slot["validation"]["positive_sample_ids"]),
