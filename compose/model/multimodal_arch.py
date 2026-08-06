@@ -151,7 +151,14 @@ class ComposeLlavaMetaForCausalLM(ABC):
 
     def encode_images(self, images: torch.Tensor) -> torch.Tensor:
         features = self.get_vision_tower()(images)
-        return self.get_model().mm_projector(features).to(self.device)
+        projector = self.get_model().mm_projector
+        # Match the model dtype explicitly. The vision tower may emit fp32
+        # (e.g. CLIP output norm), and in multi-GPU DataParallel replica
+        # threads the autocast context is lost (replica parameters are
+        # detached tensors, not Parameters), so an fp32 x bf16 matmul would
+        # raise. Casting to the model dtype here is a no-op under autocast
+        # and does not depend on the projector's parameter storage.
+        return projector(features.to(self.dtype)).to(self.device)
 
     def prepare_inputs_labels_for_multimodal(
         self,
