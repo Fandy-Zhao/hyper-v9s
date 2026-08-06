@@ -244,9 +244,9 @@ def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config:
             # Empty registry -> all-empty teachers -> nothing residual; no
             # features to extract (the accepted runner still launched the
             # extractor on an empty set, wasting a full GPU model load).
+            # The features stage has no TaskStage transition of its own
+            # (same as the generic runner's S4); just mark it done.
             _mark_stage(root, "s3_features")
-            machine.advance(TaskStage.FEATURES_READY, note="no residual -> skip")
-            machine.save(str(state_path))
         else:
             command = [
                 PYTHON, "-m", "compose.eval.v6_query_features",
