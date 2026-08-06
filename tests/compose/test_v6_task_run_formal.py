@@ -145,26 +145,87 @@ class TestV6TaskRunIdempotency:
         return prev
 
     def test_run_task_s0_idempotent_on_resume(self, tmp_path, fake_config, fake_prev_root):
-        """S0 runs once; a resumed run skips it and fails later at S1
-        (no old expert checkpoint under the mock prev root), proving the
-        stage markers gate re-execution."""
+        """S0 runs once. An empty-registry prev root (no adapter state
+        anywhere) degrades into empty-teacher records through S10 and only
+        fails at S11 eval (no checkpoint dir). A resumed run skips S0..S10
+        and fails identically, proving the stage markers gate
+        re-execution."""
         from compose.experiments import v6_task_run as runner
 
         root = tmp_path / "task2"
-        # First attempt: S0 succeeds, S1 raises because prev root has no
-        # old expert checkpoint dir.
-        with pytest.raises(RuntimeError, match="no old expert checkpoint"):
+        # First attempt: S0 succeeds, S1 degrades (empty registry), the
+        # degenerate chain completes S2-S10, and S11 has no checkpoint to
+        # score against.
+        with pytest.raises(RuntimeError, match="no checkpoint dir for eval"):
             runner.run_task(root, fake_prev_root, 2, "0", 29661, fake_config)
         assert (root / "stages" / "s0_snapshot_load.done").is_file()
+        assert (root / "stages" / "s1_teacher.done").is_file()
         state = json.loads((root / "state" / "task_state.json").read_text())
         assert state["task_id"] == 2
-        assert state["stage"] == "DATA_READY"
+        # the degenerate chain runs S1-S10 (commit 0, empty router, snapshot)
+        assert state["stage"] == "SNAPSHOT_READY"
+        # degenerate teacher records: everything empty-teacher, audited
+        summary = json.loads((root / "teacher" / "summary.json").read_text())
+        assert summary["note"].startswith("no old adapter state")
+        assert summary["train_teacher_empty_count"] == summary["train_samples"]
+        records = json.loads(
+            (root / "teacher" / "teacher_records_train.json").read_text()
+        )
+        assert records
+        assert all(record["teacher_set"] == [] for record in records)
+        assert all(record["empty_loss"] is None for record in records)
+        commit = json.loads((root / "committed" / "commit_record.json").read_text())
+        assert commit["committed_expert_ids"] == []
 
-        # Second (resume) attempt: S0 must not be re-executed; S1 still fails
-        # the same way (not on snapshot reload).
-        with pytest.raises(RuntimeError, match="no old expert checkpoint"):
+        # Second (resume) attempt: S0 must not be re-executed (advancing
+        # DATA_READY -> DATA_READY would raise); the same late failure
+        # proves the markers gate every stage.
+        with pytest.raises(RuntimeError, match="no checkpoint dir for eval"):
             runner.run_task(root, fake_prev_root, 2, "0", 29661, fake_config)
         assert (root / "stages" / "s0_snapshot_load.done").is_file()
+        history = json.loads((root / "state" / "task_state.json").read_text())["history"]
+        assert sum(1 for item in history if item["note"] == "prev snapshot loaded") == 1
+
+    def test_task2_teacher_search_selections_empty_registry(self):
+        """The task-1 runner's S1 selections must not crash on an empty
+        registry (seed-42 task0 committed 0 experts, below_tau): only the
+        empty baseline is evaluated."""
+        from compose.experiments import v6_task2_dry_run as runner
+
+        records = [{"id": 1}, {"id": 2}]
+        assert runner._teacher_search_selections(records, []) == {
+            "1": {"empty": []},
+            "2": {"empty": []},
+        }
+        assert runner._teacher_search_selections(records, [10]) == {
+            "1": {"empty": [], "single_10": [10]},
+            "2": {"empty": [], "single_10": [10]},
+        }
+
+    def test_old_checkpoint_chain_falls_back_to_pointer(self, tmp_path):
+        """The degenerate chain resolves a checkpoint through the
+        last-known-checkpoint pointer written by the previous task's eval;
+        dangling pointers are ignored."""
+        from compose.experiments import v6_task_run as runner
+        from compose.experts.registry import ExpertRegistry
+
+        prev = tmp_path / "prev"
+        assert runner._old_expert_checkpoint_chain(prev, ExpertRegistry()) is None
+        cold = tmp_path / "cold_start"
+        cold.mkdir(parents=True)
+        (cold / "compose_experts.json").write_text("{}", encoding="utf-8")
+        pointer_dir = prev / "candidate"
+        pointer_dir.mkdir(parents=True)
+        (pointer_dir / "last_known_checkpoint.json").write_text(
+            json.dumps({"checkpoint_dir": str(cold)}), encoding="utf-8"
+        )
+        assert runner._last_known_checkpoint_dir(prev) == cold
+        assert runner._old_expert_checkpoint_chain(prev, ExpertRegistry()) == cold
+        # dangling pointer is ignored
+        (pointer_dir / "last_known_checkpoint.json").write_text(
+            json.dumps({"checkpoint_dir": str(tmp_path / "missing")}), encoding="utf-8"
+        )
+        assert runner._old_expert_checkpoint_chain(prev, ExpertRegistry()) is None
 
     def test_wrong_prev_snapshot_task_id_rejected(self, tmp_path, fake_config):
         from compose.experiments import v6_task_run as runner

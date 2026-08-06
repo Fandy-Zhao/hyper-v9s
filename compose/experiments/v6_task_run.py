@@ -82,6 +82,14 @@ def _write_json(path: str, payload) -> None:
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
+def _record_id(record: Dict) -> str:
+    """Per-dataset sample id: ImageNet-R/ArxivQA/CLEVR use ``id`` while
+    VizWiz/IconQA/Flickr30k use ``question_id``."""
+    if "id" in record:
+        return str(record["id"])
+    return str(record["question_id"])
+
+
 def _stage_done(root: Path, stage: str) -> bool:
     return (root / "stages" / "{}.done".format(stage)).is_file()
 
@@ -120,6 +128,99 @@ def _old_expert_checkpoint_dir(task_root: Path, registry: ExpertRegistry) -> Opt
     if committed:
         return committed[-1]
     return None
+
+
+def _last_known_checkpoint_dir(task_root: Path) -> Optional[Path]:
+    """Pointer file written by the previous task when its eval fell back to
+    an inherited checkpoint (degenerate chain: 0 committed experts and no
+    candidate pool). Lets the next task keep scoring against the last
+    adapter state that exists anywhere up the chain."""
+    pointer = task_root / "candidate" / "last_known_checkpoint.json"
+    if not pointer.is_file():
+        return None
+    try:
+        target = Path(json.loads(pointer.read_text(encoding="utf-8"))["checkpoint_dir"])
+    except (OSError, KeyError, ValueError):
+        return None
+    return target if (target / "compose_experts.json").is_file() else None
+
+
+def _old_expert_checkpoint_chain(prev_root: Path, registry: ExpertRegistry) -> Optional[Path]:
+    """Old-checkpoint resolution across the degenerate chain: candidate pool
+    or newest committed expert, then the previous task's cold-start
+    candidate, then the last-known-checkpoint pointer. Returns None only
+    when no adapter state exists anywhere in the chain (everything is
+    below-tau and nothing was trained)."""
+    for candidate in (
+        _old_expert_checkpoint_dir(prev_root, registry),
+        prev_root / "candidate" / "cold_start",
+        _last_known_checkpoint_dir(prev_root),
+    ):
+        if candidate is not None and (candidate / "compose_experts.json").is_file():
+            return candidate
+    return None
+
+
+def _write_empty_teacher_records(
+    root: Path,
+    teacher_train: List[Dict],
+    teacher_val: List[Dict],
+    task_id: int,
+    pool_version: int,
+    seed: int,
+) -> None:
+    """Degenerate teacher records for the empty-registry chain: no adapter
+    state exists to score against, so every sample gets an empty teacher
+    (``teacher_set=()``, ``empty_loss=None``) and the residual split reuses
+    everything. The pipeline completes with 0 commits; the reason is
+    audited via ``teacher/summary.json``."""
+    records = {"train": [], "val": []}
+    for split_key, subset in (("train", teacher_train), ("val", teacher_val)):
+        for record in subset:
+            sample_id = _record_id(record)
+            records[split_key].append(
+                V6TeacherRecord(
+                    sample_id=sample_id,
+                    task_id=task_id,
+                    pool_version=pool_version,
+                    router_version=ROUTER_VERSION,
+                    candidate_experts=(),
+                    empty_loss=None,
+                    single_losses={},
+                    pair_losses={},
+                    best_single=(),
+                    best_pair=(),
+                    pair_gain=None,
+                    teacher_set=(),
+                    teacher_loss=None,
+                    teacher_multi_hot={},
+                    cache_key=hashlib.sha256(
+                        "{}.{}.{}".format(task_id, sample_id, seed).encode()
+                    ).hexdigest()[:16],
+                )
+            )
+    _write_json(
+        str(root / "teacher" / "teacher_records_train.json"),
+        [record.to_dict() for record in records["train"]],
+    )
+    _write_json(
+        str(root / "teacher" / "teacher_records_val.json"),
+        [record.to_dict() for record in records["val"]],
+    )
+    _write_json(
+        str(root / "teacher" / "summary.json"),
+        {
+            "train_samples": len(teacher_train),
+            "val_samples": len(teacher_val),
+            "old_expert_ids": [],
+            "train_teacher_empty_count": len(teacher_train),
+            "train_teacher_single_count": 0,
+            "train_teacher_pair_count": 0,
+            "val_teacher_empty_count": len(teacher_val),
+            "note": "no old adapter state (0 committed experts, no candidate pool, "
+            "no inherited checkpoint); teacher search skipped",
+        },
+    )
 
 
 def run_task(
@@ -184,7 +285,7 @@ def run_task(
 
     records = json.load(open(train_path, "r", encoding="utf-8"))
     old_ids = [e.expert_id for e in registry.list_all()]
-    old_checkpoint = _old_expert_checkpoint_dir(prev_root, registry)
+    old_checkpoint = _old_expert_checkpoint_chain(prev_root, registry)
 
     # ---- S1: answer-supervised teacher search (empty/single/pair) --------
     if not _stage_done(root, "s1_teacher"):
@@ -197,203 +298,209 @@ def run_task(
         _write_json(str(root / "data" / "teacher_train.json"), teacher_train)
         _write_json(str(root / "data" / "teacher_val.json"), teacher_val)
         if old_checkpoint is None:
-            raise RuntimeError(
-                "no old expert checkpoint found under {}".format(prev_root)
+            # Degenerate chain: 0 committed experts, no candidate pool and
+            # no inherited checkpoint pointer — no adapter state exists to
+            # score against. Record empty teachers so the residual split
+            # reuses everything and the pipeline completes with 0 commits
+            # (audited via summary.json note).
+            _write_empty_teacher_records(
+                root, teacher_train, teacher_val, task_id,
+                registry.pool_version, seed,
             )
-
-        # Round 1: empty + every single over all historical experts.
-        selections = {}
-        for split, subset, tag in (
-            ("train", teacher_train, "teacher_train"),
-            ("val", teacher_val, "teacher_val"),
-        ):
-            rows = {}
-            for record in subset:
-                sample_id = str(record["id"])
-                row = {"empty": []}
-                for expert_id in old_ids:
-                    row["single_{}".format(expert_id)] = [expert_id]
-                rows[sample_id] = row
-            selections[tag] = rows
-            _write_json(str(root / "data" / "{}_selections_r1.json".format(tag)), rows)
-            _run(
-                [
-                    PYTHON, "-m", "compose.eval.v6_nll_eval",
-                    "--model-path", BASE_MODEL,
-                    "--vision-tower", VISION_TOWER,
-                    "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
-                    "--checkpoint-dir", str(old_checkpoint),
-                    "--question-file", str(root / "data" / "{}.json".format(tag)),
-                    "--image-folder", IMAGE_FOLDER,
-                    "--selections", str(root / "data" / "{}_selections_r1.json".format(tag)),
-                    "--output", str(root / "teacher" / "{}_nll_r1.json".format(tag)),
-                    "--device", "cuda:0",
-                ],
-                dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0]),
-                root,
-                "s1_{}_r1".format(tag),
-            )
-
-        # Round 2: up to six pairs among the four best singles (per sample).
-        lambda_expert = config["teacher"]["lambda_expert"]
-        delta_pair_raw = config["teacher"]["delta_pair_raw"]
-        top_k_for_pair = config["teacher"]["top_k_for_pair"]
-        max_pairs = config["teacher"]["max_pairs"]
-        teacher_records = {"train": [], "val": []}
-        for tag, split_key in (("teacher_train", "train"), ("teacher_val", "val")):
-            nll = json.loads((root / "teacher" / "{}_nll_r1.json".format(tag)).read_text())
-            pair_selections = {}
-            for sample_id, values in sorted(nll.items()):
-                single_scores = []
-                for expert_id in old_ids:
-                    key = "single_{}".format(expert_id)
-                    if key in values:
-                        single_scores.append(
-                            (values[key] + lambda_expert, expert_id, values[key])
-                        )
-                single_scores.sort()
-                best_singles = single_scores[:top_k_for_pair]
-                pairs = []
-                for left in range(len(best_singles)):
-                    for right in range(left + 1, len(best_singles)):
-                        pairs.append((best_singles[left][1], best_singles[right][1]))
+        else:
+            # Round 1: empty + every single over all historical experts.
+            selections = {}
+            for split, subset, tag in (
+                ("train", teacher_train, "teacher_train"),
+                ("val", teacher_val, "teacher_val"),
+            ):
+                rows = {}
+                for record in subset:
+                    sample_id = _record_id(record)
+                    row = {"empty": []}
+                    for expert_id in old_ids:
+                        row["single_{}".format(expert_id)] = [expert_id]
+                    rows[sample_id] = row
+                selections[tag] = rows
+                _write_json(str(root / "data" / "{}_selections_r1.json".format(tag)), rows)
+                _run(
+                    [
+                        PYTHON, "-m", "compose.eval.v6_nll_eval",
+                        "--model-path", BASE_MODEL,
+                        "--vision-tower", VISION_TOWER,
+                        "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
+                        "--checkpoint-dir", str(old_checkpoint),
+                        "--question-file", str(root / "data" / "{}.json".format(tag)),
+                        "--image-folder", IMAGE_FOLDER,
+                        "--selections", str(root / "data" / "{}_selections_r1.json".format(tag)),
+                        "--output", str(root / "teacher" / "{}_nll_r1.json".format(tag)),
+                        "--device", "cuda:0",
+                    ],
+                    dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0]),
+                    root,
+                    "s1_{}_r1".format(tag),
+                )
+    
+            # Round 2: up to six pairs among the four best singles (per sample).
+            lambda_expert = config["teacher"]["lambda_expert"]
+            delta_pair_raw = config["teacher"]["delta_pair_raw"]
+            top_k_for_pair = config["teacher"]["top_k_for_pair"]
+            max_pairs = config["teacher"]["max_pairs"]
+            teacher_records = {"train": [], "val": []}
+            for tag, split_key in (("teacher_train", "train"), ("teacher_val", "val")):
+                nll = json.loads((root / "teacher" / "{}_nll_r1.json".format(tag)).read_text())
+                pair_selections = {}
+                for sample_id, values in sorted(nll.items()):
+                    single_scores = []
+                    for expert_id in old_ids:
+                        key = "single_{}".format(expert_id)
+                        if key in values:
+                            single_scores.append(
+                                (values[key] + lambda_expert, expert_id, values[key])
+                            )
+                    single_scores.sort()
+                    best_singles = single_scores[:top_k_for_pair]
+                    pairs = []
+                    for left in range(len(best_singles)):
+                        for right in range(left + 1, len(best_singles)):
+                            pairs.append((best_singles[left][1], best_singles[right][1]))
+                            if len(pairs) >= max_pairs:
+                                break
                         if len(pairs) >= max_pairs:
                             break
-                    if len(pairs) >= max_pairs:
-                        break
-                pair_selections[sample_id] = {
-                    "pair_{}_{}".format(pair[0], pair[1]): list(pair)
-                    for pair in pairs
-                }
-            _write_json(
-                str(root / "data" / "{}_selections_r2.json".format(tag)),
-                pair_selections,
-            )
-            _run(
-                [
-                    PYTHON, "-m", "compose.eval.v6_nll_eval",
-                    "--model-path", BASE_MODEL,
-                    "--vision-tower", VISION_TOWER,
-                    "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
-                    "--checkpoint-dir", str(old_checkpoint),
-                    "--question-file", str(root / "data" / "{}.json".format(tag)),
-                    "--image-folder", IMAGE_FOLDER,
-                    "--selections", str(root / "data" / "{}_selections_r2.json".format(tag)),
-                    "--output", str(root / "teacher" / "{}_nll_r2.json".format(tag)),
-                    "--device", "cuda:0",
-                ],
-                dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0]),
-                root,
-                "s1_{}_r2".format(tag),
-            )
-            pair_nll = json.loads(
-                (root / "teacher" / "{}_nll_r2.json".format(tag)).read_text()
-            )
-            for sample_id, values in sorted(nll.items()):
-                empty_nll = values["empty"]
-                singles = {
-                    int(expert_id): values.get("single_{}".format(expert_id))
-                    for expert_id in old_ids
-                }
-                singles = {k: v for k, v in singles.items() if v is not None}
-                if not singles:
-                    teacher_set = ()
-                    teacher_loss = empty_nll
-                    best_single = ()
-                    best_pair = ()
-                    pair_gain = None
-                else:
-                    best_single_id = min(
-                        singles, key=lambda e: singles[e] + lambda_expert
-                    )
-                    best_single = (best_single_id,)
-                    best_single_score = singles[best_single_id] + lambda_expert
-                    if best_single_score >= empty_nll:
+                    pair_selections[sample_id] = {
+                        "pair_{}_{}".format(pair[0], pair[1]): list(pair)
+                        for pair in pairs
+                    }
+                _write_json(
+                    str(root / "data" / "{}_selections_r2.json".format(tag)),
+                    pair_selections,
+                )
+                _run(
+                    [
+                        PYTHON, "-m", "compose.eval.v6_nll_eval",
+                        "--model-path", BASE_MODEL,
+                        "--vision-tower", VISION_TOWER,
+                        "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
+                        "--checkpoint-dir", str(old_checkpoint),
+                        "--question-file", str(root / "data" / "{}.json".format(tag)),
+                        "--image-folder", IMAGE_FOLDER,
+                        "--selections", str(root / "data" / "{}_selections_r2.json".format(tag)),
+                        "--output", str(root / "teacher" / "{}_nll_r2.json".format(tag)),
+                        "--device", "cuda:0",
+                    ],
+                    dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0]),
+                    root,
+                    "s1_{}_r2".format(tag),
+                )
+                pair_nll = json.loads(
+                    (root / "teacher" / "{}_nll_r2.json".format(tag)).read_text()
+                )
+                for sample_id, values in sorted(nll.items()):
+                    empty_nll = values["empty"]
+                    singles = {
+                        int(expert_id): values.get("single_{}".format(expert_id))
+                        for expert_id in old_ids
+                    }
+                    singles = {k: v for k, v in singles.items() if v is not None}
+                    if not singles:
                         teacher_set = ()
                         teacher_loss = empty_nll
+                        best_single = ()
                         best_pair = ()
                         pair_gain = None
                     else:
-                        # pairs over the evaluated pair sets (raw nll keyed by
-                        # (expert_a, expert_b)); same rule as V6TeacherSearcher:
-                        # raw gain over best single >= delta_pair_raw AND
-                        # penalized (score) gain > 0 -> pair, else single.
-                        pair_losses = {
-                            tuple(int(x) for x in key.split("_")[1:]): value
-                            for key, value in pair_nll.get(sample_id, {}).items()
-                        }
-                        valid_pairs = []
-                        for pair, loss in pair_losses.items():
-                            raw_gain = singles[best_single_id] - loss
-                            penalized = (
-                                singles[best_single_id] + lambda_expert
-                            ) - (loss + 2 * lambda_expert)
-                            if raw_gain >= delta_pair_raw and penalized > 0:
-                                valid_pairs.append((penalized, pair, loss))
-                        if valid_pairs:
-                            _, best_pair, best_pair_loss = max(
-                                valid_pairs, key=lambda item: item[0]
-                            )
-                            teacher_set = best_pair
-                            teacher_loss = best_pair_loss
-                            pair_gain = singles[best_single_id] - best_pair_loss
-                        else:
-                            teacher_set = best_single
-                            teacher_loss = singles[best_single_id]
+                        best_single_id = min(
+                            singles, key=lambda e: singles[e] + lambda_expert
+                        )
+                        best_single = (best_single_id,)
+                        best_single_score = singles[best_single_id] + lambda_expert
+                        if best_single_score >= empty_nll:
+                            teacher_set = ()
+                            teacher_loss = empty_nll
                             best_pair = ()
                             pair_gain = None
-                teacher_records[split_key].append(
-                    V6TeacherRecord(
-                        sample_id=sample_id,
-                        task_id=task_id,
-                        pool_version=registry.pool_version,
-                        router_version=ROUTER_VERSION,
-                        candidate_experts=tuple(old_ids),
-                        empty_loss=empty_nll,
-                        single_losses=singles,
-                        pair_losses={
-                            tuple(int(x) for x in key.split("_")[1:]): value
-                            for key, value in pair_nll.get(sample_id, {}).items()
-                        },
-                        best_single=best_single,
-                        best_pair=best_pair,
-                        pair_gain=pair_gain,
-                        teacher_set=teacher_set,
-                        teacher_loss=teacher_loss,
-                        teacher_multi_hot={int(e): 1 for e in teacher_set},
-                        cache_key=hashlib.sha256(
-                            "{}.{}.{}".format(task_id, sample_id, seed).encode()
-                        ).hexdigest()[:16],
+                        else:
+                            # pairs over the evaluated pair sets (raw nll keyed by
+                            # (expert_a, expert_b)); same rule as V6TeacherSearcher:
+                            # raw gain over best single >= delta_pair_raw AND
+                            # penalized (score) gain > 0 -> pair, else single.
+                            pair_losses = {
+                                tuple(int(x) for x in key.split("_")[1:]): value
+                                for key, value in pair_nll.get(sample_id, {}).items()
+                            }
+                            valid_pairs = []
+                            for pair, loss in pair_losses.items():
+                                raw_gain = singles[best_single_id] - loss
+                                penalized = (
+                                    singles[best_single_id] + lambda_expert
+                                ) - (loss + 2 * lambda_expert)
+                                if raw_gain >= delta_pair_raw and penalized > 0:
+                                    valid_pairs.append((penalized, pair, loss))
+                            if valid_pairs:
+                                _, best_pair, best_pair_loss = max(
+                                    valid_pairs, key=lambda item: item[0]
+                                )
+                                teacher_set = best_pair
+                                teacher_loss = best_pair_loss
+                                pair_gain = singles[best_single_id] - best_pair_loss
+                            else:
+                                teacher_set = best_single
+                                teacher_loss = singles[best_single_id]
+                                best_pair = ()
+                                pair_gain = None
+                    teacher_records[split_key].append(
+                        V6TeacherRecord(
+                            sample_id=sample_id,
+                            task_id=task_id,
+                            pool_version=registry.pool_version,
+                            router_version=ROUTER_VERSION,
+                            candidate_experts=tuple(old_ids),
+                            empty_loss=empty_nll,
+                            single_losses=singles,
+                            pair_losses={
+                                tuple(int(x) for x in key.split("_")[1:]): value
+                                for key, value in pair_nll.get(sample_id, {}).items()
+                            },
+                            best_single=best_single,
+                            best_pair=best_pair,
+                            pair_gain=pair_gain,
+                            teacher_set=teacher_set,
+                            teacher_loss=teacher_loss,
+                            teacher_multi_hot={int(e): 1 for e in teacher_set},
+                            cache_key=hashlib.sha256(
+                                "{}.{}.{}".format(task_id, sample_id, seed).encode()
+                            ).hexdigest()[:16],
+                        )
                     )
-                )
-        _write_json(
-            str(root / "teacher" / "teacher_records_train.json"),
-            [record.to_dict() for record in teacher_records["train"]],
-        )
-        _write_json(
-            str(root / "teacher" / "teacher_records_val.json"),
-            [record.to_dict() for record in teacher_records["val"]],
-        )
-        _write_json(
-            str(root / "teacher" / "summary.json"),
-            {
-                "train_samples": len(teacher_train),
-                "val_samples": len(teacher_val),
-                "old_expert_ids": old_ids,
-                "train_teacher_empty_count": sum(
-                    1 for record in teacher_records["train"] if not record.teacher_set
-                ),
-                "train_teacher_single_count": sum(
-                    1 for record in teacher_records["train"] if len(record.teacher_set) == 1
-                ),
-                "train_teacher_pair_count": sum(
-                    1 for record in teacher_records["train"] if len(record.teacher_set) == 2
-                ),
-                "val_teacher_empty_count": sum(
-                    1 for record in teacher_records["val"] if not record.teacher_set
-                ),
-            },
-        )
+            _write_json(
+                str(root / "teacher" / "teacher_records_train.json"),
+                [record.to_dict() for record in teacher_records["train"]],
+            )
+            _write_json(
+                str(root / "teacher" / "teacher_records_val.json"),
+                [record.to_dict() for record in teacher_records["val"]],
+            )
+            _write_json(
+                str(root / "teacher" / "summary.json"),
+                {
+                    "train_samples": len(teacher_train),
+                    "val_samples": len(teacher_val),
+                    "old_expert_ids": old_ids,
+                    "train_teacher_empty_count": sum(
+                        1 for record in teacher_records["train"] if not record.teacher_set
+                    ),
+                    "train_teacher_single_count": sum(
+                        1 for record in teacher_records["train"] if len(record.teacher_set) == 1
+                    ),
+                    "train_teacher_pair_count": sum(
+                        1 for record in teacher_records["train"] if len(record.teacher_set) == 2
+                    ),
+                    "val_teacher_empty_count": sum(
+                        1 for record in teacher_records["val"] if not record.teacher_set
+                    ),
+                },
+            )
         _advance(root, machine, TaskStage.OLD_TEACHER_RUNNING, note="teacher search running")
         _advance(root, machine, TaskStage.OLD_TEACHER_READY, note="teacher search done")
         machine.save(str(state_path))
@@ -456,7 +563,10 @@ def run_task(
                     pool_version=int(record["pool_version"]),
                     router_version=record["router_version"],
                     candidate_experts=tuple(int(x) for x in record["candidate_experts"]),
-                    empty_loss=float(record["empty_loss"]),
+                    empty_loss=(
+                        float(record["empty_loss"])
+                        if record["empty_loss"] is not None else None
+                    ),
                     single_losses={
                         int(k): float(v)
                         for k, v in record["single_losses"].items()
@@ -473,7 +583,10 @@ def run_task(
                         else None
                     ),
                     teacher_set=tuple(int(x) for x in record["teacher_set"]),
-                    teacher_loss=float(record["teacher_loss"]),
+                    teacher_loss=(
+                        float(record["teacher_loss"])
+                        if record["teacher_loss"] is not None else None
+                    ),
                     teacher_multi_hot={
                         int(k): int(v)
                         for k, v in record["teacher_multi_hot"].items()
@@ -514,20 +627,21 @@ def run_task(
     if not _stage_done(root, "s4_features"):
         residual = json.loads((root / "residual" / "residual.json").read_text())
         residual_ids = {record["sample_id"] for record in residual}
-        subset = [record for record in records if str(record["id"]) in residual_ids]
+        subset = [record for record in records if _record_id(record) in residual_ids]
         _write_json(str(root / "data" / "residual_train.json"), subset)
-        _run(
-            [
-                PYTHON, "-m", "compose.eval.v6_query_features",
-                "--questions", str(root / "data" / "residual_train.json"),
-                "--images", IMAGE_FOLDER,
-                "--output", str(root / "features" / "train_features.json"),
-                "--device", "cuda:0",
-            ],
-            dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0]),
-            root,
-            "s4_features",
-        )
+        if residual:
+            _run(
+                [
+                    PYTHON, "-m", "compose.eval.v6_query_features",
+                    "--questions", str(root / "data" / "residual_train.json"),
+                    "--images", IMAGE_FOLDER,
+                    "--output", str(root / "features" / "train_features.json"),
+                    "--device", "cuda:0",
+                ],
+                dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0]),
+                root,
+                "s4_features",
+            )
         _mark_stage(root, "s4_features")
 
     # ---- S5: candidate pool (2 slots, K-means++ keys) ---------------------
@@ -623,7 +737,7 @@ def run_task(
             val_records = json.loads((root / "data" / "teacher_val.json").read_text())
             selections = {}
             for record in val_records:
-                sample_id = str(record["id"])
+                sample_id = _record_id(record)
                 row = {}
                 for slot_id in slot_ids:
                     row["old"] = old_ids
@@ -819,13 +933,24 @@ def run_task(
             ]
         else:
             expert_args = ["--expert-ids", ""]
-        checkpoint_dir = (
-            root / "candidate" / "train"
-            if (root / "candidate" / "train" / "compose_experts.json").is_file()
-            else _old_expert_checkpoint_dir(prev_root, registry)
-        )
-        if checkpoint_dir is None:
-            raise RuntimeError("no checkpoint dir for eval under {}".format(root))
+        checkpoint_dir = root / "candidate" / "train"
+        if not (checkpoint_dir / "compose_experts.json").is_file():
+            # No candidates trained: fall back through the inherited chain
+            # (prev committed experts / cold start / last-known pointer) so
+            # the degenerate chain can still be scored and audited.
+            checkpoint_dir = _old_expert_checkpoint_chain(prev_root, registry)
+            if checkpoint_dir is None:
+                raise RuntimeError(
+                    "no checkpoint dir for eval under {} (empty registry and "
+                    "no inherited checkpoint)".format(root)
+                )
+            _write_json(
+                str(root / "candidate" / "last_known_checkpoint.json"),
+                {
+                    "checkpoint_dir": str(checkpoint_dir),
+                    "note": "degenerate chain: eval against inherited checkpoint",
+                },
+            )
         _run(
             [
                 PYTHON, "-m", "compose.eval.eval_task",

@@ -80,3 +80,39 @@
 - 修复：train_v6_candidate 新增 `--dataloader-num-workers`（默认 0 保持 dry-run 路径不变）；config v5 设为 4；三个 runner 从 config 透传
 - 回归：`test_dataloader_workers_passed_from_config`；全套 360 passed + 14 subtests
 - config v5 hash：`5e9175028f59c94c`（v4 `904ec5950db0b333` 记录于上文）
+
+## 运行中修复 6（seed 42 task0 below_tau → task1 空 registry 崩溃；退化链完整化）
+
+- commit：`（独立 commit，见本节尾部）`
+- 复现：seed 42 task0 完成（s1-s8 全绿，state COMPLETED），但 **0 个 expert 提交**
+  （`commit_record.json: {"committed_expert_ids": [], "reason": "below_tau"}`，协议允许）。
+  task1（ArxivQA）S1 teacher search 立即崩溃：
+  `IndexError: list index out of range` @ v6_task2_dry_run.py:127
+  （`"single_{}".format(old_ids[0])` 在空 registry 下无条件求值）。
+  编排脚本 `set -e` 退出；后台 shell 随会话结束终止，无进程残留。
+- 根因：已验收的 task2 runner 假设 task0 一定提交 expert 10；空 registry 路径
+  只在 S1 的 checkpoint 回退（line 131-133 已写 cold_start 兜底）做了防护，
+  其余三处硬编码 `expert_0010` / `old_ids[0]` 未防护。
+- 修复（同一根因族，5 处）：
+  1. `v6_task2_dry_run.py` S1：`_teacher_search_selections()` 空 registry 时
+     只评估 empty baseline（不再 `old_ids[0]`）；checkpoint 走
+     `_old_expert_checkpoint_or_cold_start()`（committed 专家 → prev cold start）。
+  2. `v6_task2_dry_run.py` S6 assemble：`--old-expert-checkpoint` 不再硬编码
+     `expert_0010`，改为镜像 S4 的 `old_checkpoint`（空 registry 时省略该参数）。
+  3. `v6_task2_dry_run.py` S10 eval：fallback 从 `committed/expert_0010` 改为
+     prev `candidate/cold_start`，并写入 `candidate/last_known_checkpoint.json`
+     指针（把继承的 checkpoint 传向下游任务）。
+  4. `v6_task2_dry_run.py` S3 / `v6_task_run.py` S4：residual 为空时跳过
+     v6_query_features（原逻辑仍会启动提取器空跑，浪费一次 GPU 模型加载）。
+  5. `v6_task_run.py`：`_old_expert_checkpoint_chain()` 三层回退（prev
+     candidate/train → prev cold_start → last_known 指针）；全部落空时
+     `_write_empty_teacher_records()` 写入退化 teacher 记录（teacher_set=()、
+     empty_loss=None、summary.json 注明原因），S1-S10 正常完成、commit 0，
+     仅 S11 eval 在真正无任何 adapter 状态时报清晰错误；S3 重建容忍 None 损失；
+     `_record_id()` 适配 id/question_id 双 schema（VizWiz/IconQA/Flickr30k 用
+     question_id，否则 S1 对这三个任务同样会 KeyError）。
+- 回归：`tests/compose/test_v6_task_run_formal.py` 重写 1 项 + 新增 2 项
+  （空 registry 退化链端到端、S1 selections 空 registry、指针回退）；
+  全套结果见 commit 信息。
+- 受影响 seed：42（task0 已完成且不受影响；task1 未提交任何专家、无快照——
+  安全重跑，从 task1 幂等续跑）。

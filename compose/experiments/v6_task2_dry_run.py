@@ -63,6 +63,30 @@ def _mark_stage(root: Path, stage: str) -> None:
     (root / "stages" / "{}.done".format(stage)).write_text("done\n", encoding="utf-8")
 
 
+def _teacher_search_selections(records, old_ids):
+    """Per-sample teacher-search selections: the empty baseline plus the
+    newest old expert. An empty registry (previous task committed 0
+    experts) yields only the empty baseline — the accepted runner crashed
+    on ``old_ids[0]`` in that case (IndexError, seed-42 task1)."""
+    selections = {}
+    for record in records:
+        sample_id = str(record["id"])
+        row = {"empty": []}
+        if old_ids:
+            row["single_{}".format(old_ids[0])] = [old_ids[0]]
+        selections[sample_id] = row
+    return selections
+
+
+def _old_expert_checkpoint_or_cold_start(task1_root: Path, old_ids):
+    """Checkpoint for the task-1 teacher search: the newest committed old
+    expert when the registry is non-empty, else the previous task's cold
+    start candidate (always trained by task-0's runner)."""
+    if old_ids:
+        return task1_root / "committed" / "expert_{:04d}".format(old_ids[0])
+    return task1_root / "candidate" / "cold_start"
+
+
 def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config: dict) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "logs").mkdir(parents=True, exist_ok=True)
@@ -115,22 +139,13 @@ def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config:
         _write_json(str(root / "data" / "teacher_train.json"), teacher_train)
         _write_json(str(root / "data" / "teacher_val.json"), teacher_val)
         old_ids = [e.expert_id for e in registry.list_all()]
+        checkpoint_dir = _old_expert_checkpoint_or_cold_start(task1_root, old_ids)
         for split, subset, tag in (
             ("train", teacher_train, "teacher_train"),
             ("val", teacher_val, "teacher_val"),
         ):
-            selections = {}
-            for record in subset:
-                sample_id = str(record["id"])
-                selections[sample_id] = {
-                    "empty": [],
-                    "single_{}".format(old_ids[0]): [old_ids[0]] if old_ids else [],
-                }
+            selections = _teacher_search_selections(subset, old_ids)
             _write_json(str(root / "data" / "{}_selections.json".format(tag)), selections)
-            checkpoint_dir = (
-                task1_root / "committed" / "expert_{:04d}".format(old_ids[0])
-                if old_ids else task1_root / "candidate" / "cold_start"
-            )
             command = [
                 PYTHON, "-m", "compose.eval.v6_nll_eval",
                 "--model-path", BASE_MODEL,
@@ -225,20 +240,28 @@ def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config:
         residual_ids = {record["sample_id"] for record in residual}
         subset = [record for record in records if str(record["id"]) in residual_ids]
         _write_json(str(root / "data" / "residual_train.json"), subset)
-        command = [
-            PYTHON, "-m", "compose.eval.v6_query_features",
-            "--questions", str(root / "data" / "residual_train.json"),
-            "--images", IMAGE_FOLDER,
-            "--output", str(root / "features" / "train_features.json"),
-            "--device", "cuda:0",
-        ]
-        env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0])
-        result = subprocess.run(command, env=env, capture_output=True, text=True)
-        (root / "logs" / "s3_stdout.log").write_text(result.stdout, encoding="utf-8")
-        (root / "logs" / "s3_stderr.log").write_text(result.stderr, encoding="utf-8")
-        if result.returncode != 0:
-            raise RuntimeError("feature extraction failed:\n" + result.stderr[-3000:])
-        _mark_stage(root, "s3_features")
+        if not residual:
+            # Empty registry -> all-empty teachers -> nothing residual; no
+            # features to extract (the accepted runner still launched the
+            # extractor on an empty set, wasting a full GPU model load).
+            _mark_stage(root, "s3_features")
+            machine.advance(TaskStage.FEATURES_READY, note="no residual -> skip")
+            machine.save(str(state_path))
+        else:
+            command = [
+                PYTHON, "-m", "compose.eval.v6_query_features",
+                "--questions", str(root / "data" / "residual_train.json"),
+                "--images", IMAGE_FOLDER,
+                "--output", str(root / "features" / "train_features.json"),
+                "--device", "cuda:0",
+            ]
+            env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0])
+            result = subprocess.run(command, env=env, capture_output=True, text=True)
+            (root / "logs" / "s3_stdout.log").write_text(result.stdout, encoding="utf-8")
+            (root / "logs" / "s3_stderr.log").write_text(result.stderr, encoding="utf-8")
+            if result.returncode != 0:
+                raise RuntimeError("feature extraction failed:\n" + result.stderr[-3000:])
+            _mark_stage(root, "s3_features")
 
     # ---- S4: candidate training (2 slots, conditional residual) -----------
     if not _stage_done(root, "s4_candidates"):
@@ -387,6 +410,15 @@ def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config:
             summary = json.loads((root / "validation" / "summary.json").read_text())
             tau_support = config["commit_conditions"]["tau_support"]
             tau_gain = config["commit_conditions"]["tau_gain"]
+            old_ids = [e.expert_id for e in registry.list_all()]
+            # Mirrors S4: assemble against the same pool the candidate was
+            # trained with (committed expert when the registry is non-empty,
+            # else scratch). The accepted runner hard-coded expert_0010,
+            # which crashes when task-0 commits 0 experts.
+            old_checkpoint = (
+                task1_root / "committed" / "expert_{:04d}".format(old_ids[0])
+                if old_ids else None
+            )
             transaction = CommitTransaction(str(state_dir), registry)
             for slot_id in SLOT_IDS:
                 stats = summary.get(str(slot_id), {})
@@ -407,9 +439,10 @@ def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config:
                     "--candidate-state-dict",
                     str(root / "candidate" / "train" / "candidate_{}.pt".format(slot_id)),
                     "--expert-id", str(slot_id),
-                    "--old-expert-checkpoint", str(task1_root / "committed" / "expert_0010"),
                     "--output-dir", str(staging),
                 ]
+                if old_checkpoint is not None:
+                    command += ["--old-expert-checkpoint", str(old_checkpoint)]
                 env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0])
                 result = subprocess.run(command, env=env, capture_output=True, text=True)
                 (root / "logs" / "s6_{}_stdout.log".format(slot_id)).write_text(result.stdout, encoding="utf-8")
@@ -513,11 +546,27 @@ def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config:
                            "--gates", ",".join(["1.0"] * len(expert_ids))]
         else:
             expert_args = ["--expert-ids", ""]
-        checkpoint_dir = (
-            root / "candidate" / "train"
-            if (root / "candidate" / "train" / "compose_experts.json").is_file()
-            else task1_root / "committed" / "expert_0010"
-        )
+        checkpoint_dir = root / "candidate" / "train"
+        if not (checkpoint_dir / "compose_experts.json").is_file():
+            # No candidates trained (empty residual) and possibly 0 committed
+            # experts: fall back to the previous task's cold-start candidate
+            # (the last adapter state that exists in the chain). The accepted
+            # runner hard-coded task0/committed/expert_0010, which crashes
+            # when task-0 commits 0 experts.
+            checkpoint_dir = task1_root / "candidate" / "cold_start"
+            if not (checkpoint_dir / "compose_experts.json").is_file():
+                raise RuntimeError(
+                    "no checkpoint dir for task-1 eval under {}".format(root)
+                )
+            # Propagate the inherited checkpoint forward so downstream tasks
+            # can keep scoring against the last adapter state (pointer file).
+            _write_json(
+                str(root / "candidate" / "last_known_checkpoint.json"),
+                {
+                    "checkpoint_dir": str(checkpoint_dir),
+                    "note": "degenerate chain: eval against previous task cold start",
+                },
+            )
         command = [
             PYTHON, "-m", "compose.eval.eval_task",
             "--adapter-kind", "compose",
