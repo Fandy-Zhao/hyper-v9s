@@ -71,3 +71,12 @@
 - 修复：config v4（`config_hash=904ec5950db0b333`）：单卡 batch-1 × accum 24 = global 24（locked global_batch_size=24 不变；README 明确 "or keep batch-1 single-card"）；six_task_run.sh 训练用 TRAIN_GPU=4（expandable 生效），实测 3.25 s/step → task0 全量 ~54 分钟
 - 历史 config hash：v1 `d52111fc25b4b735`（batch 6×4）、v2 `e664569014c12f78`（batch 3×2×4）、v3 `6274b5498aaf825b`（batch 1×6×4）
 - 未修改已验收训练代码；仅 config + 编排脚本
+
+## 运行中修复 5（全量数据吞吐瓶颈 → config v5 dataloader workers）
+
+- commit：`6178348`（perf(v6-ucit): dataloader_num_workers=4）
+- 复现：task0 全量训练 ~13s/step（wandb epoch 0.44 / 1h38m），远慢于实测 3.3s/step
+- 根因：`LazySupervisedDataset.__getitem__` 每次重载图像+预处理，`dataloader_num_workers=0` 串行执行（dry-run 200 样本图像在缓存中掩盖了瓶颈）
+- 修复：train_v6_candidate 新增 `--dataloader-num-workers`（默认 0 保持 dry-run 路径不变）；config v5 设为 4；三个 runner 从 config 透传
+- 回归：`test_dataloader_workers_passed_from_config`；全套 360 passed + 14 subtests
+- config v5 hash：`5e9175028f59c94c`（v4 `904ec5950db0b333` 记录于上文）
