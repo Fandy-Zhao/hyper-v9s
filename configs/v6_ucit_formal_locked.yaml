@@ -119,10 +119,12 @@ training:
   warmup_ratio: 0.03
   epochs_per_task: 1
   global_batch_size: 24
-  # v2 (2026-08-06): 4 卡 batch 6 x accum 1 OOM（rank 3 CUDA OOM，23.5GB/24GB）。
-  # locked global_batch_size=24 不变；改为 per-device 3 x accum 2 x 4 卡 = 24。
-  per_device_batch_size: 3
-  grad_accumulation_steps: 2
+  # v3 (2026-08-06): batch 6 x accum 1 和 batch 3 x accum 2 均 OOM。
+  # 基础占用 ~15GB（7B bf16 + vision tower）；batch 3 激活 ~6GB 触顶。
+  # 采用与 dry-run 相同的 per-device batch 1（已验证），4 卡 DDP 并行：
+  # 4 x 1 x accum 6 = global 24。locked global_batch_size=24 不变。
+  per_device_batch_size: 1
+  grad_accumulation_steps: 6
   precision: bf16
 
 # ---------------------------------------------------------------
@@ -238,4 +240,4 @@ output:
   eval_result_root: /home/zhaozhuofan/Hyper-LlaVA/runs/results/UCIT/v6_engineering/formal
 
 # config_hash 在生成后由脚本注入（sha256 of this file content, excluding the config_hash line）
-config_hash: e664569014c12f78
+config_hash: 6274b5498aaf825b
