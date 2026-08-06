@@ -136,16 +136,14 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
         output = root / "candidate" / "cold_start"
         if output.exists():
             shutil.rmtree(str(output))
-        # Launch via torch.distributed.run (DDP): multi-GPU HF Trainer falls
-        # back to DataParallel otherwise, and DataParallel cannot split the
-        # custom ComposeSelection object (selection batch 24 != input 6).
+        # Single-GPU launch (direct python): multi-GPU would need DDP
+        # (torch.distributed.run) because DataParallel cannot split the
+        # custom ComposeSelection object, but measured single-GPU throughput
+        # through torchrun was ~4x slower than direct python (12.6 vs 3.3
+        # s/step) on this stack, so the formal run uses one GPU directly.
         # train_v6_candidate already guards rank-0 saves by --local_rank.
-        num_gpus = len([g for g in gpus.split(",") if g.strip()])
         command = [
-            PYTHON, "-m", "torch.distributed.run",
-            "--nproc_per_node", str(num_gpus),
-            "--master_port", str(master_port),
-            "-m", "compose.train.train_v6_candidate",
+            PYTHON, "-m", "compose.train.train_v6_candidate",
             "--model-path", BASE_MODEL,
             "--vision-tower", VISION_TOWER,
             "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),

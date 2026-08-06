@@ -193,17 +193,20 @@ class TestV6TaskRunIdempotency:
         with pytest.raises(ValueError, match="prev snapshot task_id"):
             runner.run_task(root, prev, 2, "0", 29661, fake_config)
 
-    def test_candidate_training_uses_torchrun_ddp(self):
-        """Multi-GPU candidate training must launch via torch.distributed.run:
-        HF Trainer would otherwise use DataParallel, which cannot split the
-        custom ComposeSelection object (selection batch 24 != input 6)."""
+    def test_candidate_training_launches_single_gpu(self):
+        """The formal run trains on one GPU via direct python (not torchrun):
+        measured single-GPU throughput through torchrun was ~4x slower
+        (12.6 vs 3.3 s/step) on this stack, and multi-GPU would need DDP
+        because DataParallel cannot split the custom ComposeSelection."""
         text = (REPO / "compose/experiments/v6_task1_dry_run.py").read_text()
-        assert "torch.distributed.run" in text
-        assert "--nproc_per_node" in text
+        assert '"compose.train.train_v6_candidate"' in text
+        assert '"torch.distributed.run"' not in text
         text2 = (REPO / "compose/experiments/v6_task2_dry_run.py").read_text()
-        assert "torch.distributed.run" in text2
+        assert '"compose.train.train_v6_candidate"' in text2
+        assert '"torch.distributed.run"' not in text2
         text3 = (REPO / "compose/experiments/v6_task_run.py").read_text()
-        assert "torch.distributed.run" in text3
+        assert '"compose.train.train_v6_candidate"' in text3
+        assert '"torch.distributed.run"' not in text3
 
     def test_dataloader_workers_passed_from_config(self):
         """Runner must forward dataloader_num_workers from the locked config

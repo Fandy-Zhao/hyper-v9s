@@ -293,14 +293,9 @@ def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config:
             output = root / "candidate" / "train"
             if output.exists():
                 shutil.rmtree(str(output))
-            # DDP launch (see v6_task1_dry_run S2 for the rationale):
-            # DataParallel cannot split ComposeSelection.
-            num_gpus = len([g for g in gpus.split(",") if g.strip()])
+            # Single-GPU launch (see v6_task1_dry_run S2 for the rationale).
             command = [
-                PYTHON, "-m", "torch.distributed.run",
-                "--nproc_per_node", str(num_gpus),
-                "--master_port", str(master_port),
-                "-m", "compose.train.train_v6_candidate",
+                PYTHON, "-m", "compose.train.train_v6_candidate",
                 "--model-path", BASE_MODEL,
                 "--vision-tower", VISION_TOWER,
                 "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
