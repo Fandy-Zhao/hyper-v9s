@@ -193,6 +193,18 @@ class TestV6TaskRunIdempotency:
         with pytest.raises(ValueError, match="prev snapshot task_id"):
             runner.run_task(root, prev, 2, "0", 29661, fake_config)
 
+    def test_candidate_training_uses_torchrun_ddp(self):
+        """Multi-GPU candidate training must launch via torch.distributed.run:
+        HF Trainer would otherwise use DataParallel, which cannot split the
+        custom ComposeSelection object (selection batch 24 != input 6)."""
+        text = (REPO / "compose/experiments/v6_task1_dry_run.py").read_text()
+        assert "torch.distributed.run" in text
+        assert "--nproc_per_node" in text
+        text2 = (REPO / "compose/experiments/v6_task2_dry_run.py").read_text()
+        assert "torch.distributed.run" in text2
+        text3 = (REPO / "compose/experiments/v6_task_run.py").read_text()
+        assert "torch.distributed.run" in text3
+
     def test_slot_ids_unique_per_task(self):
         # task0 -> 10 (cold start), task1 -> 20/21 (accepted runner),
         # task t>=2 -> (t+1)*10, (t+1)*10+1; all unique across the pool.
