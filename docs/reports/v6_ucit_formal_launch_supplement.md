@@ -60,3 +60,14 @@
 - 修复：config v2（`config_hash=e664569014c12f78`）：locked `global_batch_size=24` 不变，改为 per-device 3 × accum 2 × 4 卡 = 24
 - 记录：修改原因写入 config 注释；run root 不变（seed 42 无已完成输出，无 superseded 需要）；旧 config v1 hash `d52111fc25b4b735` 记录于此
 - 回归：config hash 自洽测试动态适配
+
+## 运行中修复 4（OOM 根因定位 → config v4 单卡 batch-1）
+
+- 根因链（2026-08-06 凌晨诊断）：
+  1. `config.attn_implementation="flash_attention_2"` 在 transformers 4.33 下**从未生效**（LlamaDecoderLayer 硬编码 LlamaAttention）→ 单样本 forward 峰值 ~22.75GB（eager attention 激活 8.5GB）贴 24GB 上限
+  2. 4 卡 DDP 下 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments` 报 "not supported"（每 rank 打印警告）→ DDP 每 rank 额外开销（find_unused_parameters 遍历等）导致 OOM
+  3. 单卡 + expandable_segments 实测 PASSED（200 样本 14.33GB；dry-run 正是此配置）
+  4. gradient checkpointing 与 frozen-backbone 冲突（KI-003 预言，实测 RuntimeError: element 0 does not require grad）
+- 修复：config v4（`config_hash=904ec5950db0b333`）：单卡 batch-1 × accum 24 = global 24（locked global_batch_size=24 不变；README 明确 "or keep batch-1 single-card"）；six_task_run.sh 训练用 TRAIN_GPU=4（expandable 生效），实测 3.25 s/step → task0 全量 ~54 分钟
+- 历史 config hash：v1 `d52111fc25b4b735`（batch 6×4）、v2 `e664569014c12f78`（batch 3×2×4）、v3 `6274b5498aaf825b`（batch 1×6×4）
+- 未修改已验收训练代码；仅 config + 编排脚本

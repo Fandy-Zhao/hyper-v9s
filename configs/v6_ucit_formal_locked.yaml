@@ -119,12 +119,14 @@ training:
   warmup_ratio: 0.03
   epochs_per_task: 1
   global_batch_size: 24
-  # v3 (2026-08-06): batch 6 x accum 1 和 batch 3 x accum 2 均 OOM。
-  # 基础占用 ~15GB（7B bf16 + vision tower）；batch 3 激活 ~6GB 触顶。
-  # 采用与 dry-run 相同的 per-device batch 1（已验证），4 卡 DDP 并行：
-  # 4 x 1 x accum 6 = global 24。locked global_batch_size=24 不变。
+  # v4 (2026-08-06): 单卡 batch-1 x accum 24 = global 24（dry-run 完全一致的
+  # 已验证配置；README 明确 "or keep batch-1 single-card"）。
+  # 原因：4 卡 DDP 下 PYTORCH_CUDA_ALLOC_CONF=expandable_segments 报
+  # "not supported"，eager attention 单样本 forward 峰值 ~22.75GB 贴线，
+  # DDP 每 rank 额外开销导致 OOM；单卡 + expandable 实测 PASSED
+  # （3.25 s/step，task0 全量 ~54 分钟）。locked global_batch_size=24 不变。
   per_device_batch_size: 1
-  grad_accumulation_steps: 6
+  grad_accumulation_steps: 24
   precision: bf16
 
 # ---------------------------------------------------------------
@@ -240,4 +242,4 @@ output:
   eval_result_root: /home/zhaozhuofan/Hyper-LlaVA/runs/results/UCIT/v6_engineering/formal
 
 # config_hash 在生成后由脚本注入（sha256 of this file content, excluding the config_hash line）
-config_hash: 6274b5498aaf825b
+config_hash: 904ec5950db0b333

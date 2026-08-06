@@ -32,7 +32,7 @@ for task_dir in sorted(root.glob("task*")):
 PYEOF
 
 echo "== 2. 从断点恢复（六任务编排；已完成阶段自动跳过） =="
-bash "$REPO/scripts/v6_ucit/six_task_run.sh" "$SEED" "$GPUS"
+TRAIN_GPU="${TRAIN_GPU:-4}" bash "$REPO/scripts/v6_ucit/six_task_run.sh" "$SEED" "$GPUS"
 
 echo "== 3. 恢复后验证 =="
 echo "   - 不重复提交：registry 中已提交专家 id 不重复（CommitTransaction 拒绝复用）"
