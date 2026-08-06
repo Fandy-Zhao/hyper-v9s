@@ -119,8 +119,10 @@ training:
   warmup_ratio: 0.03
   epochs_per_task: 1
   global_batch_size: 24
-  per_device_batch_size: 6    # 正式：4 卡 x 6 x accum 1 = global 24（KI-003）
-  grad_accumulation_steps: 1
+  # v2 (2026-08-06): 4 卡 batch 6 x accum 1 OOM（rank 3 CUDA OOM，23.5GB/24GB）。
+  # locked global_batch_size=24 不变；改为 per-device 3 x accum 2 x 4 卡 = 24。
+  per_device_batch_size: 3
+  grad_accumulation_steps: 2
   precision: bf16
 
 # ---------------------------------------------------------------
@@ -236,4 +238,4 @@ output:
   eval_result_root: /home/zhaozhuofan/Hyper-LlaVA/runs/results/UCIT/v6_engineering/formal
 
 # config_hash 在生成后由脚本注入（sha256 of this file content, excluding the config_hash line）
-config_hash: d52111fc25b4b735
+config_hash: e664569014c12f78

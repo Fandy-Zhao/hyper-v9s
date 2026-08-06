@@ -51,3 +51,12 @@
 - 根因：多卡 HF Trainer 未初始化分布式时回退 DataParallel；DataParallel 只切分 tensor 输入，自定义 ComposeSelection（batch 24）被逐字复制到每个 replica，与切分后的输入（batch 6）不匹配。dry-run 只跑过单卡 batch-1（README 明确 4 卡是建议、从未实测）
 - 修复：train_v6_candidate 经 `torch.distributed.run`（DDP）启动——每个 rank 独立 forward，selection 与 input 天然一致；rank-0 保存逻辑已存在（--local_rank）；DDP 同时让 encode_images 的 dtype guard 成为 no-op
 - 回归：`test_candidate_training_uses_torchrun_ddp`；全套 359 passed + 14 subtests
+
+## 运行中修复 3（seed 42 task0 冷启动 OOM → config v2）
+
+- commit：`（随 config v2 提交）`
+- 复现：seed 42 task0 冷启动，4 卡 batch 6 × accum 1 → rank 3 `torch.cuda.OutOfMemoryError`（23.5GB/24GB）
+- 根因：README KI-003 建议的 "batch 6 x accum 1 x 4 cards" 从未实测；每卡 batch 6 激活内存超 24GB
+- 修复：config v2（`config_hash=e664569014c12f78`）：locked `global_batch_size=24` 不变，改为 per-device 3 × accum 2 × 4 卡 = 24
+- 记录：修改原因写入 config 注释；run root 不变（seed 42 无已完成输出，无 superseded 需要）；旧 config v1 hash `d52111fc25b4b735` 记录于此
+- 回归：config hash 自洽测试动态适配
