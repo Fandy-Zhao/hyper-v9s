@@ -162,6 +162,10 @@ def train() -> None:
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--local_rank", type=int, default=None)
     parser.add_argument("--deepspeed", default=None)
+    # dataloader 预取并行度。正式全量任务（23998 样本）在 num_workers=0 时
+    # 每次 __getitem__ 串行重载图像+预处理，成为训练瓶颈（~13s/step）；
+    # 多 worker 预取可恢复 ~3.3s/step 的纯计算速度。
+    parser.add_argument("--dataloader-num-workers", type=int, default=0)
     args = parser.parse_args()
     if args.local_rank is None:
         args.local_rank = int(
@@ -266,7 +270,7 @@ def train() -> None:
         deepspeed=args.deepspeed,
         remove_unused_columns=False,
         dataloader_drop_last=True,
-        dataloader_num_workers=0,
+        dataloader_num_workers=args.dataloader_num_workers,
         model_max_length=2048,
     )
     trainer = V6CandidateTrainer(

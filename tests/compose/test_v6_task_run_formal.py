@@ -205,6 +205,23 @@ class TestV6TaskRunIdempotency:
         text3 = (REPO / "compose/experiments/v6_task_run.py").read_text()
         assert "torch.distributed.run" in text3
 
+    def test_dataloader_workers_passed_from_config(self):
+        """Runner must forward dataloader_num_workers from the locked config
+        to train_v6_candidate (full-data training bottleneck fix)."""
+        for path in (
+            "compose/experiments/v6_task1_dry_run.py",
+            "compose/experiments/v6_task2_dry_run.py",
+            "compose/experiments/v6_task_run.py",
+        ):
+            text = (REPO / path).read_text()
+            assert "dataloader-num-workers" in text
+            assert "dataloader_num_workers" in text
+        config = _load_config()
+        assert config["training"]["dataloader_num_workers"] >= 1
+        assert (REPO / "compose/train/train_v6_candidate.py").read_text().count(
+            "dataloader-num-workers"
+        ) >= 1
+
     def test_slot_ids_unique_per_task(self):
         # task0 -> 10 (cold start), task1 -> 20/21 (accepted runner),
         # task t>=2 -> (t+1)*10, (t+1)*10+1; all unique across the pool.

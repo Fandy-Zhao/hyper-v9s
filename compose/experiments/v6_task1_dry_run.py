@@ -160,6 +160,8 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
             "--per-device-batch-size", str(config["training"]["per_device_batch_size"]),
             "--grad-accum", str(config["training"]["grad_accumulation_steps"]),
             "--seed", str(config["data"]["seed"]),
+            "--dataloader-num-workers",
+            str(config["training"].get("dataloader_num_workers", 0)),
         ]
         env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpus, MASTER_PORT=str(master_port))
         result = subprocess.run(command, env=env, capture_output=True, text=True)

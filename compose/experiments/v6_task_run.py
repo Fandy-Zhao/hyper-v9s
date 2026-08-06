@@ -604,6 +604,8 @@ def run_task(
                 "--per-device-batch-size", str(config["training"]["per_device_batch_size"]),
                 "--grad-accum", str(config["training"]["grad_accumulation_steps"]),
                 "--seed", str(seed),
+                "--dataloader-num-workers",
+                str(config["training"].get("dataloader_num_workers", 0)),
             ]
             if old_checkpoint is not None:
                 command += ["--old-expert-checkpoint", str(old_checkpoint)]

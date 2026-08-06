@@ -315,6 +315,8 @@ def run_task2(root: Path, task1_root: Path, gpus: str, master_port: int, config:
                 "--per-device-batch-size", str(config["training"]["per_device_batch_size"]),
                 "--grad-accum", str(config["training"]["grad_accumulation_steps"]),
                 "--seed", str(config["data"]["seed"]),
+                "--dataloader-num-workers",
+                str(config["training"].get("dataloader_num_workers", 0)),
             ]
             if old_checkpoint is None:
                 command.remove("--old-expert-checkpoint")
