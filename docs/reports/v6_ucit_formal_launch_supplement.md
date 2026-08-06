@@ -116,3 +116,38 @@
   全套结果见 commit 信息。
 - 受影响 seed：42（task0 已完成且不受影响；task1 未提交任何专家、无快照——
   安全重跑，从 task1 幂等续跑）。
+
+## 运行中修复 7（task0 below_tau 为 bug 产物：验证切片恒空 → config v6 + 防护）★推翻运行中修复 6 的受影响判断★
+
+- commit：`（独立 commit，见本节尾部）`
+- 复现（seed 42 task1 完成、task2 S1 进行中时审计发现）：
+  - task0 `validation/summary.json` 为 `{"samples": 0, "mean_gain": 0.0,
+    "support_count": 0}`，而 config `validation_samples: 256`、tau_support 8。
+  - 根因链：`configs/v6_ucit_formal_locked.yaml` v5 的
+    `cold_start_train_samples: 23998` **恰好等于** ImageNet-R train.json 总记录数
+    （23998，manifest `train_records: 23998`）；S1 验证切片
+    `records[23998:24254]` 恒为空 → `validation_subset.json` 0 样本 →
+    v6_nll_eval 0 行 → `mean_gain 0.0 / support_count 0` → below_tau（0 提交）
+    是**切片 bug 产物，不是数据驱动结果**。
+  - 后果：task0 的 below_tau 无效 → 空 registry 退化链（task1-5 全部 0 提交）
+    建立在无效输入上，**整个 seed 42 结果作废**。运行中修复 6 的
+    「task0 不受影响」判断被推翻（当时只查了 task0 的 s1-s8 阶段绿，未审计
+    validation 样本数）。
+- 修复：
+  1. config **v6**（`config_hash=30020824bf7bf084`）：task0
+     `cold_start_train_samples: 23998 → 23742`（= 23998 − 256，为
+     validation_samples=256 保留切片；23742+256=23998 仍为全量数据，
+     train 与 validation 均来自 train.json，test 永不用于验证）。
+     修改原因写入 config 注释；v5 hash `5e9175028f59c94c` 记录于此。
+  2. `v6_task1_dry_run.py`：新增 `_draw_train_val_splits()`——切片不足时
+     抛错（`train split is short`），从源头杜绝静默空验证；S3 对
+     gains 空列表抛错（`refusing a below_tau decision on an empty validation`）。
+  3. `v6_task2_dry_run.py` S5 / `v6_task_run.py` S6：同一族防护——per-slot
+     gains 为空时抛错（不再静默写入 `mean_gain 0.0` 然后 below_tau）。
+- 回归：新增 2 项（`test_draw_train_val_splits_raises_on_short_dataset` 单元、
+  `test_task0_cold_start_split_fits_real_dataset` 真数据 config 校验——
+  该测试直接复现原 bug：v5 配置下 `_draw_train_val_splits(records, 23998, 256)`
+  抛错）；全套结果见 commit 信息。
+- 受影响 seed：**42 全部标记 INVALID**（task0 below_tau 无效，task1-5 全为
+  退化链产物）。run root 改名 `seed_42_INVALID_validation_bug` 留证，
+  以 config v6 全新重跑 seed 42（任务顺序不变）。

@@ -776,9 +776,14 @@ def run_task(
                     for row in nll.values()
                     if "old_plus_{}".format(slot_id) in row
                 ]
+                if not gains:
+                    raise RuntimeError(
+                        "validation produced 0 scored samples for slot {}; "
+                        "refusing a below_tau decision on an empty validation".format(slot_id)
+                    )
                 summary[str(slot_id)] = {
                     "samples": len(gains),
-                    "mean_gain": sum(gains) / len(gains) if gains else 0.0,
+                    "mean_gain": sum(gains) / len(gains),
                     "support_count": sum(1 for gain in gains if gain > 0),
                 }
             _write_json(str(root / "validation" / "summary.json"), summary)

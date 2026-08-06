@@ -48,6 +48,30 @@ def _sha256_file(path: str) -> str:
     return digest.hexdigest()
 
 
+def _draw_train_val_splits(records, cold_start_count: int, val_count: int):
+    """Draw [0:cold_start_count) for cold start and
+    [cold_start_count:cold_start_count+val_count) for validation.
+
+    Raises when the dataset cannot supply the full validation slice —
+    a short/empty slice silently yields an all-below_tau commit decision
+    (mean_gain 0.0 on 0 samples), which is a bug artifact, not a
+    data-driven outcome (seed-42 task0: cold_start=23998 == total records
+    made the validation slice empty)."""
+    if len(records) < cold_start_count + val_count:
+        raise RuntimeError(
+            "train split is short: need cold_start {} + validation {} = {} "
+            "records, but train.json has {}".format(
+                cold_start_count, val_count, cold_start_count + val_count, len(records)
+            )
+        )
+    train_ids = [str(record["id"]) for record in records[:cold_start_count]]
+    val_ids = [
+        str(record["id"])
+        for record in records[cold_start_count: cold_start_count + val_count]
+    ]
+    return train_ids, val_ids
+
+
 def _write_json(path: str, payload) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
@@ -96,11 +120,7 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
             records = json.load(handle)
         cold_start_count = config["tasks"][0]["cold_start_train_samples"]
         val_count = config["tasks"][0]["validation_samples"]
-        train_ids = [str(record["id"]) for record in records[:cold_start_count]]
-        val_ids = [
-            str(record["id"])
-            for record in records[cold_start_count: cold_start_count + val_count]
-        ]
+        train_ids, val_ids = _draw_train_val_splits(records, cold_start_count, val_count)
         _write_json(
             str(root / "data" / "manifest.json"),
             {
@@ -210,7 +230,12 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
             for row in nll.values()
             if "candidate" in row
         ]
-        mean_gain = sum(gains) / len(gains) if gains else 0.0
+        if not gains:
+            raise RuntimeError(
+                "validation produced 0 scored samples (empty vs candidate); "
+                "refusing a below_tau decision on an empty validation"
+            )
+        mean_gain = sum(gains) / len(gains)
         support = sum(1 for gain in gains if gain > 0)
         _write_json(
             str(root / "validation" / "summary.json"),

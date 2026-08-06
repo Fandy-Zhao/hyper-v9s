@@ -48,7 +48,14 @@ task_sequence:
 tasks:
   - task_id: 0
     name: ImageNet-R
-    cold_start_train_samples: 23998   # 全量（README/exact_commands：正式规模 full）
+    # v6 (2026-08-06, Section-12 bug fix): 23998 -> 23742。v5 的
+    # cold_start_train_samples=23998 恰好等于 train.json 总记录数（23998），
+    # S1 验证切片 records[23998:24254] 恒为空 -> validation/summary.json
+    # samples=0 -> below_tau 是 bug 产物（seed 42 task0 因此 0 提交，整条
+    # 退化链作废）。修正为 23742，为 validation_samples=256 保留切片；
+    # 23742+256=23998 仍为全量数据（train 与 validation 均来自 train.json，
+    # test 永不用于验证）。v5 hash 5e9175028f59c94c 记录于 deviation report。
+    cold_start_train_samples: 23742   # 全量 23998 - 验证保留 256
     validation_samples: 256
   - task_id: 1
     name: ArxivQA
@@ -243,4 +250,4 @@ output:
   eval_result_root: /home/zhaozhuofan/Hyper-LlaVA/runs/results/UCIT/v6_engineering/formal
 
 # config_hash 在生成后由脚本注入（sha256 of this file content, excluding the config_hash line）
-config_hash: 5e9175028f59c94c
+config_hash: 30020824bf7bf084

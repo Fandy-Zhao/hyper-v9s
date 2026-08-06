@@ -186,6 +186,48 @@ class TestV6TaskRunIdempotency:
         history = json.loads((root / "state" / "task_state.json").read_text())["history"]
         assert sum(1 for item in history if item["note"] == "prev snapshot loaded") == 1
 
+    def test_draw_train_val_splits_raises_on_short_dataset(self):
+        """The task-0 split must never silently return a short/empty
+        validation slice: a 0-sample validation silently yields an
+        all-below_tau commit decision (mean_gain 0.0), which is a bug
+        artifact, not a data-driven outcome."""
+        from compose.experiments import v6_task1_dry_run as runner
+
+        records = [{"id": i} for i in range(5)]
+        # cold start consumes everything -> validation slice empty -> loud error
+        with pytest.raises(RuntimeError, match="train split is short"):
+            runner._draw_train_val_splits(records, 5, 2)
+        with pytest.raises(RuntimeError, match="train split is short"):
+            runner._draw_train_val_splits(records, 4, 2)
+        # a fitting split draws disjoint slices
+        train_ids, val_ids = runner._draw_train_val_splits(records, 3, 2)
+        assert train_ids == ["0", "1", "2"]
+        assert val_ids == ["3", "4"]
+
+    def test_task0_cold_start_split_fits_real_dataset(self):
+        """Config v6 regression: the locked cold_start_train_samples +
+        validation_samples must fit the real ImageNet-R train.json, and the
+        validation slice must be non-empty. v5 set cold_start = the full
+        23998 records, making records[23998:24254] empty; task0 then
+        committed 0 experts via below_tau on a 0-sample validation."""
+        import yaml
+
+        from compose.experiments import v6_task1_dry_run as runner
+
+        with open(FORMAL_CONFIG, "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
+        task0 = config["tasks"][0]
+        seq0 = config["task_sequence"][0]
+        with open(seq0["train_instructions"], "r", encoding="utf-8") as handle:
+            records = json.load(handle)
+        cold_start = task0["cold_start_train_samples"]
+        val_count = task0["validation_samples"]
+        train_ids, val_ids = runner._draw_train_val_splits(
+            records, cold_start, val_count
+        )
+        assert len(train_ids) == cold_start
+        assert len(val_ids) == val_count
+
     def test_task2_teacher_search_selections_empty_registry(self):
         """The task-1 runner's S1 selections must not crash on an empty
         registry (seed-42 task0 committed 0 experts, below_tau): only the
