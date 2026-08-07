@@ -16,6 +16,7 @@ import types
 from pathlib import Path
 
 import pytest
+import torch
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
@@ -144,47 +145,204 @@ class TestV6TaskRunIdempotency:
         )
         return prev
 
-    def test_run_task_s0_idempotent_on_resume(self, tmp_path, fake_config, fake_prev_root):
-        """S0 runs once. An empty-registry prev root (no adapter state
-        anywhere) degrades into empty-teacher records through S10 and only
-        fails at S11 eval (no checkpoint dir). A resumed run skips S0..S10
-        and fails identically, proving the stage markers gate
-        re-execution."""
+    def test_run_task_empty_registry_s0_idempotent_and_rebootstrap(
+        self, tmp_path, fake_config, fake_prev_root, monkeypatch
+    ):
+        """Empty-registry fix: S0 runs once; an empty active pool scores the
+        base-only pool (real base NLL, never the old synthetic None losses),
+        the residual split produces candidate material, and candidate
+        training re-bootstraps WITHOUT --old-expert-checkpoint. The mock
+        validation gains stay below tau_support (locked config), so both
+        candidates are rejected and archived; eval then scores the base-only
+        pool. A resumed run skips every stage (markers gate re-execution)."""
         from compose.experiments import v6_task_run as runner
 
+        captured = {}
+
+        def fake_subprocess_run(command, env=None, capture_output=False, text=False,
+                                **kwargs):
+            if command[0] == "git":
+                return types.SimpleNamespace(
+                    stdout="mockcommit", stderr="", returncode=0
+                )
+            if command[0] == "nvidia-smi":
+                return types.SimpleNamespace(
+                    stdout="", stderr="", returncode=0
+                )
+            module = command[2]
+            if module == "compose.eval.v6_nll_eval":
+                output = next(
+                    command[index + 1]
+                    for index, arg in enumerate(command)
+                    if arg == "--output"
+                )
+                selections_path = next(
+                    command[index + 1]
+                    for index, arg in enumerate(command)
+                    if arg == "--selections"
+                )
+                selections = json.loads(Path(selections_path).read_text())
+                rows = {}
+                for sample_id, keys in selections.items():
+                    row = {}
+                    for key in keys:
+                        if key == "empty" or key == "old":
+                            row[key] = 5.0
+                        else:
+                            row[key] = 3.9
+                    rows[sample_id] = row
+                Path(output).parent.mkdir(parents=True, exist_ok=True)
+                Path(output).write_text(json.dumps(rows), encoding="utf-8")
+            elif module == "compose.eval.v6_query_features":
+                output = next(
+                    command[index + 1]
+                    for index, arg in enumerate(command)
+                    if arg == "--output"
+                )
+                questions = json.loads(
+                    Path(
+                        next(
+                            command[index + 1]
+                            for index, arg in enumerate(command)
+                            if arg == "--questions"
+                        )
+                    ).read_text()
+                )
+                records = {}
+                for index, record in enumerate(questions):
+                    sample_id = record.get("id", record.get("question_id"))
+                    # Distinct rows: k-means++ needs at least as many
+                    # distinct query rows as candidate slots.
+                    records[str(sample_id)] = {
+                        "image": [0.01 + 0.001 * index] * 768
+                    }
+                Path(output).parent.mkdir(parents=True, exist_ok=True)
+                Path(output).write_text(
+                    json.dumps({"records": records}), encoding="utf-8"
+                )
+            elif module == "compose.train.train_v6_candidate":
+                captured["candidate_command"] = command
+                output_dir = Path(
+                    next(
+                        command[index + 1]
+                        for index, arg in enumerate(command)
+                        if arg == "--output-dir"
+                    )
+                )
+                output_dir.mkdir(parents=True, exist_ok=True)
+                (output_dir / "compose_experts.json").write_text(
+                    json.dumps({"format_version": 1, "experts": []}),
+                    encoding="utf-8",
+                )
+                for slot in next(
+                    command[index + 1]
+                    for index, arg in enumerate(command)
+                    if arg == "--candidate-ids"
+                ).split(","):
+                    torch.save({}, str(output_dir / "candidate_{}.pt".format(slot)))
+            elif module == "compose.eval.v6_assemble_expert":
+                output_dir = Path(
+                    next(
+                        command[index + 1]
+                        for index, arg in enumerate(command)
+                        if arg == "--output-dir"
+                    )
+                )
+                output_dir.mkdir(parents=True, exist_ok=True)
+                (output_dir / "compose_experts.bin").write_bytes(b"")
+                (output_dir / "compose_experts.json").write_text(
+                    json.dumps({"format_version": 1, "experts": []}),
+                    encoding="utf-8",
+                )
+                (output_dir / "assembly.json").write_text(
+                    json.dumps(
+                        {
+                            "compose_experts_bin_sha256": "a" * 64,
+                            "compose_experts_json_sha256": "b" * 64,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            elif module == "compose.eval.eval_task":
+                answers = next(
+                    command[index + 1]
+                    for index, arg in enumerate(command)
+                    if arg == "--answers-file"
+                )
+                summary = next(
+                    command[index + 1]
+                    for index, arg in enumerate(command)
+                    if arg == "--run-summary-file"
+                )
+                Path(answers).parent.mkdir(parents=True, exist_ok=True)
+                Path(answers).write_text("", encoding="utf-8")
+                Path(summary).write_text(
+                    json.dumps({"samples": 0}), encoding="utf-8"
+                )
+            else:
+                raise AssertionError("unexpected module: {}".format(module))
+            return types.SimpleNamespace(stdout="", stderr="", returncode=0)
+
+        monkeypatch.setattr(runner.subprocess, "run", fake_subprocess_run)
+
         root = tmp_path / "task2"
-        # First attempt: S0 succeeds, S1 degrades (empty registry), the
-        # degenerate chain completes S2-S10, and S11 has no checkpoint to
-        # score against.
-        with pytest.raises(RuntimeError, match="no checkpoint dir for eval"):
-            runner.run_task(root, fake_prev_root, 2, "0", 29661, fake_config)
+        runner.run_task(root, fake_prev_root, 2, "0", 29661, fake_config)
         assert (root / "stages" / "s0_snapshot_load.done").is_file()
-        assert (root / "stages" / "s1_teacher.done").is_file()
         state = json.loads((root / "state" / "task_state.json").read_text())
-        assert state["task_id"] == 2
-        # the degenerate chain runs S1-S10 (commit 0, empty router, snapshot)
-        assert state["stage"] == "SNAPSHOT_READY"
-        # degenerate teacher records: everything empty-teacher, audited
+        assert state["stage"] == "COMPLETED"
+
+        # S1: base teacher over the base-only pool -> real losses (R4).
         summary = json.loads((root / "teacher" / "summary.json").read_text())
-        assert summary["note"].startswith("no old adapter state")
-        assert summary["train_teacher_empty_count"] == summary["train_samples"]
+        assert summary["base_only_mode"] is True
+        assert summary["active_expert_ids"] == []
+        assert summary["pool_checkpoint_dir"].endswith(
+            str(Path("prev") / "candidate" / "base_only")
+        )
         records = json.loads(
             (root / "teacher" / "teacher_records_train.json").read_text()
         )
         assert records
         assert all(record["teacher_set"] == [] for record in records)
-        assert all(record["empty_loss"] is None for record in records)
+        assert all(
+            record["empty_loss"] is not None for record in records
+        ), "base-only teacher must score real NLL, never None"
+
+        # S3: empty registry still produces residual material (R5).
+        residual = json.loads((root / "residual" / "residual.json").read_text())
+        assert len(residual) == 2
+        assert all(
+            record["residual_reason"] == "base_only_insufficient"
+            for record in residual
+        )
+        assert all(record["old_gain"] == 0.0 for record in residual)
+
+        # S5: re-bootstrap mode — same trainer, no old-expert flag (R6).
+        mode = json.loads((root / "candidate" / "mode.json").read_text())
+        assert mode["mode"] == "rebootstrap"
+        assert mode["old_expert_checkpoint"] is None
+        assert "--old-expert-checkpoint" not in captured["candidate_command"]
+
+        # S7: validation gains below the locked tau_support -> rejected
+        # candidates archived as diagnostics (R2); never active.
         commit = json.loads((root / "committed" / "commit_record.json").read_text())
         assert commit["committed_expert_ids"] == []
+        assert commit["reason"] == "all_candidates_below_tau"
+        registry = json.loads(
+            (root / "state" / "expert_registry.json").read_text()
+        )
+        assert registry["active_lifecycle_ids"] == []
+        assert sorted(registry["rejected_candidate_ids"]) == [30, 31]
+        assert (root / "rejected_candidates" / "task_02" / "candidate_30").is_dir()
 
-        # Second (resume) attempt: S0 must not be re-executed (advancing
-        # DATA_READY -> DATA_READY would raise); the same late failure
-        # proves the markers gate every stage.
-        with pytest.raises(RuntimeError, match="no checkpoint dir for eval"):
-            runner.run_task(root, fake_prev_root, 2, "0", 29661, fake_config)
-        assert (root / "stages" / "s0_snapshot_load.done").is_file()
+        # S11: empty selection over the base-only pool (R3): no
+        # inherited-checkpoint fallback, no last_known_checkpoint.
+        assert not (root / "candidate" / "last_known_checkpoint.json").exists()
+
+        # Resume: every stage marker gates re-execution; S0 runs once.
+        runner.run_task(root, fake_prev_root, 2, "0", 29661, fake_config)
         history = json.loads((root / "state" / "task_state.json").read_text())["history"]
         assert sum(1 for item in history if item["note"] == "prev snapshot loaded") == 1
+        assert (root / "stages" / "s11_eval.done").is_file()
 
     def test_draw_train_val_splits_raises_on_short_dataset(self):
         """The task-0 split must never silently return a short/empty
@@ -268,30 +426,99 @@ class TestV6TaskRunIdempotency:
             "2": {"empty": [], "single_10": [10]},
         }
 
-    def test_old_checkpoint_chain_falls_back_to_pointer(self, tmp_path):
-        """The degenerate chain resolves a checkpoint through the
-        last-known-checkpoint pointer written by the previous task's eval;
-        dangling pointers are ignored."""
+    def test_pool_checkpoint_resolution_no_fallback_to_rejected(self, tmp_path):
+        """R3/R9: the scoring pool is the snapshot's pool_checkpoint_dir or
+        the base-only pool — never a last-known pointer or a cold-start
+        candidate. An empty active registry ALWAYS scores the base-only
+        pool even when a rejected candidate's pool exists on disk."""
         from compose.experiments import v6_task_run as runner
+        from compose.experiments.v6_snapshot import V6Snapshot
+        from compose.experts.metadata import ExpertLifecycleStatus, ExpertMetadata
         from compose.experts.registry import ExpertRegistry
+        from compose.experts.task_state import TaskStage, TaskStateMachine
 
-        prev = tmp_path / "prev"
-        assert runner._old_expert_checkpoint_chain(prev, ExpertRegistry()) is None
-        cold = tmp_path / "cold_start"
-        cold.mkdir(parents=True)
-        (cold / "compose_experts.json").write_text("{}", encoding="utf-8")
-        pointer_dir = prev / "candidate"
-        pointer_dir.mkdir(parents=True)
-        (pointer_dir / "last_known_checkpoint.json").write_text(
-            json.dumps({"checkpoint_dir": str(cold)}), encoding="utf-8"
+        # Rejected candidate pool exists on disk (the old fallback target).
+        rejected_pool = tmp_path / "prev" / "candidate" / "cold_start"
+        rejected_pool.mkdir(parents=True)
+        (rejected_pool / "compose_experts.json").write_text("{}", encoding="utf-8")
+
+        registry = ExpertRegistry()
+        machine = TaskStateMachine(1, "ArxivQA")
+        machine.advance(TaskStage.DATA_READY, note="mock")
+        snap_dir = tmp_path / "prev" / "snapshots" / "task1"
+        V6Snapshot.create(
+            str(snap_dir),
+            task_id=1,
+            task_name="ArxivQA",
+            registry=registry,
+            task_state=machine,
+            git_commit="mock",
+            command="mock",
+            data_hash="mock",
         )
-        assert runner._last_known_checkpoint_dir(prev) == cold
-        assert runner._old_expert_checkpoint_chain(prev, ExpertRegistry()) == cold
-        # dangling pointer is ignored
-        (pointer_dir / "last_known_checkpoint.json").write_text(
-            json.dumps({"checkpoint_dir": str(tmp_path / "missing")}), encoding="utf-8"
+        snapshot = V6Snapshot.load(str(snap_dir))
+
+        # Empty active registry -> base-only pool, rejected weights ignored.
+        pool = runner._resolve_pool_checkpoint_dir(snapshot, tmp_path / "prev", registry)
+        assert pool == tmp_path / "prev" / "candidate" / "base_only"
+        assert (pool / "compose_experts.json").is_file()
+
+        # A declared pool dir is honored only with a non-empty active
+        # registry; an empty active registry always means base-only (the
+        # pointer could be a pre-fix chain into rejected weights).
+        declared = tmp_path / "prev" / "candidate" / "train"
+        declared.mkdir(parents=True)
+        (declared / "compose_experts.json").write_text("{}", encoding="utf-8")
+        active_registry = ExpertRegistry()
+        for expert_id in (20, 21):
+            metadata = ExpertMetadata(
+                expert_id=expert_id,
+                adapter_name="e{:04d}".format(expert_id),
+                rank=8,
+                alpha=16.0,
+                creation_task=1,
+                creation_task_name="ArxivQA",
+                created_seed=42,
+                checkpoint_path=str(
+                    tmp_path / "prev" / "committed"
+                    / "expert_{:04d}".format(expert_id) / "compose_experts.bin"
+                ),
+                checkpoint_sha256="c" * 64,
+                lifecycle_status=ExpertLifecycleStatus.CANDIDATE,
+            )
+            active_registry.register(metadata)
+            active_registry.mark_provisional(
+                expert_id, {"task_id": 1, "support_count": 20,
+                            "mean_conditional_gain": 0.2}
+            )
+        V6Snapshot.create(
+            str(tmp_path / "snap2"),
+            task_id=1,
+            task_name="ArxivQA",
+            registry=active_registry,
+            task_state=machine,
+            git_commit="mock",
+            command="mock",
+            data_hash="mock",
+            pool_checkpoint_dir=str(declared),
         )
-        assert runner._old_expert_checkpoint_chain(prev, ExpertRegistry()) is None
+        snapshot2 = V6Snapshot.load(str(tmp_path / "snap2"))
+        assert (
+            runner._resolve_pool_checkpoint_dir(
+                snapshot2, tmp_path / "prev", active_registry
+            )
+            == declared
+        )
+
+        # Pre-fix snapshot (no field) with an active expert: resolved from
+        # the registry metadata (newest formal expert's checkpoint parent).
+        newest_dir = tmp_path / "prev" / "committed" / "expert_0021"
+        newest_dir.mkdir(parents=True)
+        (newest_dir / "compose_experts.bin").write_bytes(b"")
+        resolved = runner._resolve_pool_checkpoint_dir(
+            snapshot, tmp_path / "prev", active_registry
+        )
+        assert resolved == newest_dir
 
     def test_wrong_prev_snapshot_task_id_rejected(self, tmp_path, fake_config):
         from compose.experiments import v6_task_run as runner

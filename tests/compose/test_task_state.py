@@ -58,7 +58,8 @@ class TaskStateMachineTest(unittest.TestCase):
             TaskStage.OLD_TEACHER_RUNNING,
             TaskStage.OLD_TEACHER_READY,
             TaskStage.RESIDUAL_READY,
-            TaskStage.GLOBAL_TEACHER_READY,  # commit_count = 0
+            TaskStage.NO_EXPANSION_REQUIRED,  # commit_count = 0 / insufficient residual
+            TaskStage.GLOBAL_TEACHER_READY,
             TaskStage.ROUTER_TRAINING,
             TaskStage.ROUTER_READY,
             TaskStage.RMS_READY,
@@ -68,6 +69,20 @@ class TaskStateMachineTest(unittest.TestCase):
         ]:
             machine.advance(stage)
         self.assertIs(machine.stage, TaskStage.COMPLETED)
+
+    def test_undersized_residual_direct_jump_is_illegal(self):
+        # R10: RESIDUAL_READY -> GLOBAL_TEACHER_READY is no longer legal; the
+        # empty/undersized-residual path must record WHY via NO_EXPANSION_REQUIRED.
+        machine = TaskStateMachine(1, "ArxivQA")
+        for stage in [
+            TaskStage.DATA_READY,
+            TaskStage.OLD_TEACHER_RUNNING,
+            TaskStage.OLD_TEACHER_READY,
+            TaskStage.RESIDUAL_READY,
+        ]:
+            machine.advance(stage)
+        with self.assertRaisesRegex(ValueError, "illegal task transition"):
+            machine.advance(TaskStage.GLOBAL_TEACHER_READY)
 
     def test_backward_transition_rejected(self):
         machine = TaskStateMachine(0, "ImageNet-R")
