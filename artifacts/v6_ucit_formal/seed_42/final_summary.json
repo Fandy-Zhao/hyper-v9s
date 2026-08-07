@@ -1,0 +1,294 @@
+{
+  "seed": 42,
+  "config_hash": "30020824bf7bf084",
+  "git_head": "a896028016d460ae08d1fa3c3414210f0ac28b9f",
+  "task_sequence": [
+    "ImageNet-R",
+    "ArxivQA",
+    "VizWiz",
+    "IconQA",
+    "CLEVR",
+    "Flickr30k"
+  ],
+  "overall_accuracy": {
+    "by_task": [
+      {
+        "task": "ImageNet-R",
+        "accuracy": 0.164333,
+        "samples": 3000
+      },
+      {
+        "task": "ArxivQA",
+        "accuracy": 0.542,
+        "samples": 3000
+      },
+      {
+        "task": "VizWiz",
+        "accuracy": 0.0,
+        "samples": 3000
+      },
+      {
+        "task": "IconQA",
+        "accuracy": 0.203667,
+        "samples": 3000
+      },
+      {
+        "task": "CLEVR",
+        "accuracy": 0.2,
+        "samples": 3000
+      },
+      {
+        "task": "Flickr30k",
+        "accuracy": 0.0,
+        "samples": 3000
+      }
+    ],
+    "mean_accuracy": 0.185
+  },
+  "per_task": [
+    {
+      "task_id": 0,
+      "task": "ImageNet-R",
+      "metric_type": "Accuracy",
+      "stage": "COMPLETED",
+      "committed_expert_ids": [],
+      "commit_reason": "below_tau",
+      "validation_samples": 256,
+      "validation_mean_gain": -0.2808768320828676,
+      "validation_support": 0,
+      "eval_samples": 3000,
+      "test_accuracy": 0.164333,
+      "last_known_checkpoint_pointer": false
+    },
+    {
+      "task_id": 1,
+      "task": "ArxivQA",
+      "metric_type": "Accuracy",
+      "stage": "COMPLETED",
+      "committed_expert_ids": [],
+      "commit_reason": "",
+      "validation_samples": null,
+      "validation_mean_gain": null,
+      "validation_support": null,
+      "eval_samples": 3000,
+      "test_accuracy": 0.542,
+      "last_known_checkpoint_pointer": true
+    },
+    {
+      "task_id": 2,
+      "task": "VizWiz",
+      "metric_type": "Average",
+      "stage": "COMPLETED",
+      "committed_expert_ids": [],
+      "commit_reason": "",
+      "validation_samples": null,
+      "validation_mean_gain": null,
+      "validation_support": null,
+      "eval_samples": 3000,
+      "test_accuracy": 0.0,
+      "last_known_checkpoint_pointer": true
+    },
+    {
+      "task_id": 3,
+      "task": "IconQA",
+      "metric_type": "Accuracy",
+      "stage": "COMPLETED",
+      "committed_expert_ids": [],
+      "commit_reason": "",
+      "validation_samples": null,
+      "validation_mean_gain": null,
+      "validation_support": null,
+      "eval_samples": 3000,
+      "test_accuracy": 0.203667,
+      "last_known_checkpoint_pointer": true
+    },
+    {
+      "task_id": 4,
+      "task": "CLEVR",
+      "metric_type": "Accuracy",
+      "stage": "COMPLETED",
+      "committed_expert_ids": [],
+      "commit_reason": "",
+      "validation_samples": null,
+      "validation_mean_gain": null,
+      "validation_support": null,
+      "eval_samples": 3000,
+      "test_accuracy": 0.2,
+      "last_known_checkpoint_pointer": true
+    },
+    {
+      "task_id": 5,
+      "task": "Flickr30k",
+      "metric_type": "Average",
+      "stage": "COMPLETED",
+      "committed_expert_ids": [],
+      "commit_reason": "",
+      "validation_samples": null,
+      "validation_mean_gain": null,
+      "validation_support": null,
+      "eval_samples": 3000,
+      "test_accuracy": 0.0,
+      "last_known_checkpoint_pointer": true
+    }
+  ],
+  "committed_experts_total": 0,
+  "degenerate_chain": {
+    "task0_commits": 0,
+    "note": "task0 committed 0 (below_tau on real 256-sample validation); tasks 1-5 ran the designed empty-registry degenerate path (empty teacher records, pointer checkpoint chain, 0 commits)."
+  },
+  "integrity": {
+    "seed": 42,
+    "overall": "PASSED",
+    "blocking_passed": true,
+    "generated_at_utc": null,
+    "git_head": "a896028016d460ae08d1fa3c3414210f0ac28b9f",
+    "config_hash": "30020824bf7bf084",
+    "run_root": "experiments/runs/v6_ucit_engineering/formal/seed_42",
+    "items": [
+      {
+        "id": 1,
+        "name": "六个任务均 COMPLETED",
+        "status": "PASS",
+        "blocking": true,
+        "detail": [
+          "COMPLETED",
+          "COMPLETED",
+          "COMPLETED",
+          "COMPLETED",
+          "COMPLETED",
+          "COMPLETED"
+        ]
+      },
+      {
+        "id": 2,
+        "name": "六个 task-boundary snapshot 可独立加载",
+        "status": "PASS",
+        "blocking": true,
+        "detail": []
+      },
+      {
+        "id": 3,
+        "name": "所有 registry 无损坏",
+        "status": "PASS",
+        "blocking": true,
+        "detail": "registry load + list_all OK"
+      },
+      {
+        "id": 4,
+        "name": "expert ID 唯一",
+        "status": "PASS",
+        "blocking": true,
+        "detail": "committed ids: []"
+      },
+      {
+        "id": 5,
+        "name": "old expert hash 稳定",
+        "status": "PASS",
+        "blocking": true,
+        "detail": []
+      },
+      {
+        "id": 6,
+        "name": "Router 阶段完整（可输出 empty/single/pair）",
+        "status": "PASS",
+        "blocking": true,
+        "detail": [
+          "task0: ROUTER_READY=True checkpoint=False",
+          "task1: ROUTER_READY=True checkpoint=True",
+          "task2: ROUTER_READY=True checkpoint=True",
+          "task3: ROUTER_READY=True checkpoint=True",
+          "task4: ROUTER_READY=True checkpoint=True",
+          "task5: ROUTER_READY=True checkpoint=True"
+        ]
+      },
+      {
+        "id": 7,
+        "name": "Candidate 验证未被绕过",
+        "status": "PASS",
+        "blocking": true,
+        "detail": [
+          "task0 validation samples=256 (expect 256)",
+          "task1 no residual -> validation legitimately skipped",
+          "task2 no residual -> validation legitimately skipped",
+          "task3 no residual -> validation legitimately skipped",
+          "task4 no residual -> validation legitimately skipped",
+          "task5 no residual -> validation legitimately skipped"
+        ]
+      },
+      {
+        "id": 8,
+        "name": "pool_version 单调不减且无重复",
+        "status": "PASS",
+        "blocking": true,
+        "detail": "pool_versions: [1, 1, 1, 1, 1, 1]"
+      },
+      {
+        "id": 9,
+        "name": "原 Hyper eval 六阶段全部完成（每任务 3000 样本）",
+        "status": "PASS",
+        "blocking": true,
+        "detail": [
+          "task0 samples=3000 preds=3000 dur=571s",
+          "task1 samples=3000 preds=3000 dur=970s",
+          "task2 samples=3000 preds=3000 dur=1873s",
+          "task3 samples=3000 preds=3000 dur=750s",
+          "task4 samples=3000 preds=3000 dur=616s",
+          "task5 samples=3000 preds=3000 dur=2013s"
+        ]
+      },
+      {
+        "id": 10,
+        "name": "性能矩阵完整（每任务 3000 样本指标可计算）",
+        "status": "PASS",
+        "blocking": true,
+        "detail": [
+          "ImageNet-R=16.43%",
+          "ArxivQA=54.20%",
+          "VizWiz=0.00%",
+          "IconQA=20.37%",
+          "CLEVR=20.00%",
+          "Flickr30k=0.00%"
+        ]
+      },
+      {
+        "id": 11,
+        "name": "无 test 泄漏",
+        "status": "PASS",
+        "blocking": true,
+        "detail": "train/test hashes distinct; validation from train only"
+      },
+      {
+        "id": 12,
+        "name": "无未解释 NaN",
+        "status": "PASS",
+        "blocking": true,
+        "detail": "no NaN/Inf found"
+      },
+      {
+        "id": 13,
+        "name": "恢复记录完整（无 pending 事务，阶段标记齐全）",
+        "status": "PASS",
+        "blocking": true,
+        "detail": [
+          "pending transactions: none",
+          "stage counts: [8, 11, 12, 12, 12, 12]"
+        ]
+      },
+      {
+        "id": 14,
+        "name": "最终 snapshot 可从干净进程加载",
+        "status": "PASS",
+        "blocking": true,
+        "detail": "task5 snapshot loaded, task_id=5, stage=RMS_READY"
+      },
+      {
+        "id": 15,
+        "name": "exact resume command 有效",
+        "status": "PASS",
+        "blocking": true,
+        "detail": "command: bash scripts/v6_ucit/resume_run.sh 42 4,5,6,7 (idempotent re-run verified by run completion)"
+      }
+    ]
+  },
+  "generated_at_utc": "2026-08-07T03:35:16.860777+00:00"
+}
