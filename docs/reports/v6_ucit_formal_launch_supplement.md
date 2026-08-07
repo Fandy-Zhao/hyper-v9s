@@ -80,6 +80,10 @@
 - 修复：train_v6_candidate 新增 `--dataloader-num-workers`（默认 0 保持 dry-run 路径不变）；config v5 设为 4；三个 runner 从 config 透传
 - 回归：`test_dataloader_workers_passed_from_config`；全套 360 passed + 14 subtests
 - config v5 hash：`5e9175028f59c94c`（v4 `904ec5950db0b333` 记录于上文）
+- **更正（2026-08-07 实测两次全量运行后）**：「~3.3s/step 恢复」是 200 样本
+  缓存场景的测量值；全量数据（23742/23998 样本）实测两次均为 **12.3s/step**
+  （`train_runtime` 12200s/12369s），与 dataloader workers 数无关——全量瓶颈是
+  共享盘图像 IO，workers=4 无回归但无加速。不影响运行正确性（已计入正式 ETA）。
 
 ## 运行中修复 6（seed 42 task0 below_tau → task1 空 registry 崩溃；退化链完整化）
 
