@@ -50,6 +50,64 @@ def norm(text):
     return " ".join(str(text).strip().split()).upper()
 
 
+def coco_caption_average(preds_path, annotation_path, output_dir):
+    """Score free-form caption predictions with the accepted original
+    evaluator (llava.eval.eval_caption). Its "Average" is the mean of
+    Bleu_1..4, METEOR, ROUGE_L and CIDEr — the metric the locked config
+    declares for VizWiz/Flickr30k (metric_type "Average"). Exact-match
+    would always be ~0 on free-form captions. Runs java (bundled in the
+    same conda env) via PATH prepending. Returns
+    (average_fraction, components)."""
+    import subprocess
+
+    env = dict(os.environ)
+    bin_dir = os.path.dirname(sys.executable)
+    env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "llava.eval.eval_caption",
+            "--annotation-file",
+            str(annotation_path),
+            "--result-file",
+            str(preds_path),
+            "--output-dir",
+            str(output_dir),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(REPO),
+    )
+    result_text = (Path(output_dir) / "Result.text").read_text()
+    average, components = parse_coco_result(result_text)
+    return average, components
+
+
+def parse_coco_result(result_text):
+    """Parse eval_caption's Result.text into (average_fraction, components).
+
+    The Average is the mean of the Bleu_1..4 / METEOR / ROUGE_L / CIDEr
+    percentages reported by pycocoevalcap."""
+    values = {}
+    for line in result_text.splitlines():
+        key, _, val = line.partition(":")
+        values[key.strip()] = val.strip()
+    components = {
+        k: float(values[k])
+        for k in ("Bleu_1", "Bleu_2", "Bleu_3", "Bleu_4", "METEOR", "ROUGE_L", "CIDEr")
+        if k in values
+    }
+    average = float(values.get("Average", "nan"))
+    if not has_nan(average):
+        return average / 100.0, components
+    raise RuntimeError(
+        "COCO caption Average not computed; Result.text:\n{}".format(result_text)
+    )
+
+
 def exact_match_accuracy(annotations, predictions):
     answers = {str(item["question_id"]): norm(item["answer"]) for item in annotations}
     if len(predictions) != len(answers):
@@ -317,20 +375,53 @@ def main():
         test_p = Path(locked["task_sequence"][i]["test_instructions"])
         try:
             predictions = load_jsonl(str(preds_p))
-            annotations = json.load(open(test_p, encoding="utf-8"))
-            correct, total = exact_match_accuracy(annotations, predictions)
-            acc = correct / total if total else 0.0
-            metrics.append(
-                {
-                    "task_id": i,
-                    "task": TASK_NAMES[i],
-                    "metric_type": METRIC_TYPES[i],
-                    "samples": total,
-                    "correct": correct,
-                    "accuracy": round(acc, 6),
-                }
-            )
-            metric_details.append("{}={:.2f}%".format(TASK_NAMES[i], 100 * acc))
+            if METRIC_TYPES[i] == "Average":
+                # COCO caption scoring needs the caption-format annotation
+                # file (images id 1..N, matching prediction order), which
+                # lives next to the QA-format test file (same 3000 items).
+                coco_ann = Path(test_p).with_name("val_coco_type_3000.json")
+                if not coco_ann.is_file():
+                    raise FileNotFoundError(
+                        "COCO caption annotation {} missing".format(coco_ann)
+                    )
+                output_dir = root / "task{}".format(i) / "eval" / "task{}".format(i) / "coco_eval"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                score, components = coco_caption_average(
+                    preds_p, coco_ann, output_dir
+                )
+                metrics.append(
+                    {
+                        "task_id": i,
+                        "task": TASK_NAMES[i],
+                        "metric_type": METRIC_TYPES[i],
+                        "samples": len(predictions),
+                        "correct": None,
+                        "accuracy": round(score, 6),
+                        "coco_components": components,
+                    }
+                )
+                metric_details.append(
+                    "{}={:.2f}% (COCO Average: bleu1 {:.2f}, meteor {:.2f}, rouge {:.2f}, cider {:.2f})".format(
+                        TASK_NAMES[i], 100 * score,
+                        components.get("Bleu_1", 0), components.get("METEOR", 0),
+                        components.get("ROUGE_L", 0), components.get("CIDEr", 0),
+                    )
+                )
+            else:
+                annotations = json.load(open(test_p, encoding="utf-8"))
+                correct, total = exact_match_accuracy(annotations, predictions)
+                acc = correct / total if total else 0.0
+                metrics.append(
+                    {
+                        "task_id": i,
+                        "task": TASK_NAMES[i],
+                        "metric_type": METRIC_TYPES[i],
+                        "samples": total,
+                        "correct": correct,
+                        "accuracy": round(acc, 6),
+                    }
+                )
+                metric_details.append("{}={:.2f}%".format(TASK_NAMES[i], 100 * acc))
         except Exception as exc:  # noqa: BLE001
             ok_metrics = False
             metric_details.append("task{}: {}".format(i, exc))
@@ -527,7 +618,7 @@ def main():
 
 ## 性能矩阵（每任务 3000 样本，test set 独立评估）
 
-| 任务 | metric_type | 正确数 | accuracy |
+| 任务 | metric_type | 正确数 / COCO 平均 | accuracy |
 |---|---|---|---|
 {metric_rows}
 
@@ -557,7 +648,12 @@ def main():
         bt=sum(1 for it in items if it["blocking"]),
         metric_rows="\n".join(
             "| {} | {} | {} | **{:.2f}%** |".format(
-                m["task_id"], m["metric_type"], m["correct"], 100 * m["accuracy"]
+                m["task_id"],
+                m["metric_type"],
+                "{:.2f}%".format(100 * m["accuracy"])
+                if m["metric_type"] == "Average"
+                else m["correct"],
+                100 * m["accuracy"],
             )
             for m in metrics
         ),

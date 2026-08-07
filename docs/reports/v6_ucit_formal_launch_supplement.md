@@ -155,3 +155,35 @@
 - 受影响 seed：**42 全部标记 INVALID**（task0 below_tau 无效，task1-5 全为
   退化链产物）。run root 改名 `seed_42_INVALID_validation_bug` 留证，
   以 config v6 全新重跑 seed 42（任务顺序不变）。
+
+## 运行中修复 8（验收指标二元性：VizWiz/Flickr30k 用 COCO caption Average）
+
+- commit：`（独立 commit，见本节尾部）`
+- 复现：seed 42（config v6 重跑）15 项验收 PASSED，但性能矩阵
+  VizWiz / Flickr30k 为 **0.00%**——exact-match 对自由式 caption 恒为
+  0/3000（预测是语义合理的句子，与参考句逐字不同）。
+- 根因：验收脚本第 10 项对所有任务统一用 exact-match。而 locked config
+  的 `metric_type: Average`（VizWiz/Flickr30k）指的是已验收原管线的
+  COCO caption 评分——`llava.eval.eval_caption`（pycocoevalcap 的
+  Bleu_1..4 + METEOR + ROUGE_L + CIDEr 百分比**均值**，输出 Result.text
+  的 `Average`）。06_18 基线的 56.33%（VizWiz）/ 58.06%（Flickr30k）
+  即此指标。exact-match 只在 `metric_type: Accuracy` 任务
+  （ImageNet-R/ArxivQA/IconQA/CLEVR）成立。
+- 修复（仅验收工具，不触碰训练）：
+  1. `compose/eval/v6_acceptance.py` 第 10 项按 metric_type 分支：
+     Average 任务调用 `llava.eval.eval_caption` 子进程（复用原评估器，
+     java 由同 conda 环境 PATH 提供），注解文件取 test 同目录的
+     `val_coco_type_3000.json`（COCO caption 格式，images id 1..3000
+     与预测顺序一一对应）；Accuracy 任务保持 exact-match。metrics 增
+     加 `coco_components`（七个分项），报告保留各任务自身的
+     metric_type 分数。
+  2. `parse_coco_result()` 抽出便于单元测试；新增
+     `tests/compose/test_v6_acceptance.py`（5 项：指标二元性、真实
+     Result.text 解析、缺 Average 报错、注解文件存在、exact-match
+     路径仍生效）。
+- 结果：seed 42 重算矩阵——VizWiz **38.58%**、Flickr30k **42.17%**
+  （COCO Average；对比 06_18 基线 56.33/58.06 偏低，符合预期：退化链
+  用 task0 冷启动 adapter 评估）。15/15 仍 PASSED；deliverables 重新
+  生成并随本修复提交。
+- 受影响 seed：无（纯评分工具修正；seed 42 为 config v6 首次使用
+  正确指标的正式记录，seed 43/44 直接使用修复后的验收脚本）。

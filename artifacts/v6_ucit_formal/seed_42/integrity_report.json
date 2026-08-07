@@ -2,8 +2,8 @@
   "seed": 42,
   "overall": "PASSED",
   "blocking_passed": true,
-  "generated_at_utc": "2026-08-07T03:35:16.860135+00:00",
-  "git_head": "a896028016d460ae08d1fa3c3414210f0ac28b9f",
+  "generated_at_utc": null,
+  "git_head": "b6060dbf87504d148c59ac5bae6e91aa868b37a6",
   "config_hash": "30020824bf7bf084",
   "run_root": "experiments/runs/v6_ucit_engineering/formal/seed_42",
   "items": [
@@ -106,10 +106,10 @@
       "detail": [
         "ImageNet-R=16.43%",
         "ArxivQA=54.20%",
-        "VizWiz=0.00%",
+        "VizWiz=38.58% (COCO Average: bleu1 59.01, meteor 22.20, rouge 44.14, cider 58.09)",
         "IconQA=20.37%",
         "CLEVR=20.00%",
-        "Flickr30k=0.00%"
+        "Flickr30k=42.17% (COCO Average: bleu1 61.15, meteor 27.00, rouge 49.38, cider 59.20)"
       ]
     },
     {

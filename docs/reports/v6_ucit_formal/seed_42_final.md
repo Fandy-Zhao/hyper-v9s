@@ -1,21 +1,21 @@
 # V6 UCIT Seed 42 — Final Report
 
 - config：`configs/v6_ucit_formal_locked.yaml`（hash `30020824bf7bf084`）
-- Git HEAD：`a896028016d460ae08d1fa3c3414210f0ac28b9f`
+- Git HEAD：`b6060dbf87504d148c59ac5bae6e91aa868b37a6`
 - run root：`experiments/runs/v6_ucit_engineering/formal/seed_42`
 - 任务顺序：ImageNet-R → ArxivQA → VizWiz → IconQA → CLEVR → Flickr30k
 - **验收结论：PASSED**（blocking 15/15）
 
 ## 性能矩阵（每任务 3000 样本，test set 独立评估）
 
-| 任务 | metric_type | 正确数 | accuracy |
+| 任务 | metric_type | 正确数 / COCO 平均 | accuracy |
 |---|---|---|---|
 | 0 | Accuracy | 493 | **16.43%** |
 | 1 | Accuracy | 1626 | **54.20%** |
-| 2 | Average | 0 | **0.00%** |
+| 2 | Average | 38.58% | **38.58%** |
 | 3 | Accuracy | 611 | **20.37%** |
 | 4 | Accuracy | 600 | **20.00%** |
-| 5 | Average | 0 | **0.00%** |
+| 5 | Average | 42.17% | **42.17%** |
 
 ## 每任务摘要
 
@@ -23,10 +23,10 @@
 |---|---|---|---|---|---|---|
 | 0 | ImageNet-R | — | below_tau | 256 | -0.2809 | 16.43% |
 | 1 | ArxivQA | — | — | — | — | 54.20% |
-| 2 | VizWiz | — | — | — | — | 0.00% |
+| 2 | VizWiz | — | — | — | — | 38.58% |
 | 3 | IconQA | — | — | — | — | 20.37% |
 | 4 | CLEVR | — | — | — | — | 20.00% |
-| 5 | Flickr30k | — | — | — | — | 0.00% |
+| 5 | Flickr30k | — | — | — | — | 42.17% |
 
 ## 15 项完整性验收
 
@@ -41,7 +41,7 @@
 | 7 | Candidate 验证未被绕过 | **PASS** | ['task0 validation samples=256 (expect 256)', 'task1 no residual -> validation legitimately skipped', 'task2 no residual -> validation legitimately skipped', 'task3 no residual -> validation legitimately skipped', 'task4 no residual -> validation legitimately skipped', 'task5 no residual -> validation legitimately skipped'] |
 | 8 | pool_version 单调不减且无重复 | **PASS** | pool_versions: [1, 1, 1, 1, 1, 1] |
 | 9 | 原 Hyper eval 六阶段全部完成（每任务 3000 样本） | **PASS** | ['task0 samples=3000 preds=3000 dur=571s', 'task1 samples=3000 preds=3000 dur=970s', 'task2 samples=3000 preds=3000 dur=1873s', 'task3 samples=3000 preds=3000 dur=750s', 'task4 samples=3000 preds=3000 dur=616s', 'task5 samples=3000 preds=3000 dur=2013s'] |
-| 10 | 性能矩阵完整（每任务 3000 样本指标可计算） | **PASS** | ['ImageNet-R=16.43%', 'ArxivQA=54.20%', 'VizWiz=0.00%', 'IconQA=20.37%', 'CLEVR=20.00%', 'Flickr30k=0.00%'] |
+| 10 | 性能矩阵完整（每任务 3000 样本指标可计算） | **PASS** | ['ImageNet-R=16.43%', 'ArxivQA=54.20%', 'VizWiz=38.58% (COCO Average: bleu1 59.01, meteor 22.20, rouge 44.14, cider 58.09)', 'IconQA=20.37%', 'CLEVR=20.00%', 'Flickr30k=42.17% (COCO Average: bleu1 61.15, meteor 27.00, rouge 49.38, cider 59.20)'] |
 | 11 | 无 test 泄漏 | **PASS** | train/test hashes distinct; validation from train only |
 | 12 | 无未解释 NaN | **PASS** | no NaN/Inf found |
 | 13 | 恢复记录完整（无 pending 事务，阶段标记齐全） | **PASS** | ['pending transactions: none', 'stage counts: [8, 11, 12, 12, 12, 12]'] |

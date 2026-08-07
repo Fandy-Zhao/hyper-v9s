@@ -1,7 +1,7 @@
 {
   "seed": 42,
   "config_hash": "30020824bf7bf084",
-  "git_head": "a896028016d460ae08d1fa3c3414210f0ac28b9f",
+  "git_head": "b6060dbf87504d148c59ac5bae6e91aa868b37a6",
   "task_sequence": [
     "ImageNet-R",
     "ArxivQA",
@@ -24,7 +24,7 @@
       },
       {
         "task": "VizWiz",
-        "accuracy": 0.0,
+        "accuracy": 0.3858,
         "samples": 3000
       },
       {
@@ -39,11 +39,11 @@
       },
       {
         "task": "Flickr30k",
-        "accuracy": 0.0,
+        "accuracy": 0.4217,
         "samples": 3000
       }
     ],
-    "mean_accuracy": 0.185
+    "mean_accuracy": 0.319583
   },
   "per_task": [
     {
@@ -85,7 +85,7 @@
       "validation_mean_gain": null,
       "validation_support": null,
       "eval_samples": 3000,
-      "test_accuracy": 0.0,
+      "test_accuracy": 0.3858,
       "last_known_checkpoint_pointer": true
     },
     {
@@ -127,7 +127,7 @@
       "validation_mean_gain": null,
       "validation_support": null,
       "eval_samples": 3000,
-      "test_accuracy": 0.0,
+      "test_accuracy": 0.4217,
       "last_known_checkpoint_pointer": true
     }
   ],
@@ -141,7 +141,7 @@
     "overall": "PASSED",
     "blocking_passed": true,
     "generated_at_utc": null,
-    "git_head": "a896028016d460ae08d1fa3c3414210f0ac28b9f",
+    "git_head": "b6060dbf87504d148c59ac5bae6e91aa868b37a6",
     "config_hash": "30020824bf7bf084",
     "run_root": "experiments/runs/v6_ucit_engineering/formal/seed_42",
     "items": [
@@ -244,10 +244,10 @@
         "detail": [
           "ImageNet-R=16.43%",
           "ArxivQA=54.20%",
-          "VizWiz=0.00%",
+          "VizWiz=38.58% (COCO Average: bleu1 59.01, meteor 22.20, rouge 44.14, cider 58.09)",
           "IconQA=20.37%",
           "CLEVR=20.00%",
-          "Flickr30k=0.00%"
+          "Flickr30k=42.17% (COCO Average: bleu1 61.15, meteor 27.00, rouge 49.38, cider 59.20)"
         ]
       },
       {
@@ -289,6 +289,5 @@
         "detail": "command: bash scripts/v6_ucit/resume_run.sh 42 4,5,6,7 (idempotent re-run verified by run completion)"
       }
     ]
-  },
-  "generated_at_utc": "2026-08-07T03:35:16.860777+00:00"
+  }
 }
