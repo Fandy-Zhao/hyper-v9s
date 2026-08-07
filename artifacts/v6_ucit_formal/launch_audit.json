@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-08-06T00:10:00Z",
+  "audit_type": "V6 UCIT FORMAL LAUNCH AUDIT (re-audit after supplement commit c165fca)",
+  "status": "PASSED",
+  "git_head_current": "c165fca31a032e7fbad99bc5ca6bba4ba147f69a",
+  "checks": {
+    "1_ready_exists": {
+      "status": "PASS"
+    },
+    "2_ready_flag": {
+      "status": "PASS",
+      "detail": "True"
+    },
+    "3_blocking_issues_empty": {
+      "status": "PASS",
+      "detail": "[]"
+    },
+    "4_git_head": {
+      "status": "PASS",
+      "detail": "HEAD=c165fca31a032e7fbad99bc5ca6bba4ba147f69a; accepted code base 41e70bd intact (61ed787 docs-only, c165fca reviewed supplement)",
+      "delta_vs_accepted": "CHANGELOG.md                                       |   3 +\n artifacts/v6_ucit_handoff/READY.json               |  21 +\n artifacts/v6_ucit_handoff/commit_map.json          |  71 ++\n artifacts/v6_ucit_handoff/component_versions.json  |  25 +\n artifacts/v6_ucit_handoff/exact_commands.sh        |  70 ++\n .../v6_ucit_handoff/expert_registry_schema.json    |  27 +\n artifacts/v6_ucit_handoff/file_inventory.txt       |  69 ++\n artifacts/v6_ucit_handoff/known_issues.json        |  27 +\n artifacts/v6_ucit_handoff/locked_config.yaml       | 184 +++++\n artifacts/v6_ucit_handoff/repository_state.json    |  19 +\n artifacts/v6_ucit_handoff/resource_estimate.json   |  14 +\n artifacts/v6_ucit_handoff/resume_commands.sh       |  44 ++\n artifacts/v6_ucit_handoff/snapshot_schema.json     |  21 +\n artifacts/v6_ucit_handoff/task_sequence.json       |  98 +++\n artifacts/v6_ucit_handoff/two_task_acceptance.json | 164 ++++\n compose/experiments/v6_task_run.py                 | 877 +++++++++++++++++++++\n configs/v6_ucit_formal_locked.yaml                 | 239 ++++++\n docs/reports/V6_UCIT_ENGINEERING_HANDOFF.md        |  65 ++\n scripts/v6_ucit/resume_run.sh                      |  56 ++\n scripts/v6_ucit/six_task_run.sh                    |  77 ++\n tests/compose/test_v6_task_run_formal.py           | 229 ++++++\n 21 files changed, 2400 insertions(+)"
+    },
+    "5_worktree": {
+      "status": "PASS",
+      "detail": "modified tracked: 5, untracked: 64 (preserved per repository_state)"
+    },
+    "6_locked_config": {
+      "status": "PASS",
+      "detail": "formal_locked exists, config_hash=d52111fc25b4b735, defaults preserved: True",
+      "missing_default_sections": []
+    },
+    "7_task_sequence": {
+      "status": "PASS",
+      "detail": "ImageNet-R -> ArxivQA -> VizWiz -> IconQA -> CLEVR -> Flickr30k"
+    },
+    "8_two_task_acceptance": {
+      "status": "PASS",
+      "detail": "blocking 0 failed of 18"
+    },
+    "9_run_entrypoint": {
+      "status": "PASS",
+      "declared": "bash scripts/v6_ucit/six_task_run.sh",
+      "exists": 73
+    },
+    "10_resume_entrypoint": {
+      "status": "PASS",
+      "declared": "bash scripts/v6_ucit/resume_run.sh",
+      "exists": 73
+    },
+    "11_eval_entrypoint": {
+      "status": "PASS",
+      "declared": "python -m compose.eval.eval_task --adapter-kind compose",
+      "exists": true
+    },
+    "12_two_task_snapshots": {
+      "status": "PASS",
+      "detail": "task0=COMPLETED task1=RMS_READY"
+    },
+    "13_ucit_data": {
+      "status": "PASS",
+      "detail": "all 12 instruction files exist (missing=[])"
+    },
+    "14_resources": {
+      "status": "PASS",
+      "detail": "GPU 4-7 idle; /data 3.9T free; RAM 480G"
+    },
+    "15_gpu_free": {
+      "status": "PASS",
+      "detail": "GPUs 4,5,6,7 idle (0% util)"
+    },
+    "16_no_conflicting_run": {
+      "status": "PASS",
+      "detail": "no v6 processes; formal/seed_42 does not exist"
+    },
+    "17_output_root": {
+      "status": "PASS",
+      "detail": "formal/seed_42 fresh (no overwrite)"
+    }
+  },
+  "warnings": [
+    "5 pre-existing modified tracked files + preserved untracked artifacts (documented in repository_state.json); none in V6 code path"
+  ],
+  "summary": {
+    "PASS": 17,
+    "FAIL": 0,
+    "per_check": {
+      "1_ready_exists": "PASS",
+      "2_ready_flag": "PASS",
+      "3_blocking_issues_empty": "PASS",
+      "4_git_head": "PASS",
+      "5_worktree": "PASS",
+      "6_locked_config": "PASS",
+      "7_task_sequence": "PASS",
+      "8_two_task_acceptance": "PASS",
+      "9_run_entrypoint": "PASS",
+      "10_resume_entrypoint": "PASS",
+      "11_eval_entrypoint": "PASS",
+      "12_two_task_snapshots": "PASS",
+      "13_ucit_data": "PASS",
+      "14_resources": "PASS",
+      "15_gpu_free": "PASS",
+      "16_no_conflicting_run": "PASS",
+      "17_output_root": "PASS"
+    }
+  }
+}

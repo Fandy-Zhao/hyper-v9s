@@ -1,5 +1,12 @@
 # V6 UCIT Formal Run — 最终状态报告（24 项）
 
+> **⛔ SUPERSEDED（2026-08-07，运行中修复 9）**：seed 42/43 的
+> below_tau/空 registry/退化链判定全部建立在**类偏置验证切片**上
+> （位置尾切片只含 2 类、61% 样本来自训练未见类），已标记
+> INVALID（run root 与 artifacts 改名 `_INVALID_split_bias` 留证）。
+> 本报告数字不再构成正式结论；seed 42 已按 seeded-shuffle 拆分
+> 重跑，完成后本报告整体重新生成。
+
 - 日期：2026-08-07
 - config：`configs/v6_ucit_formal_locked.yaml`（config v6，hash `30020824bf7bf084`）
 - Git HEAD：`b6060db`（随本报告提交）
