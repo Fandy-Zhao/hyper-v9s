@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -48,9 +49,24 @@ def _sha256_file(path: str) -> str:
     return digest.hexdigest()
 
 
-def _draw_train_val_splits(records, cold_start_count: int, val_count: int):
-    """Draw [0:cold_start_count) for cold start and
-    [cold_start_count:cold_start_count+val_count) for validation.
+def _draw_train_val_splits(
+    records, cold_start_count: int, val_count: int, seed: int = 42
+):
+    """Seeded-shuffle split for task-0 cold start.
+
+    Shuffles the record ids with ``random.Random(seed)`` (config
+    ``data.seed``, pinned to 42), then draws [0:cold_start_count) for
+    cold start and [cold_start_count:cold_start_count+val_count) for
+    validation.
+
+    Why shuffle (fix 9): train.json is class-grouped (200 contiguous
+    class blocks), so the plain positional tail slice
+    records[23742:23998] contained only 2 classes and 61% of validation
+    samples were from a class never seen in training — a uniform NLL
+    shift that manufactured below_tau. Fix 7 fixed the empty slice, not
+    the biased slice. The seeded shuffle makes the validation slice a
+    representative ~140/200-class sample and every validation class is
+    seen in training. The split is deterministic from the config seed.
 
     Raises when the dataset cannot supply the full validation slice —
     a short/empty slice silently yields an all-below_tau commit decision
@@ -64,11 +80,10 @@ def _draw_train_val_splits(records, cold_start_count: int, val_count: int):
                 cold_start_count, val_count, cold_start_count + val_count, len(records)
             )
         )
-    train_ids = [str(record["id"]) for record in records[:cold_start_count]]
-    val_ids = [
-        str(record["id"])
-        for record in records[cold_start_count: cold_start_count + val_count]
-    ]
+    ids = [str(record["id"]) for record in records]
+    random.Random(seed).shuffle(ids)
+    train_ids = ids[:cold_start_count]
+    val_ids = ids[cold_start_count: cold_start_count + val_count]
     return train_ids, val_ids
 
 
@@ -120,7 +135,10 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
             records = json.load(handle)
         cold_start_count = config["tasks"][0]["cold_start_train_samples"]
         val_count = config["tasks"][0]["validation_samples"]
-        train_ids, val_ids = _draw_train_val_splits(records, cold_start_count, val_count)
+        split_seed = int(config["data"]["seed"])
+        train_ids, val_ids = _draw_train_val_splits(
+            records, cold_start_count, val_count, seed=split_seed
+        )
         _write_json(
             str(root / "data" / "manifest.json"),
             {
@@ -131,6 +149,13 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
                 "validation_sample_ids": val_ids,
                 "test_path": test_path,
                 "data_hash": _sha256_file(train_path),
+                "split": {
+                    "mode": "seeded_shuffle",
+                    "seed": split_seed,
+                    "note": "fix 9: positional tail slice was class-biased "
+                    "(2 classes, 61% OOD); seeded shuffle yields a "
+                    "representative class sample",
+                },
                 "test_never_used_in_training": True,
             },
         )

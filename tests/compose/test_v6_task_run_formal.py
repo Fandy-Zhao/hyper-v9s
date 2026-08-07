@@ -199,10 +199,13 @@ class TestV6TaskRunIdempotency:
             runner._draw_train_val_splits(records, 5, 2)
         with pytest.raises(RuntimeError, match="train split is short"):
             runner._draw_train_val_splits(records, 4, 2)
-        # a fitting split draws disjoint slices
+        # a fitting split draws disjoint seeded-shuffle slices covering
+        # the dataset exactly (fix 9: no longer the positional tail)
         train_ids, val_ids = runner._draw_train_val_splits(records, 3, 2)
-        assert train_ids == ["0", "1", "2"]
-        assert val_ids == ["3", "4"]
+        assert sorted(train_ids + val_ids) == ["0", "1", "2", "3", "4"]
+        assert len(train_ids) == 3
+        assert len(val_ids) == 2
+        assert not set(train_ids) & set(val_ids)
 
     def test_task0_cold_start_split_fits_real_dataset(self):
         """Config v6 regression: the locked cold_start_train_samples +
@@ -227,6 +230,27 @@ class TestV6TaskRunIdempotency:
         )
         assert len(train_ids) == cold_start
         assert len(val_ids) == val_count
+        # fix 9 (split bias): the old positional tail slice held 2 of 200
+        # classes and 61% of its samples came from a class never seen in
+        # training, manufacturing below_tau. The seeded shuffle must give
+        # a representative slice: many classes, no validation class absent
+        # from training, no class dominating the slice.
+        def _cls(record_id):
+            return record_id.split("/")[0]
+
+        val_classes = {_cls(value) for value in val_ids}
+        train_classes = {_cls(value) for value in train_ids}
+        assert len(val_classes) >= 120  # measured 137/200 with seed 42
+        assert val_classes - train_classes == set()
+        val_counts = {}
+        for value in val_ids:
+            val_counts[_cls(value)] = val_counts.get(_cls(value), 0) + 1
+        assert max(val_counts.values()) <= 0.10 * val_count  # measured 7/256
+        # determinism: the split is a pure function of the seed
+        again, _ = runner._draw_train_val_splits(records, cold_start, val_count)
+        assert again == train_ids
+        other, _ = runner._draw_train_val_splits(records, cold_start, val_count, seed=43)
+        assert other != train_ids
 
     def test_task2_teacher_search_selections_empty_registry(self):
         """The task-1 runner's S1 selections must not crash on an empty

@@ -187,3 +187,37 @@
   生成并随本修复提交。
 - 受影响 seed：无（纯评分工具修正；seed 42 为 config v6 首次使用
   正确指标的正式记录，seed 43/44 直接使用修复后的验收脚本）。
+
+## 运行中修复 9（task0 验证切片类偏置 → seeded shuffle 拆分；★推翻运行中修复 6/7 的"数据驱动 below_tau"判断★）
+
+- commit：`（独立 commit，见本节尾部）`
+- 复现（根因分析，2026-08-07）：seed 42/43 两轮 task0 的 S3 验证
+  一致 below_tau（mean_gain -0.281，positive_rate 0.0，256 样本），
+  且无新专家提交——但"数据驱动"结论建立在**类偏置验证切片**上：
+  train.json 按类分块排列（200 个连续类块），位置尾切片
+  `records[23742:23998]` 只含 **2 个类**，其中 n12267677（155/256，
+  61%）**在训练中从未出现**（0 个训练样本）。该切片测的是"模型对
+  未见类的 NLL"，全部样本 uniform NLL 上移（-0.65..-0.06），
+  0/256 wins —— below_tau 在切片内为真，但切片不具代表性。fix 7
+  修的是**空切片**（v5 全量即验证为空），未修**偏置切片**；fix 6 的
+  "below_tau 为数据驱动"判断与 fix 7 建立其上的 seed 42/43 结果均
+  作废。
+- 修复：`compose/experiments/v6_task1_dry_run.py` 的
+  `_draw_train_val_splits` 改为 **seeded shuffle 拆分**
+  （`random.Random(config.data.seed)`，seed 钉死 42，纯函数式确定
+  性）：验证切片变成全数据集随机 256 样本。seed 42 实测：**137/200
+  类覆盖、0 个验证类在训练中完全未见、最大单类占比 7/256（2.7%，
+  原为 61%）**。manifest 记录 `split.mode=seeded_shuffle` +
+  `split.seed`。S2 训练子集由 train_ids 集合过滤构建（对顺序不敏
+  感），训练 recipe 不变。
+- 回归测试：`test_draw_train_val_splits_raises_on_short_dataset`
+  改为洗牌语义（不相交 + 并集 = 全集）；`test_task0_cold_start_
+  split_fits_real_dataset` 增加类代表性断言（≥120 类、无 OOD 验证
+  类、单类占比 ≤10%、同 seed 幂等、异 seed 不同）；全套件 373 项
+  通过。
+- 受影响 seed：**seed 42、seed 43 标记 INVALID（split bias）**——
+  其 below_tau/空 registry/退化链判定全部建立在偏置切片上；run
+  root 改名留证（`seed_42_INVALID_split_bias`、
+  `seed_43_INVALID_split_bias`）。seed 44 未训练（用户指令跳过，
+  不受影响）。按用户指令重跑 seed 42（config v6 不变——拆分为运行
+  时逻辑，config 内容未改，hash 不变）。
