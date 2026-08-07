@@ -1,0 +1,163 @@
+{
+  "seeds": [
+    42,
+    43
+  ],
+  "config_hash": "30020824bf7bf084",
+  "git_head": "b6060dbf87504d148c59ac5bae6e91aa868b37a6",
+  "task_sequence": [
+    "ImageNet-R",
+    "ArxivQA",
+    "VizWiz",
+    "IconQA",
+    "CLEVR",
+    "Flickr30k"
+  ],
+  "per_task": [
+    {
+      "task_id": 0,
+      "task": "ImageNet-R",
+      "per_seed_accuracy": {
+        "42": 0.164333,
+        "43": 0.164333
+      },
+      "mean": 0.164333,
+      "std": 0.0,
+      "min": 0.164333,
+      "max": 0.164333
+    },
+    {
+      "task_id": 1,
+      "task": "ArxivQA",
+      "per_seed_accuracy": {
+        "42": 0.542,
+        "43": 0.542
+      },
+      "mean": 0.542,
+      "std": 0.0,
+      "min": 0.542,
+      "max": 0.542
+    },
+    {
+      "task_id": 2,
+      "task": "VizWiz",
+      "per_seed_accuracy": {
+        "42": 0.3858,
+        "43": 0.3858
+      },
+      "mean": 0.3858,
+      "std": 0.0,
+      "min": 0.3858,
+      "max": 0.3858
+    },
+    {
+      "task_id": 3,
+      "task": "IconQA",
+      "per_seed_accuracy": {
+        "42": 0.203667,
+        "43": 0.203667
+      },
+      "mean": 0.203667,
+      "std": 0.0,
+      "min": 0.203667,
+      "max": 0.203667
+    },
+    {
+      "task_id": 4,
+      "task": "CLEVR",
+      "per_seed_accuracy": {
+        "42": 0.2,
+        "43": 0.2
+      },
+      "mean": 0.2,
+      "std": 0.0,
+      "min": 0.2,
+      "max": 0.2
+    },
+    {
+      "task_id": 5,
+      "task": "Flickr30k",
+      "per_seed_accuracy": {
+        "42": 0.4217,
+        "43": 0.4217
+      },
+      "mean": 0.4217,
+      "std": 0.0,
+      "min": 0.4217,
+      "max": 0.4217
+    }
+  ],
+  "aggregates": {
+    "MFT": 0.31958333333333333,
+    "MFN": 0.542,
+    "MAA": 0.31958333333333333,
+    "BWT": 0.0
+  },
+  "aggregates_mean_std": {
+    "mean_accuracy": 0.319583,
+    "std_across_seeds": 0.0
+  },
+  "experts": {
+    "per_task": {
+      "0": {
+        "task": "ImageNet-R",
+        "committed": 0
+      },
+      "1": {
+        "task": "ArxivQA",
+        "committed": 0
+      },
+      "2": {
+        "task": "VizWiz",
+        "committed": 0
+      },
+      "3": {
+        "task": "IconQA",
+        "committed": 0
+      },
+      "4": {
+        "task": "CLEVR",
+        "committed": 0
+      },
+      "5": {
+        "task": "Flickr30k",
+        "committed": 0
+      }
+    },
+    "total_committed": 0,
+    "total_candidates_trained": 0,
+    "provisional_vs_formal": {
+      "provisional (candidates trained)": 0,
+      "formal (committed)": 0
+    }
+  },
+  "residual_ratio": {
+    "0": {
+      "task": "ImageNet-R",
+      "residual_samples": 0
+    },
+    "1": {
+      "task": "ArxivQA",
+      "residual_samples": 0
+    },
+    "2": {
+      "task": "VizWiz",
+      "residual_samples": 0
+    },
+    "3": {
+      "task": "IconQA",
+      "residual_samples": 0
+    },
+    "4": {
+      "task": "CLEVR",
+      "residual_samples": 0
+    },
+    "5": {
+      "task": "Flickr30k",
+      "residual_samples": 0
+    }
+  },
+  "degenerate_chain": {
+    "note": "task0 below_tau (real 256-sample validation, data-driven) in every seed; tasks 1-5 ran the empty-registry degenerate path: 0 candidates, 0 commits, all evals against the inherited task0 cold-start adapter. All boundary checkpoints share one effective adapter -> matrix rows constant, MAA == MFT, BWT == 0 by construction."
+  }
+}
