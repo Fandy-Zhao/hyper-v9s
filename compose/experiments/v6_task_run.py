@@ -4,21 +4,43 @@ Formal-run supplement (2026-08-06): the handoff package shipped staged
 runners for task 0 (v6_task1_dry_run) and task 1 (v6_task2_dry_run) only;
 tasks 2..5 (VizWiz, IconQA, CLEVR, Flickr30k) had no runner. This module
 implements the official per-task loop for any task index >= 1, following
-the E12 dry-run stage skeleton (S0..S10) and the locked formal config:
+the E12 dry-run stage skeleton (S0..S11) and the locked formal config:
 
   S0 snapshot load       -> DATA_READY
   S1 teacher search      -> OLD_TEACHER_READY  (answer-supervised,
-                           empty/single/pair over all historical experts)
+                           empty/single/pair over active experts)
   S2 recall audit        -> (OracleRecall@M; never used to set thresholds)
   S3 residual split      -> RESIDUAL_READY
   S4 features            -> (frozen CLIP query features for residual set)
-  S5 candidates          -> CANDIDATE_TRAINED (2 slots)
+  S5 candidates          -> CANDIDATE_TRAINED (2 slots) or
+                            NO_EXPANSION_REQUIRED (insufficient residual)
   S6 validation          -> CANDIDATE_VALIDATED (conditional gains)
-  S7 commit              -> EXPERTS_COMMITTED  (0-2 experts, transactional)
+  S7 commit              -> EXPERTS_COMMITTED  (0-2 experts, transactional;
+                            below_tau candidates are archived as rejected)
   S8 router              -> ROUTER_READY       (global teacher + calibration)
   S9 rms                 -> RMS_READY
   S10 snapshot           -> SNAPSHOT_READY
   S11 eval               -> COMPLETED
+
+Empty-registry fix (2026-08-07): the formal expert pool is defined
+exclusively by the registry lifecycle (active = provisional | formal).
+With an empty active pool the current system IS the frozen backbone:
+
+- teacher search scores against a base-only pool checkpoint (real base
+  NLL per sample; never synthetic None losses),
+- the residual split runs with ``base_only_mode=True`` and reuses the
+  existing gain-floor threshold (old_gain = 0 < min_old_gain), so residual
+  candidate material exists and candidate training re-bootstraps from the
+  frozen backbone (no ``--old-expert-checkpoint`` flag),
+- rejected candidates are persisted as diagnostics artifacts and recorded
+  in the registry as REJECTED (terminal); they never enter the active
+  pool, Router, teacher search, composition, RMS or evaluation,
+- the snapshot manifest carries ``pool_checkpoint_dir`` /
+  ``active_expert_ids`` / ``rejected_candidate_ids`` /
+  ``rebootstrap_allowed`` so the next task resolves its scoring pool from
+  the snapshot instead of globbing checkpoint directories,
+- task-boundary eval under an empty pool scores the frozen backbone only
+  (``--expert-ids ""``); there is no inherited-checkpoint fallback.
 
 All stages are idempotent (a ``stages/<name>.done`` marker); a resumed run
 skips completed stages and never re-commits or bumps pool_version twice.
@@ -42,9 +64,15 @@ from compose.experts.registry import ExpertRegistry
 from compose.experts.task_state import TaskStage, TaskStateMachine
 from compose.experts.transaction import CommitTransaction
 from compose.experiments.v6_snapshot import V6Snapshot
+from compose.expansion.v6_base_pool import write_base_only_checkpoint
 from compose.expansion.v6_candidate import (
     V6CandidateConfig,
     build_v6_candidate_pool,
+)
+from compose.expansion.v6_rejected import (
+    REJECTION_REASON_BELOW_TAU,
+    register_rejected_candidate,
+    write_rejected_candidate,
 )
 from compose.expansion.v6_residual import (
     build_residual_records,
@@ -114,112 +142,48 @@ def _run(command: List[str], env: Dict[str, str], root: Path, tag: str) -> subpr
     return result
 
 
-def _old_expert_checkpoint_dir(task_root: Path, registry: ExpertRegistry) -> Optional[Path]:
-    """Resolve the checkpoint directory that holds ALL historical experts.
+def _ensure_base_only_pool(root: Path) -> Path:
+    """Base-only pool checkpoint under ``root/candidate/base_only`` (R4).
 
-    Priority:
-      1. prev candidate/train (the training-time pool: old experts + candidates)
-      2. prev committed/expert_XXXX of the newest committed expert
+    The frozen backbone is the current system when the active expert
+    registry is empty; this checkpoint directory lets the Compose loader
+    inject a manifest with zero experts so teacher scoring and evaluation
+    genuinely run the backbone (``selected_experts = []``). Never contains
+    rejected or temporary candidate weights.
     """
-    candidate_dir = task_root / "candidate" / "train"
-    if (candidate_dir / "compose_experts.json").is_file():
-        return candidate_dir
-    committed = sorted((task_root / "committed").glob("expert_*"))
-    if committed:
-        return committed[-1]
-    return None
+    base_dir = root / "candidate" / "base_only"
+    if not (base_dir / "compose_experts.json").is_file():
+        write_base_only_checkpoint(str(base_dir))
+    return base_dir
 
 
-def _last_known_checkpoint_dir(task_root: Path) -> Optional[Path]:
-    """Pointer file written by the previous task when its eval fell back to
-    an inherited checkpoint (degenerate chain: 0 committed experts and no
-    candidate pool). Lets the next task keep scoring against the last
-    adapter state that exists anywhere up the chain."""
-    pointer = task_root / "candidate" / "last_known_checkpoint.json"
-    if not pointer.is_file():
-        return None
-    try:
-        target = Path(json.loads(pointer.read_text(encoding="utf-8"))["checkpoint_dir"])
-    except (OSError, KeyError, ValueError):
-        return None
-    return target if (target / "compose_experts.json").is_file() else None
+def _resolve_pool_checkpoint_dir(
+    snapshot: V6Snapshot, prev_root: Path, registry: ExpertRegistry
+) -> Path:
+    """Formal pool checkpoint dir for teacher scoring (R3/R4/R9).
 
-
-def _old_expert_checkpoint_chain(prev_root: Path, registry: ExpertRegistry) -> Optional[Path]:
-    """Old-checkpoint resolution across the degenerate chain: candidate pool
-    or newest committed expert, then the previous task's cold-start
-    candidate, then the last-known-checkpoint pointer. Returns None only
-    when no adapter state exists anywhere in the chain (everything is
-    below-tau and nothing was trained)."""
-    for candidate in (
-        _old_expert_checkpoint_dir(prev_root, registry),
-        prev_root / "candidate" / "cold_start",
-        _last_known_checkpoint_dir(prev_root),
-    ):
-        if candidate is not None and (candidate / "compose_experts.json").is_file():
-            return candidate
-    return None
-
-
-def _write_empty_teacher_records(
-    root: Path,
-    teacher_train: List[Dict],
-    teacher_val: List[Dict],
-    task_id: int,
-    pool_version: int,
-    seed: int,
-) -> None:
-    """Degenerate teacher records for the empty-registry chain: no adapter
-    state exists to score against, so every sample gets an empty teacher
-    (``teacher_set=()``, ``empty_loss=None``) and the residual split reuses
-    everything. The pipeline completes with 0 commits; the reason is
-    audited via ``teacher/summary.json``."""
-    records = {"train": [], "val": []}
-    for split_key, subset in (("train", teacher_train), ("val", teacher_val)):
-        for record in subset:
-            sample_id = _record_id(record)
-            records[split_key].append(
-                V6TeacherRecord(
-                    sample_id=sample_id,
-                    task_id=task_id,
-                    pool_version=pool_version,
-                    router_version=ROUTER_VERSION,
-                    candidate_experts=(),
-                    empty_loss=None,
-                    single_losses={},
-                    pair_losses={},
-                    best_single=(),
-                    best_pair=(),
-                    pair_gain=None,
-                    teacher_set=(),
-                    teacher_loss=None,
-                    teacher_multi_hot={},
-                    cache_key=hashlib.sha256(
-                        "{}.{}.{}".format(task_id, sample_id, seed).encode()
-                    ).hexdigest()[:16],
-                )
-            )
-    _write_json(
-        str(root / "teacher" / "teacher_records_train.json"),
-        [record.to_dict() for record in records["train"]],
+    The snapshot manifest ``pool_checkpoint_dir`` is the only pointer;
+    when the field is absent (pre-fix snapshots) the registry metadata is
+    used (the parent directory of the newest formal expert's checkpoint).
+    An empty active registry is ALWAYS scored against the base-only pool:
+    no rejected candidate, cold-start or last-known-checkpoint directory is
+    ever substituted for the formal pool.
+    """
+    if not registry.get_active_experts():
+        return _ensure_base_only_pool(prev_root)
+    declared = snapshot.manifest.get("pool_checkpoint_dir")
+    if declared and (Path(declared) / "compose_experts.json").is_file():
+        return Path(declared)
+    active = sorted(
+        registry.get_active_experts(),
+        key=lambda metadata: (metadata.creation_task or 0, metadata.expert_id),
     )
-    _write_json(
-        str(root / "teacher" / "teacher_records_val.json"),
-        [record.to_dict() for record in records["val"]],
-    )
-    _write_json(
-        str(root / "teacher" / "summary.json"),
-        {
-            "train_samples": len(teacher_train),
-            "val_samples": len(teacher_val),
-            "old_expert_ids": [],
-            "train_teacher_empty_count": len(teacher_train),
-            "train_teacher_single_count": 0,
-            "train_teacher_pair_count": 0,
-            "val_teacher_empty_count": len(teacher_val),
-            "note": "no old adapter state (0 committed experts, no candidate pool, "
-            "no inherited checkpoint); teacher search skipped",
-        },
+    newest = active[-1]
+    if newest.checkpoint_path and Path(newest.checkpoint_path).is_file():
+        return Path(newest.checkpoint_path).parent
+    raise RuntimeError(
+        "no formal pool checkpoint resolvable from snapshot {} and registry "
+        "(active experts: {})".format(snapshot.directory, registry.active_lifecycle_ids())
     )
 
 
@@ -261,8 +225,10 @@ def run_task(
     )
 
     # ---- S0: load previous task-boundary snapshot ------------------------
+    # Read-only load happens unconditionally (idempotent); the S0 stage only
+    # writes registry/info once.
+    snapshot = V6Snapshot.load(str(prev_root / "snapshots" / "task{}".format(task_id - 1)))
     if not _stage_done(root, "s0_snapshot_load"):
-        snapshot = V6Snapshot.load(str(prev_root / "snapshots" / "task{}".format(task_id - 1)))
         if snapshot.manifest["task_id"] != task_id - 1:
             raise ValueError(
                 "prev snapshot task_id {} != expected {}".format(
@@ -275,7 +241,12 @@ def run_task(
             str(root / "data" / "prev_snapshot_info.json"),
             {
                 "pool_version": registry.pool_version,
-                "expert_ids": [e.expert_id for e in registry.list_all()],
+                "active_expert_ids": list(registry.active_lifecycle_ids()),
+                "rejected_candidate_ids": [
+                    e.expert_id for e in registry.get_rejected_candidates()
+                ],
+                "rebootstrap_allowed": not registry.get_active_experts(),
+                "pool_checkpoint_dir": snapshot.manifest.get("pool_checkpoint_dir"),
                 "git_commit": snapshot.manifest["git_commit"],
                 "has_router": snapshot.manifest.get("has_router", False),
             },
@@ -284,8 +255,14 @@ def run_task(
         _mark_stage(root, "s0_snapshot_load")
 
     records = json.load(open(train_path, "r", encoding="utf-8"))
-    old_ids = [e.expert_id for e in registry.list_all()]
-    old_checkpoint = _old_expert_checkpoint_chain(prev_root, registry)
+    # The formal pool is defined by lifecycle status (R1): candidates,
+    # rejected candidates and archived experts never participate here.
+    active_ids = list(registry.active_lifecycle_ids())
+    base_only_mode = not active_ids
+    pool_dir = _resolve_pool_checkpoint_dir(snapshot, prev_root, registry)
+    # Re-bootstrap (R6): with no active experts the teacher is the frozen
+    # backbone; candidate training starts WITHOUT --old-expert-checkpoint.
+    old_checkpoint = pool_dir if active_ids else None
 
     # ---- S1: answer-supervised teacher search (empty/single/pair) --------
     if not _stage_done(root, "s1_teacher"):
@@ -297,62 +274,57 @@ def run_task(
         ]
         _write_json(str(root / "data" / "teacher_train.json"), teacher_train)
         _write_json(str(root / "data" / "teacher_val.json"), teacher_val)
-        if old_checkpoint is None:
-            # Degenerate chain: 0 committed experts, no candidate pool and
-            # no inherited checkpoint pointer — no adapter state exists to
-            # score against. Record empty teachers so the residual split
-            # reuses everything and the pipeline completes with 0 commits
-            # (audited via summary.json note).
-            _write_empty_teacher_records(
-                root, teacher_train, teacher_val, task_id,
-                registry.pool_version, seed,
+        # Round 1: empty + every single over all ACTIVE experts. With an
+        # empty registry the empty selection IS the base teacher: the
+        # base-only pool yields the real per-sample base NLL (R4), which the
+        # residual split consumes with base_only_mode=True.
+        selections = {}
+        for split, subset, tag in (
+            ("train", teacher_train, "teacher_train"),
+            ("val", teacher_val, "teacher_val"),
+        ):
+            rows = {}
+            for record in subset:
+                sample_id = _record_id(record)
+                row = {"empty": []}
+                for expert_id in active_ids:
+                    row["single_{}".format(expert_id)] = [expert_id]
+                rows[sample_id] = row
+            selections[tag] = rows
+            _write_json(str(root / "data" / "{}_selections_r1.json".format(tag)), rows)
+            _run(
+                [
+                    PYTHON, "-m", "compose.eval.v6_nll_eval",
+                    "--model-path", BASE_MODEL,
+                    "--vision-tower", VISION_TOWER,
+                    "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
+                    "--checkpoint-dir", str(pool_dir),
+                    "--question-file", str(root / "data" / "{}.json".format(tag)),
+                    "--image-folder", IMAGE_FOLDER,
+                    "--selections", str(root / "data" / "{}_selections_r1.json".format(tag)),
+                    "--output", str(root / "teacher" / "{}_nll_r1.json".format(tag)),
+                    "--device", "cuda:0",
+                ],
+                dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0]),
+                root,
+                "s1_{}_r1".format(tag),
             )
-        else:
-            # Round 1: empty + every single over all historical experts.
-            selections = {}
-            for split, subset, tag in (
-                ("train", teacher_train, "teacher_train"),
-                ("val", teacher_val, "teacher_val"),
-            ):
-                rows = {}
-                for record in subset:
-                    sample_id = _record_id(record)
-                    row = {"empty": []}
-                    for expert_id in old_ids:
-                        row["single_{}".format(expert_id)] = [expert_id]
-                    rows[sample_id] = row
-                selections[tag] = rows
-                _write_json(str(root / "data" / "{}_selections_r1.json".format(tag)), rows)
-                _run(
-                    [
-                        PYTHON, "-m", "compose.eval.v6_nll_eval",
-                        "--model-path", BASE_MODEL,
-                        "--vision-tower", VISION_TOWER,
-                        "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
-                        "--checkpoint-dir", str(old_checkpoint),
-                        "--question-file", str(root / "data" / "{}.json".format(tag)),
-                        "--image-folder", IMAGE_FOLDER,
-                        "--selections", str(root / "data" / "{}_selections_r1.json".format(tag)),
-                        "--output", str(root / "teacher" / "{}_nll_r1.json".format(tag)),
-                        "--device", "cuda:0",
-                    ],
-                    dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0]),
-                    root,
-                    "s1_{}_r1".format(tag),
-                )
-    
-            # Round 2: up to six pairs among the four best singles (per sample).
-            lambda_expert = config["teacher"]["lambda_expert"]
-            delta_pair_raw = config["teacher"]["delta_pair_raw"]
-            top_k_for_pair = config["teacher"]["top_k_for_pair"]
-            max_pairs = config["teacher"]["max_pairs"]
-            teacher_records = {"train": [], "val": []}
-            for tag, split_key in (("teacher_train", "train"), ("teacher_val", "val")):
-                nll = json.loads((root / "teacher" / "{}_nll_r1.json".format(tag)).read_text())
+
+        # Round 2: up to six pairs among the four best singles (per sample);
+        # skipped entirely under an empty active pool (nothing to pair).
+        lambda_expert = config["teacher"]["lambda_expert"]
+        delta_pair_raw = config["teacher"]["delta_pair_raw"]
+        top_k_for_pair = config["teacher"]["top_k_for_pair"]
+        max_pairs = config["teacher"]["max_pairs"]
+        teacher_records = {"train": [], "val": []}
+        for tag, split_key in (("teacher_train", "train"), ("teacher_val", "val")):
+            nll = json.loads((root / "teacher" / "{}_nll_r1.json".format(tag)).read_text())
+            pair_nll = {}
+            if active_ids:
                 pair_selections = {}
                 for sample_id, values in sorted(nll.items()):
                     single_scores = []
-                    for expert_id in old_ids:
+                    for expert_id in active_ids:
                         key = "single_{}".format(expert_id)
                         if key in values:
                             single_scores.append(
@@ -382,7 +354,7 @@ def run_task(
                         "--model-path", BASE_MODEL,
                         "--vision-tower", VISION_TOWER,
                         "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
-                        "--checkpoint-dir", str(old_checkpoint),
+                        "--checkpoint-dir", str(pool_dir),
                         "--question-file", str(root / "data" / "{}.json".format(tag)),
                         "--image-folder", IMAGE_FOLDER,
                         "--selections", str(root / "data" / "{}_selections_r2.json".format(tag)),
@@ -396,111 +368,117 @@ def run_task(
                 pair_nll = json.loads(
                     (root / "teacher" / "{}_nll_r2.json".format(tag)).read_text()
                 )
-                for sample_id, values in sorted(nll.items()):
-                    empty_nll = values["empty"]
-                    singles = {
-                        int(expert_id): values.get("single_{}".format(expert_id))
-                        for expert_id in old_ids
-                    }
-                    singles = {k: v for k, v in singles.items() if v is not None}
-                    if not singles:
+            for sample_id, values in sorted(nll.items()):
+                empty_nll = values["empty"]
+                singles = {
+                    int(expert_id): values.get("single_{}".format(expert_id))
+                    for expert_id in active_ids
+                }
+                singles = {k: v for k, v in singles.items() if v is not None}
+                if not singles:
+                    # No active expert helps: teacher = the current system.
+                    # Under a non-empty pool this is a genuine empty teacher;
+                    # under base_only_mode it is scored as old_gain 0 below
+                    # the floor -> residual material (R5).
+                    teacher_set = ()
+                    teacher_loss = empty_nll
+                    best_single = ()
+                    best_pair = ()
+                    pair_gain = None
+                else:
+                    best_single_id = min(
+                        singles, key=lambda e: singles[e] + lambda_expert
+                    )
+                    best_single = (best_single_id,)
+                    best_single_score = singles[best_single_id] + lambda_expert
+                    if best_single_score >= empty_nll:
                         teacher_set = ()
                         teacher_loss = empty_nll
-                        best_single = ()
                         best_pair = ()
                         pair_gain = None
                     else:
-                        best_single_id = min(
-                            singles, key=lambda e: singles[e] + lambda_expert
-                        )
-                        best_single = (best_single_id,)
-                        best_single_score = singles[best_single_id] + lambda_expert
-                        if best_single_score >= empty_nll:
-                            teacher_set = ()
-                            teacher_loss = empty_nll
+                        # pairs over the evaluated pair sets (raw nll keyed by
+                        # (expert_a, expert_b)); same rule as V6TeacherSearcher:
+                        # raw gain over best single >= delta_pair_raw AND
+                        # penalized (score) gain > 0 -> pair, else single.
+                        pair_losses = {
+                            tuple(int(x) for x in key.split("_")[1:]): value
+                            for key, value in pair_nll.get(sample_id, {}).items()
+                        }
+                        valid_pairs = []
+                        for pair, loss in pair_losses.items():
+                            raw_gain = singles[best_single_id] - loss
+                            penalized = (
+                                singles[best_single_id] + lambda_expert
+                            ) - (loss + 2 * lambda_expert)
+                            if raw_gain >= delta_pair_raw and penalized > 0:
+                                valid_pairs.append((penalized, pair, loss))
+                        if valid_pairs:
+                            _, best_pair, best_pair_loss = max(
+                                valid_pairs, key=lambda item: item[0]
+                            )
+                            teacher_set = best_pair
+                            teacher_loss = best_pair_loss
+                            pair_gain = singles[best_single_id] - best_pair_loss
+                        else:
+                            teacher_set = best_single
+                            teacher_loss = singles[best_single_id]
                             best_pair = ()
                             pair_gain = None
-                        else:
-                            # pairs over the evaluated pair sets (raw nll keyed by
-                            # (expert_a, expert_b)); same rule as V6TeacherSearcher:
-                            # raw gain over best single >= delta_pair_raw AND
-                            # penalized (score) gain > 0 -> pair, else single.
-                            pair_losses = {
-                                tuple(int(x) for x in key.split("_")[1:]): value
-                                for key, value in pair_nll.get(sample_id, {}).items()
-                            }
-                            valid_pairs = []
-                            for pair, loss in pair_losses.items():
-                                raw_gain = singles[best_single_id] - loss
-                                penalized = (
-                                    singles[best_single_id] + lambda_expert
-                                ) - (loss + 2 * lambda_expert)
-                                if raw_gain >= delta_pair_raw and penalized > 0:
-                                    valid_pairs.append((penalized, pair, loss))
-                            if valid_pairs:
-                                _, best_pair, best_pair_loss = max(
-                                    valid_pairs, key=lambda item: item[0]
-                                )
-                                teacher_set = best_pair
-                                teacher_loss = best_pair_loss
-                                pair_gain = singles[best_single_id] - best_pair_loss
-                            else:
-                                teacher_set = best_single
-                                teacher_loss = singles[best_single_id]
-                                best_pair = ()
-                                pair_gain = None
-                    teacher_records[split_key].append(
-                        V6TeacherRecord(
-                            sample_id=sample_id,
-                            task_id=task_id,
-                            pool_version=registry.pool_version,
-                            router_version=ROUTER_VERSION,
-                            candidate_experts=tuple(old_ids),
-                            empty_loss=empty_nll,
-                            single_losses=singles,
-                            pair_losses={
-                                tuple(int(x) for x in key.split("_")[1:]): value
-                                for key, value in pair_nll.get(sample_id, {}).items()
-                            },
-                            best_single=best_single,
-                            best_pair=best_pair,
-                            pair_gain=pair_gain,
-                            teacher_set=teacher_set,
-                            teacher_loss=teacher_loss,
-                            teacher_multi_hot={int(e): 1 for e in teacher_set},
-                            cache_key=hashlib.sha256(
-                                "{}.{}.{}".format(task_id, sample_id, seed).encode()
-                            ).hexdigest()[:16],
-                        )
+                teacher_records[split_key].append(
+                    V6TeacherRecord(
+                        sample_id=sample_id,
+                        task_id=task_id,
+                        pool_version=registry.pool_version,
+                        router_version=ROUTER_VERSION,
+                        candidate_experts=tuple(active_ids),
+                        empty_loss=empty_nll,
+                        single_losses=singles,
+                        pair_losses={
+                            tuple(int(x) for x in key.split("_")[1:]): value
+                            for key, value in pair_nll.get(sample_id, {}).items()
+                        },
+                        best_single=best_single,
+                        best_pair=best_pair,
+                        pair_gain=pair_gain,
+                        teacher_set=teacher_set,
+                        teacher_loss=teacher_loss,
+                        teacher_multi_hot={int(e): 1 for e in teacher_set},
+                        cache_key=hashlib.sha256(
+                            "{}.{}.{}".format(task_id, sample_id, seed).encode()
+                        ).hexdigest()[:16],
                     )
-            _write_json(
-                str(root / "teacher" / "teacher_records_train.json"),
-                [record.to_dict() for record in teacher_records["train"]],
-            )
-            _write_json(
-                str(root / "teacher" / "teacher_records_val.json"),
-                [record.to_dict() for record in teacher_records["val"]],
-            )
-            _write_json(
-                str(root / "teacher" / "summary.json"),
-                {
-                    "train_samples": len(teacher_train),
-                    "val_samples": len(teacher_val),
-                    "old_expert_ids": old_ids,
-                    "train_teacher_empty_count": sum(
-                        1 for record in teacher_records["train"] if not record.teacher_set
-                    ),
-                    "train_teacher_single_count": sum(
-                        1 for record in teacher_records["train"] if len(record.teacher_set) == 1
-                    ),
-                    "train_teacher_pair_count": sum(
-                        1 for record in teacher_records["train"] if len(record.teacher_set) == 2
-                    ),
-                    "val_teacher_empty_count": sum(
-                        1 for record in teacher_records["val"] if not record.teacher_set
-                    ),
-                },
-            )
+                )
+        _write_json(
+            str(root / "teacher" / "teacher_records_train.json"),
+            [record.to_dict() for record in teacher_records["train"]],
+        )
+        _write_json(
+            str(root / "teacher" / "teacher_records_val.json"),
+            [record.to_dict() for record in teacher_records["val"]],
+        )
+        _write_json(
+            str(root / "teacher" / "summary.json"),
+            {
+                "train_samples": len(teacher_train),
+                "val_samples": len(teacher_val),
+                "active_expert_ids": active_ids,
+                "base_only_mode": base_only_mode,
+                "pool_checkpoint_dir": str(pool_dir),
+                "train_teacher_empty_count": sum(
+                    1 for record in teacher_records["train"] if not record.teacher_set
+                ),
+                "train_teacher_single_count": sum(
+                    1 for record in teacher_records["train"] if len(record.teacher_set) == 1
+                ),
+                "train_teacher_pair_count": sum(
+                    1 for record in teacher_records["train"] if len(record.teacher_set) == 2
+                ),
+                "val_teacher_empty_count": sum(
+                    1 for record in teacher_records["val"] if not record.teacher_set
+                ),
+            },
+        )
         _advance(root, machine, TaskStage.OLD_TEACHER_RUNNING, note="teacher search running")
         _advance(root, machine, TaskStage.OLD_TEACHER_READY, note="teacher search done")
         machine.save(str(state_path))
@@ -527,25 +505,28 @@ def run_task(
             if not best:
                 continue
             oracle_support += 1
-            # With no router decision at this stage, all historical experts are
-            # considered retrieved (recall ceiling); the Router retrieval path
-            # is exercised in S8 calibration, where SetExactAcc is measured.
-            retrieved = set(old_ids)
+            # With no router decision at this stage, all active experts are
+            # considered retrieved (recall ceiling); the Router retrieval
+            # path is exercised in S8 calibration, where SetExactAcc is
+            # measured.
+            retrieved = set(active_ids)
             if set(best).issubset(retrieved):
                 recalled += 1
             else:
                 missed_ids.extend(best)
         audit = {
             "audited_samples": len(audited),
-            "pool_size": len(old_ids),
+            "pool_size": len(active_ids),
             "top_m": config["router"]["top_m"],
             "oracles_with_support": oracle_support,
             "recalled": recalled,
-            "oracle_recall_at_m": (recalled / oracle_support) if oracle_support else 0.0,
+            "oracle_recall_at_m": (recalled / oracle_support) if oracle_support else None,
             "missed_contributing_expert_ids": sorted(set(missed_ids)),
             "sample_ids_audited": [r["sample_id"] for r in audited],
-            "note": "recall ceiling (all historical experts evaluated); router retrieval precision measured in S8",
+            "note": "recall ceiling (all active experts evaluated); router retrieval precision measured in S8",
         }
+        if not active_ids:
+            audit["note"] = "empty active pool: no oracle support possible; recall audit vacuous"
         _write_json(str(root / "teacher" / "recall_audit.json"), audit)
         _mark_stage(root, "s2_recall_audit")
 
@@ -600,6 +581,7 @@ def run_task(
             min_old_gain=config["residual"]["min_old_gain"],
             top_m_covered=[True] * len(teacher_records),
             split="train",
+            base_only_mode=base_only_mode,
         )
         _write_json(str(root / "residual" / "reuse.json"),
                     [record.to_dict() for record in reuse])
@@ -610,6 +592,15 @@ def run_task(
             {
                 "reuse_count": len(reuse),
                 "residual_count": len(residual),
+                "base_only_mode": base_only_mode,
+                "base_sufficient_count": sum(
+                    1 for record in teacher_records
+                    if not record.teacher_set and not base_only_mode
+                ),
+                "base_insufficient_count": sum(
+                    1 for record in residual
+                    if record.residual_reason == "base_only_insufficient"
+                ),
                 "teacher_empty_count": sum(
                     1 for record in teacher_records if not record.teacher_set
                 ),
@@ -650,11 +641,16 @@ def run_task(
         if not residual:
             _write_json(
                 str(root / "candidate" / "no_candidate.json"),
-                {"reason": "no residual samples; commit_count=0"},
+                {
+                    "reason": "insufficient_residual",
+                    "residual_count": 0,
+                    "min_residual_samples": config["residual"]["min_residual_samples"],
+                },
             )
-            _advance(root, machine, TaskStage.CANDIDATE_TRAINING, note="no residual -> skip")
-            _advance(root, machine, TaskStage.CANDIDATE_TRAINED, note="no residual -> skip")
-            _advance(root, machine, TaskStage.CANDIDATE_VALIDATED, note="skip validation")
+            _advance(
+                root, machine, TaskStage.NO_EXPANSION_REQUIRED,
+                note="insufficient_residual",
+            )
             machine.save(str(state_path))
             _mark_stage(root, "s5_candidates")
         else:
@@ -693,6 +689,19 @@ def run_task(
             _write_json(
                 str(root / "candidate" / "assignment_stats.json"),
                 {"assignments": assignments},
+            )
+            # R6: same Candidate Trainer for re-bootstrap and residual
+            # expansion; the mode is the absence/presence of the old-expert
+            # flag, recorded for auditability (repeated re-bootstraps are
+            # allowed — no one-shot flag anywhere).
+            mode = "rebootstrap" if old_checkpoint is None else "residual_expansion"
+            _write_json(
+                str(root / "candidate" / "mode.json"),
+                {
+                    "mode": mode,
+                    "old_expert_checkpoint": str(old_checkpoint) if old_checkpoint else None,
+                    "active_expert_ids": active_ids,
+                },
             )
             output = root / "candidate" / "train"
             if output.exists():
@@ -740,16 +749,17 @@ def run_task(
                 sample_id = _record_id(record)
                 row = {}
                 for slot_id in slot_ids:
-                    row["old"] = old_ids
-                    row["old_plus_{}".format(slot_id)] = old_ids + [slot_id]
+                    row["old"] = active_ids
+                    row["old_plus_{}".format(slot_id)] = active_ids + [slot_id]
                 selections[sample_id] = row
             _write_json(str(root / "validation" / "selections.json"), selections)
-            # validate against the current candidate/train pool (old experts +
-            # trained candidates); fall back to the prev pool when missing.
-            checkpoint_dir = _old_expert_checkpoint_dir(root, registry) or old_checkpoint
-            if checkpoint_dir is None:
+            # Validate against the current task's training pool (old experts
+            # + trained candidates); the pool exists because residual was
+            # non-empty and S5 trained it.
+            checkpoint_dir = root / "candidate" / "train"
+            if not (checkpoint_dir / "compose_experts.json").is_file():
                 raise RuntimeError(
-                    "no candidate or old expert checkpoint for validation under {}".format(root)
+                    "no candidate pool for validation under {}".format(root)
                 )
             _run(
                 [
@@ -800,6 +810,7 @@ def run_task(
             summary = json.loads((root / "validation" / "summary.json").read_text())
             tau_support = config["commit_conditions"]["tau_support"]
             tau_gain = config["commit_conditions"]["tau_gain"]
+            commit_thresholds = {"tau_support": tau_support, "tau_gain": tau_gain}
             transaction = CommitTransaction(str(state_dir), registry)
             for slot_id in slot_ids:
                 stats = summary.get(str(slot_id), {})
@@ -807,9 +818,50 @@ def run_task(
                     stats.get("support_count", 0) < tau_support
                     or stats.get("mean_gain", -1) < tau_gain
                 ):
+                    # R2: a rejected candidate keeps its artifacts for
+                    # diagnostics but never enters the active pool; the
+                    # registry records the terminal REJECTED status so the
+                    # snapshot can prove exclusion from every formal path.
+                    rejection = write_rejected_candidate(
+                        root,
+                        task_id=task_id,
+                        task_name=task_name,
+                        candidate_id=slot_id,
+                        reason=REJECTION_REASON_BELOW_TAU,
+                        mean_gain=stats.get("mean_gain", -1.0),
+                        support=stats.get("support_count", 0),
+                        validation_stats=stats,
+                        commit_thresholds=commit_thresholds,
+                        adapter_dir=str(root / "candidate" / "train"),
+                        seed=seed,
+                        pool_version=registry.pool_version,
+                        config_hash=config_hash,
+                    )
+                    register_rejected_candidate(
+                        registry,
+                        expert_id=slot_id,
+                        task_id=task_id,
+                        task_name=task_name,
+                        seed=seed,
+                        reason=REJECTION_REASON_BELOW_TAU,
+                        mean_gain=stats.get("mean_gain", -1.0),
+                        support=stats.get("support_count", 0),
+                        checkpoint_path=rejection["checkpoint_path"],
+                        checkpoint_sha256=rejection["checkpoint_sha256"],
+                        commit_thresholds=commit_thresholds,
+                    )
                     _write_json(
                         str(root / "committed" / "rejected_{}.json".format(slot_id)),
-                        {"slot_id": slot_id, "reason": "below_tau", "stats": stats},
+                        {
+                            "slot_id": slot_id,
+                            "reason": REJECTION_REASON_BELOW_TAU,
+                            "stats": stats,
+                            "registered_as_rejected": True,
+                            "rejection_dir": str(
+                                (root / "rejected_candidates" / "task_{:02d}".format(task_id)
+                                 / "candidate_{:02d}".format(slot_id))
+                            ),
+                        },
                     )
                     continue
                 staging = root / "committed" / "expert_{:04d}".format(slot_id)
@@ -865,19 +917,39 @@ def run_task(
                     metadata=metadata,
                 )
                 committed.append(slot_id)
-            registry.save_json(str(registry_path))
+            # S0 already wrote registry.json; the commit must overwrite it
+            # (allow_overwrite) instead of crashing on the first-write guard.
+            registry.save_atomic(str(registry_path), allow_overwrite=True)
         _write_json(
             str(root / "committed" / "commit_record.json"),
-            {"committed_expert_ids": committed, "pool_version": registry.pool_version},
+            {
+                "committed_expert_ids": committed,
+                "pool_version": registry.pool_version,
+                "reason": (
+                    "insufficient_residual"
+                    if not residual
+                    else "all_candidates_below_tau"
+                    if not committed
+                    else "committed"
+                ),
+            },
         )
-        _advance(root, machine, TaskStage.EXPERTS_COMMITTED, note="commit done")
+        if machine.stage is TaskStage.NO_EXPANSION_REQUIRED:
+            # GLOBAL_TEACHER_READY is reached in S8 from NO_EXPANSION_REQUIRED.
+            pass
+        else:
+            _advance(root, machine, TaskStage.EXPERTS_COMMITTED, note="commit done")
         machine.save(str(state_path))
         _mark_stage(root, "s7_commit")
 
     # ---- S8: router (global teacher + calibration) ------------------------
     if not _stage_done(root, "s8_router"):
         router = V6Router(V6QueryEncoder(), seed=seed)
-        for expert in registry.list_all():
+        # R8: the Router candidate set is the ACTIVE pool only (provisional |
+        # formal lifecycle). With pool=0 the router carries 0 keys and its
+        # prediction is empty — no classification is trained on rejected or
+        # candidate adapters.
+        for expert in registry.get_active_experts():
             router.add_expert(
                 expert.expert_id,
                 creation_task=expert.creation_task or 0,
@@ -888,7 +960,11 @@ def run_task(
             router,
             pool_version=registry.pool_version,
             config_hash=config_hash,
-            extra={"task_id": task_id, "mode": "calibrated"},
+            extra={
+                "task_id": task_id,
+                "mode": "calibrated",
+                "active_expert_ids": list(registry.active_lifecycle_ids()),
+            },
         )
         _advance(root, machine, TaskStage.GLOBAL_TEACHER_READY, note="global teacher regenerated")
         _advance(root, machine, TaskStage.ROUTER_TRAINING, note="router calibrating")
@@ -909,6 +985,19 @@ def run_task(
             capture_output=True,
             text=True,
         ).stdout.strip()
+        commit_record = json.loads((root / "committed" / "commit_record.json").read_text())
+        if registry.get_active_experts():
+            if commit_record["committed_expert_ids"]:
+                # Training-time pool: old experts + committed candidates.
+                snapshot_pool_dir = str(root / "candidate" / "train")
+            else:
+                # Nothing committed (all below_tau or insufficient residual):
+                # the formal pool is still the previous task's pool; the
+                # candidate/train dir holds rejected weights and must not be
+                # propagated.
+                snapshot_pool_dir = str(pool_dir)
+        else:
+            snapshot_pool_dir = str(_ensure_base_only_pool(root))
         V6Snapshot.create(
             str(root / "snapshots" / "task{}".format(task_id)),
             task_id=task_id,
@@ -920,6 +1009,7 @@ def run_task(
             data_hash=_sha256_file(train_path),
             router=router if (root / "router" / "router_checkpoint.pt").is_file() else None,
             router_config_hash=config_hash,
+            pool_checkpoint_dir=snapshot_pool_dir,
         )
         _advance(root, machine, TaskStage.SNAPSHOT_READY, note="snapshot written")
         machine.save(str(state_path))
@@ -937,25 +1027,14 @@ def run_task(
                 "--gates", ",".join(["1.0"] * len(expert_ids)),
             ]
         else:
+            # R3: an empty selection under an empty/unchanged pool is the
+            # frozen backbone; there is NO inherited-checkpoint fallback
+            # (rejected candidates are never loaded as defaults).
             expert_args = ["--expert-ids", ""]
-        checkpoint_dir = root / "candidate" / "train"
-        if not (checkpoint_dir / "compose_experts.json").is_file():
-            # No candidates trained: fall back through the inherited chain
-            # (prev committed experts / cold start / last-known pointer) so
-            # the degenerate chain can still be scored and audited.
-            checkpoint_dir = _old_expert_checkpoint_chain(prev_root, registry)
-            if checkpoint_dir is None:
-                raise RuntimeError(
-                    "no checkpoint dir for eval under {} (empty registry and "
-                    "no inherited checkpoint)".format(root)
-                )
-            _write_json(
-                str(root / "candidate" / "last_known_checkpoint.json"),
-                {
-                    "checkpoint_dir": str(checkpoint_dir),
-                    "note": "degenerate chain: eval against inherited checkpoint",
-                },
-            )
+        if expert_ids and (root / "candidate" / "train" / "compose_experts.json").is_file():
+            checkpoint_dir = root / "candidate" / "train"
+        else:
+            checkpoint_dir = pool_dir
         _run(
             [
                 PYTHON, "-m", "compose.eval.eval_task",

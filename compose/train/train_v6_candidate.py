@@ -218,6 +218,16 @@ def train() -> None:
     for candidate_id in candidate_ids:
         pool.register(candidate_id, name="candidate-{}".format(candidate_id))
     pool.train_only(candidate_ids)
+    # Reentrant activation checkpointing (torch default) re-runs each layer
+    # under torch.no_grad() in backward and only connects the graph when at
+    # least one checkpoint input requires grad.  train_only froze the whole
+    # base (embeddings included), which would leave every layer's checkpoint
+    # detached ("element 0 of tensors does not require grad").  Re-enable
+    # grad on the embeddings only: they stay out of the optimizer (LoRA-only
+    # update) but give each checkpointed layer a grad-requiring input, the
+    # standard HF LoRA + gradient-checkpointing arrangement.
+    model.gradient_checkpointing_enable()
+    model.model.embed_tokens.weight.requires_grad_(True)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         args.model_path, model_max_length=2048, padding_side="right", use_fast=False

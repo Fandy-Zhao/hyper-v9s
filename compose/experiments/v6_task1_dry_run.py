@@ -29,6 +29,12 @@ from compose.experts.registry import ExpertRegistry
 from compose.experts.task_state import TaskStage, TaskStateMachine
 from compose.experts.transaction import CommitTransaction
 from compose.experiments.v6_snapshot import V6Snapshot
+from compose.expansion.v6_base_pool import write_base_only_checkpoint
+from compose.expansion.v6_rejected import (
+    REJECTION_REASON_BELOW_TAU,
+    register_rejected_candidate,
+    write_rejected_candidate,
+)
 from compose.router.v6_router import V6QueryEncoder, V6Router, save_v6_router_checkpoint
 
 PYTHON = "/home/zhaozhuofan/miniconda3/envs/hyper/bin/python"
@@ -105,6 +111,21 @@ def _mark_stage(root: Path, stage: str) -> None:
 def _advance(root: Path, machine: TaskStateMachine, stage: TaskStage, note: str) -> None:
     machine.advance(stage, note=note)
     machine.save(str(root / "state" / "task_state.json"))
+
+
+def _ensure_base_only_pool(root: Path) -> Path:
+    """Base-only pool checkpoint under ``root/candidate/base_only`` (R4).
+
+    When task-0's cold-start candidate fails validation, the active expert
+    registry stays empty and the current system IS the frozen backbone.
+    The base-only pool is the checkpoint directory the next task scores
+    against and the task-boundary eval runs on; the rejected candidate's
+    training pool is never substituted for it.
+    """
+    base_dir = root / "candidate" / "base_only"
+    if not (base_dir / "compose_experts.json").is_file():
+        write_base_only_checkpoint(str(base_dir))
+    return base_dir
 
 
 def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
@@ -347,9 +368,57 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
                 {"committed_expert_ids": [CANDIDATE_ID], "pool_version": registry.pool_version},
             )
         else:
+            # R2: a rejected candidate keeps its training artifacts for
+            # diagnostics but never enters the active pool; the registry
+            # records the terminal REJECTED status (excluded from
+            # get_active_experts, Router, teacher search and eval).
+            rejection = write_rejected_candidate(
+                root,
+                task_id=0,
+                task_name=TASK_NAME,
+                candidate_id=CANDIDATE_ID,
+                reason=REJECTION_REASON_BELOW_TAU,
+                mean_gain=summary["mean_gain"],
+                support=summary["support_count"],
+                validation_stats={
+                    "samples": summary["samples"],
+                    "mean_gain": summary["mean_gain"],
+                    "support_count": summary["support_count"],
+                    "positive_rate": summary["positive_rate"],
+                },
+                commit_thresholds={
+                    "tau_support": tau_support,
+                    "tau_gain": tau_gain,
+                },
+                adapter_dir=str(root / "candidate" / "cold_start"),
+                seed=config["data"]["seed"],
+                pool_version=registry.pool_version,
+                config_hash=config.get("config_hash", "dry-run"),
+            )
+            register_rejected_candidate(
+                registry,
+                expert_id=CANDIDATE_ID,
+                task_id=0,
+                task_name=TASK_NAME,
+                seed=config["data"]["seed"],
+                reason=REJECTION_REASON_BELOW_TAU,
+                mean_gain=summary["mean_gain"],
+                support=summary["support_count"],
+                checkpoint_path=rejection["checkpoint_path"],
+                checkpoint_sha256=rejection["checkpoint_sha256"],
+                commit_thresholds={
+                    "tau_support": tau_support,
+                    "tau_gain": tau_gain,
+                },
+            )
+            registry.save_atomic(str(registry_path), allow_overwrite=True)
             _write_json(
                 str(root / "committed" / "commit_record.json"),
-                {"committed_expert_ids": [], "reason": "below_tau"},
+                {
+                    "committed_expert_ids": [],
+                    "reason": "below_tau",
+                    "rejected_candidate_ids": [CANDIDATE_ID],
+                },
             )
         machine.advance(TaskStage.EXPERTS_COMMITTED, note="commit done")
         machine.save(str(state_path))
@@ -393,12 +462,21 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
             capture_output=True, text=True,
         ).stdout.strip()
         snapshot_dir = root / "snapshots" / "task0"
+        # R9: the snapshot carries the formal pool checkpoint dir for the
+        # next task's teacher scoring. With 0 committed experts that is the
+        # base-only pool — never the rejected candidate's cold-start pool.
+        commit_record = json.loads((root / "committed" / "commit_record.json").read_text())
+        if commit_record["committed_expert_ids"]:
+            pool_checkpoint_dir = str(root / "candidate" / "cold_start")
+        else:
+            pool_checkpoint_dir = str(_ensure_base_only_pool(root))
         V6Snapshot.create(
             str(snapshot_dir),
             task_id=0, task_name=TASK_NAME,
             registry=registry, task_state=machine,
             git_commit=git_commit, command="v6_task1_dry_run",
             data_hash=_sha256_file(train_path),
+            pool_checkpoint_dir=pool_checkpoint_dir,
         )
         machine.advance(TaskStage.SNAPSHOT_READY, note="snapshot written")
         machine.save(str(state_path))
@@ -414,12 +492,20 @@ def run_task1(root: Path, gpus: str, master_port: int, config: dict) -> None:
             expert_args = ["--expert-ids", ",".join(map(str, expert_ids)),
                            "--gates", ",".join(["1.0"] * len(expert_ids))]
         else:
+            # R3: no committed experts -> empty selection over the base-only
+            # pool; the rejected candidate's weights are never loaded.
             expert_args = ["--expert-ids", ""]
+        # R4: eval checkpoint is the formal pool only: the training-time pool
+        # when the candidate was committed, the base-only pool otherwise.
+        if expert_ids:
+            checkpoint_dir = root / "candidate" / "cold_start"
+        else:
+            checkpoint_dir = _ensure_base_only_pool(root)
         command = [
             PYTHON, "-m", "compose.eval.eval_task",
             "--adapter-kind", "compose",
             "--model-path", BASE_MODEL,
-            "--checkpoint-dir", str(root / "candidate" / "cold_start"),
+            "--checkpoint-dir", str(checkpoint_dir),
             "--projector-path", os.path.join(BASE_MODEL, "mm_projector.bin"),
             "--vision-tower", VISION_TOWER,
             "--question-file", test_path,
