@@ -239,6 +239,7 @@ class V6Snapshot:
         candidate_validation: Optional[Dict[str, Any]] = None,
         stdout_text: str = "",
         stderr_text: str = "",
+        pool_checkpoint_dir: Optional[str] = None,
     ) -> "V6Snapshot":
         """Write a complete snapshot atomically (manifest last)."""
         root = Path(directory)
@@ -280,6 +281,8 @@ class V6Snapshot:
         for name in (REGISTRY_NAME, TASK_STATE_NAME, RANDOM_STATES_NAME):
             component_hashes[name] = file_sha256(str(root / name))
 
+        active_ids = [e.expert_id for e in registry.get_active_experts()]
+        rejected_ids = [e.expert_id for e in registry.get_rejected_candidates()]
         manifest = {
             "schema_version": SNAPSHOT_SCHEMA_VERSION,
             "task_id": int(task_id),
@@ -296,6 +299,21 @@ class V6Snapshot:
             "has_teacher_cache_manifest": teacher_cache_manifest is not None,
             "has_residual_manifest": residual_manifest is not None,
             "has_candidate_validation": candidate_validation is not None,
+            # Empty-registry fix (Stage R9): the snapshot is the single
+            # source of truth for the next task's formal pool. The next task
+            # resolves its teacher-scoring checkpoint from
+            # ``pool_checkpoint_dir`` (never by globbing checkpoint dirs),
+            # and learns from ``rebootstrap_allowed`` that candidate training
+            # may start from the frozen backbone because no old expert can
+            # serve as a teacher (active pool is empty). Rejected candidates
+            # are recorded so downstream tasks can prove they are excluded
+            # from every formal path.
+            "active_expert_ids": list(active_ids),
+            "rejected_candidate_ids": list(rejected_ids),
+            "rebootstrap_allowed": not active_ids,
+            "pool_checkpoint_dir": (
+                str(pool_checkpoint_dir) if pool_checkpoint_dir is not None else None
+            ),
         }
         _atomic_write_json(root / MANIFEST_NAME, manifest)
         return cls.load(str(root))

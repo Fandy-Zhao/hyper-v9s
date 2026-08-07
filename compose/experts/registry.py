@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 from .metadata import (
+    ACTIVE_LIFECYCLE_STATUSES,
     ExpertLifecycleStatus,
     ExpertMetadata,
     ExpertStatus,
@@ -95,6 +96,43 @@ class ExpertRegistry:
 
     def list_archived(self) -> List[ExpertMetadata]:
         return [item for item in self._experts.values() if item.status is ExpertStatus.ARCHIVED]
+
+    # ------------------------------------------------------------------
+    # Unified active expert view (empty-registry fix, Stage R1).
+    #
+    # The formal expert pool is defined exclusively by lifecycle status:
+    # provisional | formal.  Checkpoint files existing on disk never imply
+    # formal availability, so no module may glob checkpoint directories to
+    # build the formal pool.  ``candidate`` / ``rejected`` / ``archived``
+    # experts never participate in teacher search, Router, inference,
+    # evaluation, composition, RMS, anchors or reuse statistics.
+    # ------------------------------------------------------------------
+
+    def get_active_experts(self) -> List[ExpertMetadata]:
+        """Formally available experts: lifecycle in ACTIVE_LIFECYCLE_STATUSES."""
+        return [
+            metadata
+            for metadata in self._experts.values()
+            if metadata.lifecycle_status in ACTIVE_LIFECYCLE_STATUSES
+        ]
+
+    def get_rejected_candidates(self) -> List[ExpertMetadata]:
+        """Terminal candidates that failed validation (diagnostics only)."""
+        return [
+            metadata
+            for metadata in self._experts.values()
+            if metadata.lifecycle_status is ExpertLifecycleStatus.REJECTED
+        ]
+
+    def get_all_artifacts(self) -> List[ExpertMetadata]:
+        """Every expert/candidate the registry knows about (diagnostics only)."""
+        return list(self._experts.values())
+
+    def active_lifecycle_ids(self) -> Tuple[int, ...]:
+        """IDs of the formal pool, defined exclusively by lifecycle status
+        (provisional | formal).  Distinct from the legacy ``active_expert_ids``
+        property, which reflects the flag-based active set."""
+        return tuple(metadata.expert_id for metadata in self.get_active_experts())
 
     def _require_selectable(self, values: Iterable[int], role: str) -> Tuple[int, ...]:
         ordered = _ordered_unique(values)
@@ -222,6 +260,14 @@ class ExpertRegistry:
             "experts": [metadata.to_dict() for metadata in self._experts.values()],
             "active_expert_ids": list(self._active_ids),
             "trainable_expert_ids": list(self._trainable_ids),
+            # Lifecycle-derived formal pool (empty-registry fix, Stage R1/R9):
+            # snapshots must distinguish active experts from rejected/temporary
+            # candidates.  Present from registry_version 1 onward; loaders
+            # tolerate absence (pre-fix checkpoints) by deriving from status.
+            "active_lifecycle_ids": list(self.active_lifecycle_ids()),
+            "rejected_candidate_ids": [
+                metadata.expert_id for metadata in self.get_rejected_candidates()
+            ],
         }
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
@@ -250,6 +296,18 @@ class ExpertRegistry:
         self._pool_version = restored_pool_version
         self.set_active_ids(state.get("active_expert_ids", []))
         self.set_trainable_ids(state.get("trainable_expert_ids", []))
+        # Lifecycle-derived formal pool consistency check (additive field;
+        # pre-fix checkpoints without it derive active ids from status).
+        declared_active = state.get("active_lifecycle_ids")
+        if declared_active is not None:
+            actual_active = list(self.active_lifecycle_ids())
+            if sorted(int(value) for value in declared_active) != sorted(actual_active):
+                raise ValueError(
+                    "registry state active_lifecycle_ids {} does not match "
+                    "lifecycle-derived active ids {}".format(
+                        declared_active, actual_active
+                    )
+                )
         self.validate()
 
     def save_json(self, path) -> None:

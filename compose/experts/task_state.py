@@ -27,6 +27,14 @@ class TaskStage(str, Enum):
     OLD_TEACHER_RUNNING = "OLD_TEACHER_RUNNING"
     OLD_TEACHER_READY = "OLD_TEACHER_READY"
     RESIDUAL_READY = "RESIDUAL_READY"
+    # Empty-registry fix (Stage R10): a task whose residual split produced no
+    # candidate material enters NO_EXPANSION_REQUIRED instead of jumping
+    # straight to GLOBAL_TEACHER_READY, so the state history records WHY no
+    # candidate was created. The reason string is "insufficient_residual"
+    # (never "empty_registry"): with the empty-registry fix the residual
+    # split always runs, so an absent residual is a sufficiency decision,
+    # not a missing-teacher artifact.
+    NO_EXPANSION_REQUIRED = "NO_EXPANSION_REQUIRED"
     CANDIDATE_TRAINING = "CANDIDATE_TRAINING"
     CANDIDATE_TRAINED = "CANDIDATE_TRAINED"
     CANDIDATE_VALIDATED = "CANDIDATE_VALIDATED"
@@ -62,8 +70,9 @@ TRANSITIONS: Dict[TaskStage, Set[TaskStage]] = {
     TaskStage.OLD_TEACHER_READY: {TaskStage.RESIDUAL_READY},
     TaskStage.RESIDUAL_READY: {
         TaskStage.CANDIDATE_TRAINING,
-        TaskStage.GLOBAL_TEACHER_READY,
+        TaskStage.NO_EXPANSION_REQUIRED,
     },
+    TaskStage.NO_EXPANSION_REQUIRED: {TaskStage.GLOBAL_TEACHER_READY},
     TaskStage.CANDIDATE_TRAINING: {TaskStage.CANDIDATE_TRAINED},
     TaskStage.CANDIDATE_TRAINED: {TaskStage.CANDIDATE_VALIDATED},
     TaskStage.CANDIDATE_VALIDATED: {TaskStage.EXPERTS_COMMITTED},

@@ -33,6 +33,7 @@ RESIDUAL_REASON_GAIN_FLOOR = "teacher_gain_below_floor"
 RESIDUAL_REASON_EMPTY_TEACHER = "empty_teacher_no_residual"
 RESIDUAL_REASON_RECALL_MISS = "recall_miss_not_residual"
 RESIDUAL_REASON_SUFFICIENT = "teacher_sufficient"
+RESIDUAL_REASON_BASE_ONLY = "base_only_insufficient"
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,7 @@ class V6ResidualRecord:
             RESIDUAL_REASON_EMPTY_TEACHER,
             RESIDUAL_REASON_RECALL_MISS,
             RESIDUAL_REASON_SUFFICIENT,
+            RESIDUAL_REASON_BASE_ONLY,
         ):
             raise ValueError("unknown residual_reason: {!r}".format(self.residual_reason))
         if not all(value >= 0 for value in (self.empty_loss, self.old_teacher_loss)):
@@ -182,13 +184,28 @@ def is_residual(
     record: V6TeacherRecord,
     min_old_gain: float,
     recall_covered: bool,
+    base_only_mode: bool = False,
 ) -> Tuple[bool, str]:
     """Answer-teacher residual judgment (no Router prediction involved).
 
     Returns ``(is_residual, reason)`` where reason is one of the
     RESIDUAL_REASON_* constants.
+
+    ``base_only_mode`` is the empty-registry fix (Stage R5): when the active
+    expert registry is empty the current system is the frozen backbone, so a
+    sample with an empty teacher set is judged by the SAME gain-floor test
+    against the base's own loss (``old_gain = empty_loss - teacher_loss``
+    with ``teacher_loss == empty_loss`` -> 0).  The existing
+    ``min_old_gain`` threshold is reused verbatim; no new threshold is
+    introduced for the empty-registry case.
     """
     if not record.teacher_set:
+        if base_only_mode:
+            # Current system = Base; old_gain over Base is 0, which is below
+            # every positive min_old_gain floor -> Base not sufficient ->
+            # residual candidate material.  The commit gate still filters
+            # candidates that cannot produce real gain on these samples.
+            return True, RESIDUAL_REASON_BASE_ONLY
         return False, RESIDUAL_REASON_EMPTY_TEACHER
     old_gain = record.empty_loss - record.teacher_loss
     if old_gain < min_old_gain:
@@ -206,6 +223,7 @@ def build_residual_records(
     min_old_gain: float,
     top_m_covered: Sequence[bool],
     split: str,
+    base_only_mode: bool = False,
 ) -> Tuple[List[V6ResidualRecord], List[V6ResidualRecord]]:
     """Classify teacher records into (reuse, residual).
 
@@ -213,6 +231,12 @@ def build_residual_records(
     ``i`` was inside the Router Top-M (recall audit); a recall miss is
     recorded as a residual record with RESIDUAL_REASON_RECALL_MISS so it
     surfaces in audits but is never used for candidate training.
+
+    ``base_only_mode=True`` (empty active registry): empty-teacher samples
+    are no longer dropped; they become residual material via the existing
+    gain-floor test (see :func:`is_residual`).  This is what makes the
+    empty-registry state non-absorbing: re-bootstrap candidate training can
+    restart from the frozen backbone.
     """
     if len(teacher_records) != len(top_m_covered):
         raise ValueError("teacher records and recall coverage must align")
@@ -235,7 +259,13 @@ def build_residual_records(
         )
     for record, covered in zip(teacher_records, top_m_covered):
         if not record.teacher_set:
-            continue  # empty teacher: no old expert involved
+            if base_only_mode:
+                old_gain = (record.empty_loss or 0.0) - (record.teacher_loss or 0.0)
+                residual.append(
+                    _to_record(record, query_feature_path, old_gain,
+                               RESIDUAL_REASON_BASE_ONLY, split)
+                )
+            continue  # non-base-only: empty teacher means no old expert involved
         old_gain = record.empty_loss - record.teacher_loss
         is_res, reason = is_residual(record, min_old_gain, covered)
         if reason == RESIDUAL_REASON_RECALL_MISS:

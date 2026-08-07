@@ -51,6 +51,17 @@ class ExpertLifecycleStatus(str, Enum):
         return None
 
 
+#: The only lifecycle statuses that make an expert part of the formal model
+#: (teacher search, Router candidate set, inference selection, composition,
+#: RMS, anchor generation, cross-task reuse statistics, task-boundary eval).
+#: ``candidate`` / ``rejected`` / ``archived`` never participate in formal
+#: behavior; a checkpoint existing on disk never implies formal availability
+#: (empty-registry fix, Stage R1).
+ACTIVE_LIFECYCLE_STATUSES = frozenset(
+    {ExpertLifecycleStatus.PROVISIONAL, ExpertLifecycleStatus.FORMAL}
+)
+
+
 @dataclass
 class ExpertMetadata:
     expert_id: int
