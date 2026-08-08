@@ -148,3 +148,8 @@ gb24_matched：
 
 - 验收 14 项全部通过（详见 docs/reports/v6_ucit_baseline.md §16）
 - 后续 V6 主实验与 `hyper_llava_gb24_matched_seed42` 比较
+
+## Git 提交与 push
+
+- commit：`5668cfd test(ucit): lock reproducible Hyper-LLaVA baselines`（52 files；amend 移除误入的 __pycache__/pyc，未 push 的本地 commit，合法）
+- push：失败（`GnuTLS recv error (-110): TLS connection non-properly terminated`）——本地 commit 保留，未强推、未改 remote；与 Stage 00 push 失败（凭据）同属远端不可达问题

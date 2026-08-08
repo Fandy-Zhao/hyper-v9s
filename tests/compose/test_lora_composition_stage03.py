@@ -77,30 +77,36 @@ class CompositionMathTest(unittest.TestCase):
         inputs = torch.randn(3, 3)
         left = layer.experts["0"](inputs)
         right = layer.experts["1"](inputs)
-        layer.set_default_selection((0, 1), (1.0 / math.sqrt(2.0),) * 2)
+        # The pair rule (1/sqrt(2)) is applied automatically by forward on
+        # any two-expert selection; unit gates express the equal-norm pair.
+        layer.set_default_selection((0, 1), (1.0, 1.0))
         torch.testing.assert_close(
             model(inputs), layer.base_layer(inputs) + (left + right) / math.sqrt(2.0)
         )
 
-    def test_base_single_and_direct_sum_regressions(self):
+    def test_base_single_and_pair_rule_regressions(self):
         model, layer, bridge = model_and_bridge()
         inputs = torch.randn(4, 3)
         reg = registry()
         composer = ExpertComposer(bridge)
         with CompositionRuntime(reg, bridge, composer, [], [], "base_only"):
             torch.testing.assert_close(model(inputs), layer.base_layer(inputs))
+        # Single expert: scale 1.0 -> base + delta.
         layer.set_default_selection([0])
-        stage02 = model(inputs).detach()
-        with CompositionRuntime(reg, bridge, composer, [0], [], "single"):
-            torch.testing.assert_close(model(inputs), stage02)
+        single = model(inputs).detach()
+        torch.testing.assert_close(
+            single, layer.base_layer(inputs) + layer.experts["0"](inputs)
+        )
+        # Pair: base + (delta_a + delta_b) / sqrt(2), independent of the
+        # slot order of the two experts.
         layer.set_default_selection([0, 1], [1, 1], "none")
-        old = model(inputs).detach()
-        with CompositionRuntime(reg, bridge, composer, [1, 0], [], "direct_sum"):
-            new = model(inputs)
-        torch.testing.assert_close(new, old)
-        with CompositionRuntime(reg, bridge, composer, [0, 1], [], "direct_sum"):
-            ordered = model(inputs)
-        torch.testing.assert_close(new, ordered)
+        pair = model(inputs).detach()
+        expected = layer.base_layer(inputs) + (
+            layer.experts["0"](inputs) + layer.experts["1"](inputs)
+        ) / math.sqrt(2.0)
+        torch.testing.assert_close(pair, expected)
+        layer.set_default_selection([1, 0], [1, 1], "none")
+        torch.testing.assert_close(model(inputs), pair)
 
     def test_zero_delta_and_no_implicit_pair_scale(self):
         model, layer, bridge = model_and_bridge()

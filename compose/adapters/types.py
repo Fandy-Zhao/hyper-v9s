@@ -1,15 +1,20 @@
 """Unified per-sample expert selection (empty / single / pair).
 
-A selection is always a ``[batch_size, 2]`` tensor pair: the two expert slots
-are the maximum active experts (``max_active_experts = 2``). Empty slots are
-marked with the pad id ``-1`` and a zero gate:
+Inference selections are ``[batch_size, 2]``: the two expert slots are the
+maximum active experts (``max_active_experts = 2``). Empty slots are marked
+with the pad id ``-1`` and a zero gate:
 
   empty  -> expert_ids row [-1, -1], gates row [0.0, 0.0]   (backbone-only)
   single -> expert_ids row [x, -1],  gates row [w, 0.0]
   pair   -> expert_ids row [x, y],   gates row [w_x, w_y]
 
-The three cardinalities share one forward path, one batch-grouping rule
-(expert dedup via ``torch.unique``), one cache-key representation and one
+Cluster-wise conditional-residual training widens the selection to three
+slots: the per-sample old-teacher set (up to a pair) plus the new cluster
+expert. The composition rule generalizes the pair rule (1/sqrt(2)) to
+1/sqrt(3) so activations keep unit variance (see ComposeLinear.forward).
+
+All cardinalities share one forward path, one batch-grouping rule (expert
+dedup via ``torch.unique``), one cache-key representation and one
 snapshot-restore representation.
 """
 
@@ -19,16 +24,18 @@ from typing import Dict, List, Tuple
 import torch
 
 PAD_EXPERT_ID = -1
-MAX_ACTIVE_EXPERTS = 2
+MAX_ACTIVE_EXPERTS = 3
+MAX_INFERENCE_EXPERTS = 2
 
 
 @dataclass(frozen=True)
 class ComposeSelection:
     """Sparse per-sample expert selection.
 
-    Tensors have shape ``[batch_size, 2]``. A row of two ``PAD_EXPERT_ID``
-    slots is the empty (backbone-only) selection. Gate normalization is
-    explicit and only applies to active slots (pads stay zero).
+    Tensors have shape ``[batch_size, MAX_ACTIVE_EXPERTS]``. A row of
+    ``PAD_EXPERT_ID`` slots is the empty (backbone-only) selection. Gate
+    normalization is explicit and only applies to active slots (pads stay
+    zero).
     """
 
     expert_ids: torch.LongTensor

@@ -1,4 +1,4 @@
-"""Two-phase commit transactions for expert submission (V6 Stage E2).
+"""Two-phase commit transactions for expert submission (Compose Stage E2).
 
 Commit protocol (mirrors the task book):
   1. mark pending (intent marker, atomic)
@@ -142,7 +142,10 @@ class CommitTransaction:
         expert_id = int(expert_id)
         if self.registry.contains(expert_id):
             existing = self.registry.get(expert_id)
-            if existing.lifecycle_status is ExpertLifecycleStatus.PROVISIONAL:
+            if existing.lifecycle_status in (
+                ExpertLifecycleStatus.PROVISIONAL,
+                ExpertLifecycleStatus.FORMAL,
+            ):
                 # Crash happened after the registry update: the commit
                 # already landed. Finish idempotently (no version bump).
                 marker = self.pending_path(expert_id)
@@ -179,10 +182,18 @@ class CommitTransaction:
             )
         self.registry.register(metadata)
 
-        # Atomic registry update: provisional + pool_version bump, then
-        # persist, then clear the pending marker (last step => a crash at
-        # any earlier point leaves the marker for rollback).
-        self.registry.mark_provisional(expert_id, condition_record)
+        # Atomic registry update: the expert lands in its final lifecycle
+        # (FORMAL for Compose direct commits; PROVISIONAL only when the
+        # legacy flow supplies a candidate metadata), then exactly one
+        # pool_version bump, then persist, then clear the pending marker
+        # (last step => a crash at any earlier point leaves the marker for
+        # rollback).
+        if metadata.lifecycle_status is ExpertLifecycleStatus.CANDIDATE:
+            self.registry.mark_provisional(expert_id, condition_record)
+        else:
+            conditions = dict(metadata.extra.get("lifecycle_conditions") or {})
+            conditions["committed"] = condition_record
+            metadata.extra["lifecycle_conditions"] = conditions
         self.registry.increment_pool_version()
         self.registry.save_atomic(self.registry_path(), allow_overwrite=True)
         marker = self.pending_path(expert_id)

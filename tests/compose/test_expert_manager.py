@@ -38,5 +38,7 @@ class ExpertManagerTest(unittest.TestCase):
         pool.register(0)
         pool.register(1)
         selection = pool.make_selection([0, 1], batch_size=3, gates=[0.2, 0.8])
-        self.assertEqual(selection.expert_ids.shape, (3, 2))
+        # The unified selection is MAX_ACTIVE_EXPERTS=3 slots wide; the two
+        # active experts occupy slots 0-1, slot 2 is the -1 pad.
+        self.assertEqual(selection.expert_ids.shape, (3, 3))
         torch.testing.assert_close(selection.gates.sum(dim=1), torch.ones(3))

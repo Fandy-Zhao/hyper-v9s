@@ -89,6 +89,7 @@ def save_expert_checkpoint(
     pool: ExpertPool,
     output_dir: str,
     expert_ids: Optional[Iterable[int]] = None,
+    rms_calibration: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> None:
     selected = sorted(
         int(value) for value in (pool.expert_ids() if expert_ids is None else set(expert_ids))
@@ -116,6 +117,15 @@ def save_expert_checkpoint(
         "adapter_parameter_count": sum(tensor.numel() for tensor in state.values()),
         "checkpoint_bytes": os.path.getsize(weights_path),
     }
+    # Runtime RMS kappa persistence: per-layer {expert_id: kappa_k_l}.
+    # Additive key (format stays version 1); the loader returns it in the
+    # manifest so inference can apply kappa through
+    # ComposeLinear.set_expert_calibration without re-collecting statistics.
+    if rms_calibration:
+        manifest["rms_calibration"] = {
+            layer: {str(expert_id): float(kappa) for expert_id, kappa in layer_map.items()}
+            for layer, layer_map in sorted(rms_calibration.items())
+        }
     with open(os.path.join(output_dir, MANIFEST_NAME), "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2, sort_keys=True)
         handle.write("\n")

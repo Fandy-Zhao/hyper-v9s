@@ -5,12 +5,19 @@ from .checkpoint import (
     save_expert_checkpoint,
     save_registry_checkpoint,
 )
-from .metadata import ExpertMetadata, ExpertStatus
+from .metadata import (
+    ACTIVE_LIFECYCLE_STATUSES,
+    ExpertLifecycleStatus,
+    ExpertMetadata,
+    ExpertStatus,
+)
 from .pool import ExpertPool
 from .registry import ExpertRegistry
 
 __all__ = [
+    "ACTIVE_LIFECYCLE_STATUSES",
     "ExpertActivationContext",
+    "ExpertLifecycleStatus",
     "ExpertMetadata",
     "ExpertPool",
     "ExpertRegistry",

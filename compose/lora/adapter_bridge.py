@@ -1,4 +1,4 @@
-"""The sole V6 connection from Compose state to LoRA execution."""
+"""The sole Compose-to-Hyper connection from Compose state to LoRA execution."""
 
 from collections import defaultdict
 from typing import Any, Dict, Iterable, Sequence, Tuple
@@ -12,7 +12,7 @@ def _ordered_unique(values: Iterable[int]) -> Tuple[int, ...]:
 
 
 class AdapterBridge:
-    """Expose independent expert deltas without adding V6 semantics to Hyper."""
+    """Expose independent expert deltas without adding Compose semantics to Hyper."""
 
     def __init__(self, model: nn.Module, adapter_name: str = None, verify_ddp: bool = True) -> None:
         if not isinstance(model, nn.Module):

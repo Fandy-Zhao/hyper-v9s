@@ -37,3 +37,13 @@ Thumbs.db
 instructions/
 runs/
 ucit_instructions/
+
+# Experiment data / artifacts (not part of the frozen code)
+artifacts/
+experiments/data/
+experiments/runs/
+outputs/
+wandb/
+sample_instructions/
+ucit_instructions/
+compose/data/real_p1/

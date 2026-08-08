@@ -19,7 +19,7 @@ def set_router_loss(output, targets, expert_ids, config=SetLossConfig()):
     device = output.cardinality_logits.device
     cardinality_targets = torch.tensor([len(value) for value in targets], device=device)
     if torch.any(cardinality_targets > 2):
-        raise ValueError("V6 Router supports at most two experts")
+        raise ValueError("Compose Router supports at most two experts")
     cardinality = F.cross_entropy(output.cardinality_logits, cardinality_targets)
     member_terms, pair_terms, retrieval_terms = [], [], []
     for row, target_values in enumerate(targets):

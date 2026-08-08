@@ -35,7 +35,7 @@ def provenance(mode="direct_sum", **changes):
         "oracle_config_hash": "direct" if mode == "direct_sum" else "rms-config",
         "answer_mask_version": "v1", "answer_template_hash": "template",
         "target_averaging": "token_mean", "composer_version": "stage03", "code_version": "head",
-        "pool_version": 1, "router_version": "v6_router_v1",
+        "pool_version": 1, "router_version": "compose_router_v1",
     }
     value.update(changes)
     return value
@@ -244,6 +244,60 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(len(summary["worst_tail_sample_ids"]), 1)
         self.assertIsNone(summary["current_hyper_route_exact_accuracy"])
         self.assertFalse(summary["collapse_checks"]["duplicate_pair"])
+
+
+class SearcherFloatNllRegression(unittest.TestCase):
+    """Regression (smoke run 12, task 1 S2): search_from_nll feeds aggregate
+    float NLLs into _score, which used to build AnswerNLL(mean_nll=...) with
+    the required sum_nll/token_count missing."""
+
+    def test_search_from_nll_accepts_float_aggregates(self):
+        from compose.teacher.teacher import ComposeTeacherSearcher
+
+        searcher = ComposeTeacherSearcher(
+            config=OracleConfig(
+                "compose_teacher", "rms_calibrated",
+                lambda_expert=0.01, delta_pair_raw=0.02,
+            ),
+            router_version="compose_router_v1",
+            pool_version=1,
+            top_m=2,
+        )
+        teacher = searcher.search_from_nll(
+            sample_id="s1",
+            task_id=1,
+            retrieved_top_m=[0, 1],
+            nll_by_set={(): 0.4, (0,): 0.2, (1,): 0.3, (0, 1): 0.25},
+            pool_size=2,
+            provenance={},
+        )
+        record = teacher.to_dict()
+        # The single expert 0 wins the regularized score; the aggregate NLL
+        # round-trips through the degenerate single-token AnswerNLL.
+        self.assertEqual(record["teacher_set"], [0])
+        self.assertAlmostEqual(record["teacher_loss"], 0.2)
+
+    def test_empty_set_scores_with_float_nll(self):
+        from compose.teacher.teacher import ComposeTeacherSearcher
+
+        searcher = ComposeTeacherSearcher(
+            config=OracleConfig(
+                "compose_teacher", "rms_calibrated",
+                lambda_expert=0.5, delta_pair_raw=0.02,
+            ),
+            router_version="compose_router_v1",
+            pool_version=1,
+            top_m=2,
+        )
+        teacher = searcher.search_from_nll(
+            sample_id="s1",
+            task_id=1,
+            retrieved_top_m=[0],
+            nll_by_set={(): 0.1, (0,): 0.6},
+            pool_size=1,
+            provenance={},
+        )
+        self.assertEqual(teacher.to_dict()["teacher_set"], [])
 
 
 if __name__ == "__main__":

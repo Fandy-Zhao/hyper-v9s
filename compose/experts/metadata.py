@@ -1,7 +1,7 @@
 """Versioned, JSON-safe metadata for Compose experts.
 
 The legacy ``ExpertPool`` fields remain accepted so checkpoints produced by
-the Compose foundation continue to load.  V6 code should use the canonical
+the Compose foundation continue to load.  Compose code should use the canonical
 fields documented by :class:`ExpertMetadata`.
 """
 
@@ -30,7 +30,7 @@ class ExpertStatus(str, Enum):
 
 
 class ExpertLifecycleStatus(str, Enum):
-    """Commit lifecycle of an expert (V6 Stage E2).
+    """Commit lifecycle of an expert (Compose Stage E2).
 
     Distinct from :class:`ExpertStatus` (training role): lifecycle tracks the
     submission state machine ``candidate -> provisional -> formal -> archived``
@@ -82,7 +82,7 @@ class ExpertMetadata:
     metadata_version: int = METADATA_VERSION
     extra: Dict[str, Any] = field(default_factory=dict)
 
-    # V6 Stage E2 canonical lifecycle fields (all optional for
+    # Compose Stage E2 canonical lifecycle fields (all optional for
     # backward-compatible loads; defaults are inferred in __post_init__).
     lifecycle_status: Optional[ExpertLifecycleStatus] = None
     created_seed: Optional[int] = None
@@ -98,7 +98,7 @@ class ExpertMetadata:
     lora_alpha: Optional[float] = None  # canonical alias of ``alpha``
     created_task_id: Optional[int] = None  # canonical alias of ``creation_task``
 
-    # Backward-compatible fields used by the pre-V6 ExpertPool/checkpoints.
+    # Backward-compatible fields used by the legacy ExpertPool/checkpoints.
     name: Optional[str] = None
     origin_task_id: Optional[str] = None
     source_checkpoint: Optional[str] = None

@@ -38,7 +38,7 @@ class MultimodalQueryEncoder(nn.Module):
     def __init__(self, image_dim: int, text_dim: int, query_dim: int = 128) -> None:
         super().__init__()
         if query_dim != 128:
-            raise ValueError("V6 query_dim is frozen at 128")
+            raise ValueError("query_dim is frozen at 128")
         self.image_dim, self.text_dim, self.query_dim = int(image_dim), int(text_dim), int(query_dim)
         self.image_projection = nn.Linear(self.image_dim, self.query_dim)
         self.text_projection = nn.Linear(self.text_dim, self.query_dim)

@@ -1,0 +1,95 @@
+# Compose UCIT SMOKE configuration (spec §34 tiny-subset verification).
+#
+# Runs the full S0..S12 chain on tiny instruction slices (40 train / 24
+# test records per task) for the Task 0 smoke, the Task 0->1 smoke and the
+# resume smoke. The formal six-task run uses configs/compose_ucit.yaml;
+# this file is never used for the official experiment.
+
+schema_version: 1
+purpose: compose_ucit_smoke
+
+data:
+  seed: 42
+  data_root: /data/dataset/zhaozhuofan/UCIT
+  images_root: /data/dataset/zhaozhuofan/UCIT/datasets
+  base_model: /data/ckpt/zhaozhuofan/models/llava-v1.5-7b
+  vision_tower: /data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336
+
+task_sequence:
+  - task_id: 0
+    name: ImageNet-R
+    train_instructions: /tmp/compose_smoke_slices/task0/train.json
+    test_instructions: /tmp/compose_smoke_slices/task0/test.json
+  - task_id: 1
+    name: ArxivQA
+    train_instructions: /tmp/compose_smoke_slices/task1/train.json
+    test_instructions: /tmp/compose_smoke_slices/task1/test.json
+
+tasks:
+  teacher_search_train_samples: 40
+  teacher_search_validation_samples: 16
+
+teacher:
+  lambda_expert: 0.01
+  delta_pair_raw: 0.02
+  top_k_for_pair: 4
+  max_pairs: 6
+  min_recall_audit_ratio: 1.0
+
+residual:
+  tau_res: 1.5
+  min_residual_samples: 8
+
+router:
+  top_m: 8
+  tau_none: 0.5
+  tau_second: 0.5
+  max_active_experts: 2
+  query_dim: 128
+  key_mode: learnable
+
+clustering:
+  max_clusters: 4
+  silhouette_threshold: 0.15
+  min_cluster_samples: 8
+  random_seed: 42
+  max_iterations: 100
+  silhouette_sample_size: 2000
+
+key_learning:
+  learning_rate: 3.0e-4
+  epochs: 50
+  temperature: 0.07
+  margin: 0.3
+  lambda_old: 0.5
+  lambda_div: 0.1
+  key_separation_margin: 0.1
+  batch_size: 256
+  seed: 42
+
+rms:
+  epsilon: 1.0e-8
+  kappa_min: 0.25
+  kappa_max: 4.0
+
+lora:
+  rank: 8
+  alpha: 16.0
+
+training:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  num_train_epochs: 1
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  logging_steps: 1
+  save_steps: 999999
+  model_max_length: 2048
+  gradient_checkpointing: true
+  dataloader_num_workers: 0
+  cache_dir: /tmp/compose_hf_cache
+
+eval:
+  max_new_tokens: 32
+  nll_batch_size: 8

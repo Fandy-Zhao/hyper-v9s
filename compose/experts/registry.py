@@ -1,4 +1,4 @@
-"""Ordered metadata registry for V6 experts.
+"""Ordered metadata registry for Compose experts.
 
 The registry intentionally contains no model tensors and does not infer expert
 selection from task IDs.  Execution is delegated to the Compose-to-Hyper bridge.
@@ -34,11 +34,25 @@ class ExpertRegistry:
         self._active_ids = ()  # type: Tuple[int, ...]
         self._trainable_ids = ()  # type: Tuple[int, ...]
         self._pool_version = POOL_VERSION_INITIAL
+        self._next_expert_id = 0
 
     @property
     def pool_version(self) -> int:
         """Monotonic pool version; incremented only by commit transactions."""
         return self._pool_version
+
+    def next_expert_id(self) -> int:
+        """Allocate the next globally unique expert id (consuming).
+
+        Returns the current counter and advances it, so repeated calls
+        before a commit yield distinct ids (e.g. one per cluster). The
+        counter is persisted in ``state_dict``; snapshot/resume restores
+        it, so ids are never reused and gaps from pre-commit allocations
+        are harmless (ids stay monotonic over the whole continual run).
+        """
+        allocated = self._next_expert_id
+        self._next_expert_id += 1
+        return allocated
 
     def increment_pool_version(self) -> int:
         """Advance the pool version. Called exclusively by commit transactions
@@ -109,11 +123,17 @@ class ExpertRegistry:
     # ------------------------------------------------------------------
 
     def get_active_experts(self) -> List[ExpertMetadata]:
-        """Formally available experts: lifecycle in ACTIVE_LIFECYCLE_STATUSES."""
+        """The active expert pool.
+
+        Compose definition: ``active`` flag True and not archived. The
+        Compose pipeline never depends on lifecycle status (there is no
+        provisional/formal promotion); lifecycle fields remain only for
+        legacy checkpoint compatibility.
+        """
         return [
             metadata
             for metadata in self._experts.values()
-            if metadata.lifecycle_status in ACTIVE_LIFECYCLE_STATUSES
+            if metadata.active and metadata.status is not ExpertStatus.ARCHIVED
         ]
 
     def get_rejected_candidates(self) -> List[ExpertMetadata]:
@@ -176,7 +196,7 @@ class ExpertRegistry:
         metadata.trainable = False
 
     # ------------------------------------------------------------------
-    # V6 Stage E2 lifecycle transitions (candidate -> provisional ->
+    # Compose Stage E2 lifecycle transitions (candidate -> provisional ->
     # formal -> archived). Transitions mutate in memory; the caller
     # persists the registry atomically (save_atomic).
     # ------------------------------------------------------------------
@@ -257,6 +277,7 @@ class ExpertRegistry:
             "metadata_version": METADATA_VERSION,
             "registry_version": REGISTRY_VERSION,
             "pool_version": self._pool_version,
+            "next_expert_id": self._next_expert_id,
             "experts": [metadata.to_dict() for metadata in self._experts.values()],
             "active_expert_ids": list(self._active_ids),
             "trainable_expert_ids": list(self._trainable_ids),
@@ -289,6 +310,14 @@ class ExpertRegistry:
         self._experts = replacement
         self._active_ids = ()
         self._trainable_ids = ()
+        # Expert-id counter: restore as-is, or derive from existing experts
+        # for pre-counter checkpoints. Merge with max(existing)+1 so a
+        # state that never allocated through the counter (hand-built
+        # registries) can never make future allocations collide.
+        derived_next = (max(replacement) + 1) if replacement else 0
+        self._next_expert_id = max(
+            int(state.get("next_expert_id", derived_next)), derived_next
+        )
         # Pool version is restored as-is; recovery never re-increments it.
         restored_pool_version = int(state.get("pool_version", POOL_VERSION_INITIAL))
         if restored_pool_version < POOL_VERSION_INITIAL:

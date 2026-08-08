@@ -1,10 +1,15 @@
-"""V6 task-level state machine (Stage E2).
+"""Compose task-level state machine.
 
-Sixteen stages, strictly one-way transitions (a directed acyclic graph).
-The allowed transition set is the union over tasks: task 1 skips the old
-teacher / residual stages (cold start straight into candidate training),
-and a task with an undersized residual buffer skips candidate creation
-(RESIDUAL_READY -> GLOBAL_TEACHER_READY with commit_count = 0).
+One-way stage transitions for the Query-Clustered Residual Expert
+Discovery pipeline:
+
+  NOT_STARTED -> DATA_READY -> QUERY_READY
+      -> OLD_TEACHER_READY (task > 0) or -> RESIDUAL_READY (task 0,
+         reason recorded in history)
+      -> RESIDUAL_READY -> CLUSTERS_READY (or NO_EXPANSION_REQUIRED)
+      -> CLUSTER_EXPERTS_TRAINING -> CLUSTER_EXPERTS_TRAINED
+      -> KEYS_TRAINING -> KEYS_READY -> EXPERTS_COMMITTED
+      -> RMS_READY -> SNAPSHOT_READY -> EVALUATION_COMPLETE -> COMPLETED
 
 The machine is persisted atomically (mkstemp + fsync + os.replace) and
 restored from disk on resume without ever auto-advancing.
@@ -18,30 +23,22 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 
-STATE_SCHEMA_VERSION = 1
+STATE_SCHEMA_VERSION = 2
 
 
 class TaskStage(str, Enum):
     NOT_STARTED = "NOT_STARTED"
     DATA_READY = "DATA_READY"
-    OLD_TEACHER_RUNNING = "OLD_TEACHER_RUNNING"
+    QUERY_READY = "QUERY_READY"
     OLD_TEACHER_READY = "OLD_TEACHER_READY"
     RESIDUAL_READY = "RESIDUAL_READY"
-    # Empty-registry fix (Stage R10): a task whose residual split produced no
-    # candidate material enters NO_EXPANSION_REQUIRED instead of jumping
-    # straight to GLOBAL_TEACHER_READY, so the state history records WHY no
-    # candidate was created. The reason string is "insufficient_residual"
-    # (never "empty_registry"): with the empty-registry fix the residual
-    # split always runs, so an absent residual is a sufficiency decision,
-    # not a missing-teacher artifact.
     NO_EXPANSION_REQUIRED = "NO_EXPANSION_REQUIRED"
-    CANDIDATE_TRAINING = "CANDIDATE_TRAINING"
-    CANDIDATE_TRAINED = "CANDIDATE_TRAINED"
-    CANDIDATE_VALIDATED = "CANDIDATE_VALIDATED"
+    CLUSTERS_READY = "CLUSTERS_READY"
+    CLUSTER_EXPERTS_TRAINING = "CLUSTER_EXPERTS_TRAINING"
+    CLUSTER_EXPERTS_TRAINED = "CLUSTER_EXPERTS_TRAINED"
+    KEYS_TRAINING = "KEYS_TRAINING"
+    KEYS_READY = "KEYS_READY"
     EXPERTS_COMMITTED = "EXPERTS_COMMITTED"
-    GLOBAL_TEACHER_READY = "GLOBAL_TEACHER_READY"
-    ROUTER_TRAINING = "ROUTER_TRAINING"
-    ROUTER_READY = "ROUTER_READY"
     RMS_READY = "RMS_READY"
     SNAPSHOT_READY = "SNAPSHOT_READY"
     EVALUATION_COMPLETE = "EVALUATION_COMPLETE"
@@ -55,31 +52,29 @@ class TaskStage(str, Enum):
         return None
 
 
-#: One-way transition graph (union over tasks).
-#: - task 1 cold start: DATA_READY -> CANDIDATE_TRAINING
-#: - undersized residual: RESIDUAL_READY -> GLOBAL_TEACHER_READY
-#: - no old experts at all (task 1): DATA_READY -> GLOBAL_TEACHER_READY
+#: One-way transition graph (union over tasks). Task 0 skips
+#: OLD_TEACHER_READY (no historical experts; the skip reason is recorded
+#: in the state history); an undersized residual split moves
+#: RESIDUAL_READY -> NO_EXPANSION_REQUIRED (never a fake cluster).
 TRANSITIONS: Dict[TaskStage, Set[TaskStage]] = {
     TaskStage.NOT_STARTED: {TaskStage.DATA_READY},
-    TaskStage.DATA_READY: {
-        TaskStage.OLD_TEACHER_RUNNING,
-        TaskStage.CANDIDATE_TRAINING,
-        TaskStage.GLOBAL_TEACHER_READY,
+    TaskStage.DATA_READY: {TaskStage.QUERY_READY},
+    TaskStage.QUERY_READY: {
+        TaskStage.OLD_TEACHER_READY,
+        TaskStage.RESIDUAL_READY,
     },
-    TaskStage.OLD_TEACHER_RUNNING: {TaskStage.OLD_TEACHER_READY},
     TaskStage.OLD_TEACHER_READY: {TaskStage.RESIDUAL_READY},
     TaskStage.RESIDUAL_READY: {
-        TaskStage.CANDIDATE_TRAINING,
+        TaskStage.CLUSTERS_READY,
         TaskStage.NO_EXPANSION_REQUIRED,
     },
-    TaskStage.NO_EXPANSION_REQUIRED: {TaskStage.GLOBAL_TEACHER_READY},
-    TaskStage.CANDIDATE_TRAINING: {TaskStage.CANDIDATE_TRAINED},
-    TaskStage.CANDIDATE_TRAINED: {TaskStage.CANDIDATE_VALIDATED},
-    TaskStage.CANDIDATE_VALIDATED: {TaskStage.EXPERTS_COMMITTED},
-    TaskStage.EXPERTS_COMMITTED: {TaskStage.GLOBAL_TEACHER_READY},
-    TaskStage.GLOBAL_TEACHER_READY: {TaskStage.ROUTER_TRAINING},
-    TaskStage.ROUTER_TRAINING: {TaskStage.ROUTER_READY},
-    TaskStage.ROUTER_READY: {TaskStage.RMS_READY},
+    TaskStage.NO_EXPANSION_REQUIRED: {TaskStage.RMS_READY},
+    TaskStage.CLUSTERS_READY: {TaskStage.CLUSTER_EXPERTS_TRAINING},
+    TaskStage.CLUSTER_EXPERTS_TRAINING: {TaskStage.CLUSTER_EXPERTS_TRAINED},
+    TaskStage.CLUSTER_EXPERTS_TRAINED: {TaskStage.KEYS_TRAINING},
+    TaskStage.KEYS_TRAINING: {TaskStage.KEYS_READY},
+    TaskStage.KEYS_READY: {TaskStage.EXPERTS_COMMITTED},
+    TaskStage.EXPERTS_COMMITTED: {TaskStage.RMS_READY},
     TaskStage.RMS_READY: {TaskStage.SNAPSHOT_READY},
     TaskStage.SNAPSHOT_READY: {TaskStage.EVALUATION_COMPLETE},
     TaskStage.EVALUATION_COMPLETE: {TaskStage.COMPLETED},
@@ -130,6 +125,13 @@ class TaskStateMachine:
         self.stage = target
         return self
 
+    def skip_with_reason(self, skipped: TaskStage, reason: str) -> None:
+        """Record a skipped stage in the history without passing through it
+        (used for task 0's OLD_TEACHER_READY skip)."""
+        self.history.append(
+            {"from": self.stage.value, "to": self.stage.value, "skipped": skipped.value, "note": reason}
+        )
+
     def state_dict(self) -> Dict[str, Any]:
         return {
             "schema_version": STATE_SCHEMA_VERSION,
@@ -141,10 +143,11 @@ class TaskStateMachine:
 
     @classmethod
     def from_state_dict(cls, state: Dict[str, Any]) -> "TaskStateMachine":
-        if int(state.get("schema_version", -1)) != STATE_SCHEMA_VERSION:
+        version = int(state.get("schema_version", -1))
+        if version != STATE_SCHEMA_VERSION:
             raise ValueError(
-                "unsupported state schema_version: {}".format(
-                    state.get("schema_version")
+                "unsupported state schema_version: {} (expected {})".format(
+                    version, STATE_SCHEMA_VERSION
                 )
             )
         machine = cls(
@@ -156,8 +159,8 @@ class TaskStateMachine:
         return machine
 
     def save(self, path) -> None:
-        """Atomic persistence; refuses to overwrite (write-once per stage
-        directory) unless explicitly requested."""
+        """Atomic persistence; refuses to overwrite unless explicitly
+        requested (legacy write-once behavior)."""
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary = tempfile.mkstemp(

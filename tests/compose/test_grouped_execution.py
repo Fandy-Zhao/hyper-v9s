@@ -1,4 +1,5 @@
 import copy
+import math
 import unittest
 
 import torch
@@ -18,11 +19,15 @@ def _layer(expert_count=5, dtype=torch.float32):
 
 
 def _reference_forward(layer, inputs, selection):
+    """Reference mirror of ComposeLinear.forward (incl. the composition
+    rule: a sample with 2 active experts scales its delta sum by 1/sqrt(2),
+    a 3-expert cluster-training selection by 1/sqrt(3))."""
     result = layer.base_layer(inputs)
     delta = torch.zeros_like(result)
     gate_shape = [1] + [1] * (result.ndim - 1)
     for sample_index in range(inputs.shape[0]):
         sample_input = inputs[sample_index : sample_index + 1]
+        active = 0
         for slot in range(selection.top_k):
             gate = selection.gates[sample_index, slot]
             if bool(gate > 0):
@@ -31,14 +36,20 @@ def _reference_forward(layer, inputs, selection):
                 delta[sample_index : sample_index + 1] += (
                     expert_delta * gate.to(result.dtype).reshape(gate_shape)
                 )
+                active += 1
+        if active == 2:
+            delta[sample_index] = delta[sample_index] / math.sqrt(2.0)
+        elif active == 3:
+            delta[sample_index] = delta[sample_index] / math.sqrt(3.0)
     return result + delta
 
 
 def _mixed_selection():
-    # A zero-weight slot is expressed as the -1 pad (unified V6 selection).
+    # The unified Compose selection is MAX_ACTIVE_EXPERTS=3 slots wide; a
+    # zero-weight slot is expressed as the -1 pad.
     return ComposeSelection(
-        expert_ids=torch.tensor([[0, 1], [1, -1], [2, 3]], dtype=torch.long),
-        gates=torch.tensor([[0.6, 0.8], [1.0, 0.0], [0.5, 0.5]]),
+        expert_ids=torch.tensor([[0, 1, -1], [1, -1, -1], [2, 3, -1]], dtype=torch.long),
+        gates=torch.tensor([[0.6, 0.8, 0.0], [1.0, 0.0, 0.0], [0.5, 0.5, 0.0]]),
         normalization="none",
     )
 

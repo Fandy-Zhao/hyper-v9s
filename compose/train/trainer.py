@@ -53,14 +53,15 @@ class ComposeTrainer(LLaVATrainer):
         from compose.adapters.types import ComposeSelection
 
         selection = None
-        raw = inputs.get("v6_selections")
+        raw = inputs.get("compose_selections")
         if raw is not None:
-            import torch as _torch
-            expert_ids = _torch.tensor(
-                [[ids[0], ids[1]] for ids, _ in raw], dtype=_torch.long
+            # Per-sample (ids, gates) tuples from ComposeSelectionCollator;
+            # every row is already padded to MAX_ACTIVE_EXPERTS slots.
+            expert_ids = torch.tensor(
+                [list(ids) for ids, _ in raw], dtype=torch.long
             )
-            gates = _torch.tensor(
-                [[gates[0], gates[1]] for _, gates in raw], dtype=_torch.float32
+            gates = torch.tensor(
+                [list(gates) for _, gates in raw], dtype=torch.float32
             )
             selection = ComposeSelection(expert_ids, gates)
         if selection is not None:

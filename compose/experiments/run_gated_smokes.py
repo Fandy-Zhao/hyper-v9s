@@ -26,9 +26,9 @@ from compose.router.multilabel_router import (
 )
 
 
-TRAIN_FEATURES = Path("/data/ckpt/zhaozhuofan/v6_ucit_staged/stage07_residual_buffer/features/train.pt")
-VAL_FEATURES = Path("/data/ckpt/zhaozhuofan/v6_ucit_staged/stage06_set_router/features/validation_router.pt")
-TEACHER_BUFFER = Path("/data/ckpt/zhaozhuofan/v6_ucit_staged/stage07_residual_buffer/buffers/teacher_buffer.json")
+TRAIN_FEATURES = Path("/data/ckpt/zhaozhuofan/compose_ucit_staged/stage07_residual_buffer/features/train.pt")
+VAL_FEATURES = Path("/data/ckpt/zhaozhuofan/compose_ucit_staged/stage06_set_router/features/validation_router.pt")
+TEACHER_BUFFER = Path("/data/ckpt/zhaozhuofan/compose_ucit_staged/stage07_residual_buffer/buffers/teacher_buffer.json")
 
 
 def write_csv(path, rows):

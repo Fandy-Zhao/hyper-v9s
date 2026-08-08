@@ -36,6 +36,9 @@ class LoRAExpert(nn.Module):
         return delta * self.scaling
 
 
+DEFAULT_PAIR_SCALE = 1.0 / (2.0 ** 0.5)
+
+
 class ComposeLinear(nn.Module):
     """A frozen base linear layer plus independently stored LoRA experts."""
 
@@ -57,6 +60,11 @@ class ComposeLinear(nn.Module):
         self._default_expert_ids = None  # type: Optional[Sequence[int]]
         self._default_gates = None  # type: Optional[Sequence[float]]
         self._default_normalization = "none"
+        # RMS calibration: expert_id -> kappa_k_l (per-layer coefficient).
+        # Absent ids behave as kappa = 1.0. Pair selections additionally
+        # scale every expert contribution by ``pair_scale`` (1/sqrt(2)).
+        self._expert_calibration = {}  # type: Dict[int, float]
+        self._pair_scale = float(DEFAULT_PAIR_SCALE)
 
     @property
     def in_features(self) -> int:
@@ -116,6 +124,41 @@ class ComposeLinear(nn.Module):
         self._default_gates = None
         self._default_normalization = "none"
 
+    # ------------------------------------------------------------------
+    # RMS calibration (runtime kappa)
+    # ------------------------------------------------------------------
+
+    def set_expert_calibration(
+        self, kappa_map: Dict[int, float], pair_scale: float = DEFAULT_PAIR_SCALE
+    ) -> None:
+        """Apply per-expert RMS kappa coefficients for this layer.
+
+        ``kappa_map`` maps expert_id -> kappa_k_l; experts not listed keep
+        kappa 1.0. ``pair_scale`` is the 1/sqrt(2) pair composition factor
+        applied to every expert when a sample selects a pair. Both are
+        used inside :meth:`forward`, not just reported.
+        """
+        if pair_scale <= 0:
+            raise ValueError("pair_scale must be positive")
+        self._expert_calibration = {
+            int(expert_id): float(kappa)
+            for expert_id, kappa in kappa_map.items()
+            if float(kappa) > 0
+        }
+        self._pair_scale = float(pair_scale)
+
+    def clear_expert_calibration(self) -> None:
+        """Drop all kappa coefficients and reset the pair scale."""
+        self._expert_calibration = {}
+        self._pair_scale = float(DEFAULT_PAIR_SCALE)
+
+    def expert_calibration(self) -> Dict[str, object]:
+        """Serializable per-expert kappa for this layer (persistence)."""
+        return {
+            "kappa": dict(self._expert_calibration),
+            "pair_scale": self._pair_scale,
+        }
+
     def _selection_for(self, inputs: torch.Tensor) -> Optional[ComposeSelection]:
         selection = get_current_selection()
         if selection is not None:
@@ -145,6 +188,28 @@ class ComposeLinear(nn.Module):
                 )
             )
 
+        # RMS calibration: per-sample per-expert effective scale =
+        # gate * kappa_k_l, times the composition rule for the sample's
+        # selection cardinality. This is the formal composition rule
+        # shared by teacher scoring, cluster training and test inference:
+        #   single -> 1.0
+        #   pair   -> pair_scale (default 1/sqrt(2))
+        #   three-expert cluster-training selection -> 1/sqrt(3)
+        # 1/sqrt(count) keeps activation variance constant.
+        active_mask = selection.expert_ids.ne(PAD_EXPERT_ID) & selection.gates.gt(0)
+        per_sample_active_count = active_mask.sum(dim=1)  # [batch]
+        active_counts = per_sample_active_count.to(result.dtype)
+        triple_scale = float(1.0 / 3.0 ** 0.5)
+        per_sample_scale = torch.where(
+            active_counts.eq(2),
+            torch.full_like(active_counts, self._pair_scale),
+            torch.where(
+                active_counts.ge(3),
+                torch.full_like(active_counts, triple_scale),
+                torch.ones_like(active_counts),
+            ),
+        )
+
         delta = torch.zeros_like(result)
         for expert_id_tensor in torch.unique(selection.expert_ids):
             expert_id = int(expert_id_tensor.item())
@@ -163,8 +228,11 @@ class ComposeLinear(nn.Module):
             sample_gates = (
                 selection.gates * active_slots.to(selection.gates.dtype)
             ).sum(dim=1).index_select(0, sample_indices)
+            kappa = self._expert_calibration.get(expert_id, 1.0)
+            scale = per_sample_scale.index_select(0, sample_indices)
+            effective = sample_gates * kappa * scale
             gate_shape = [sample_indices.shape[0]] + [1] * (result.ndim - 1)
-            weighted_delta = expert_delta * sample_gates.to(result.dtype).reshape(gate_shape)
+            weighted_delta = expert_delta * effective.to(result.dtype).reshape(gate_shape)
             delta.index_add_(0, sample_indices, weighted_delta)
         return result + delta
 

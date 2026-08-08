@@ -32,6 +32,10 @@ class ModelArguments:
     compose_gates: str = field(default="")
     compose_gate_normalization: str = field(default="none")
     compose_checkpoint: Optional[str] = field(default=None)
+    compose_mode: str = field(default="fixed")
+    compose_selection_manifest: Optional[str] = field(default=None)
+    compose_cluster_expert_ids: str = field(default="")
+    max_samples: Optional[int] = field(default=None)
     expected_adapter_parameters: Optional[int] = field(default=None)
 
 

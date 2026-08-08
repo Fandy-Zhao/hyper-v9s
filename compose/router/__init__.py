@@ -1,11 +1,20 @@
-"""Answer-free, temporally bounded routing components for Compose V6."""
+"""Answer-free, temporally bounded routing components for Compose."""
 
-from .anchor_memory import AnchorMemory, AnchorRecord
 from .expert_keys import ExpertKeyMetadata, ExpertKeyStore
-from .query_encoder import MultimodalQueryEncoder, QueryInputs
-from .retrieval import RetrievalResult, retrieve_experts
+from .functional_query import ComposeQueryEncoder
+from .router import (
+    ComposeRetrievalResult,
+    ComposeRouter,
+    ComposeRouterSelection,
+    PAD_EXPERT_ID,
+)
 
 __all__ = [
-    "AnchorMemory", "AnchorRecord", "ExpertKeyMetadata", "ExpertKeyStore",
-    "MultimodalQueryEncoder", "QueryInputs", "RetrievalResult", "retrieve_experts",
+    "ComposeQueryEncoder",
+    "ComposeRetrievalResult",
+    "ComposeRouter",
+    "ComposeRouterSelection",
+    "ExpertKeyMetadata",
+    "ExpertKeyStore",
+    "PAD_EXPERT_ID",
 ]

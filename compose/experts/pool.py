@@ -47,6 +47,15 @@ class ExpertPool:
     def expert_ids(self) -> List[int]:
         return list(self._metadata.keys())
 
+    @property
+    def trainable_expert_ids(self) -> List[int]:
+        """Ids of the experts currently marked TRAINING by ``train_only``."""
+        return [
+            metadata.expert_id
+            for metadata in self._metadata.values()
+            if metadata.status is ExpertStatus.TRAINING
+        ]
+
     def make_selection(
         self,
         expert_ids: Sequence[int],

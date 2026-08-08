@@ -149,6 +149,7 @@ def load_compose_model(
             "adapter_parameter_count": loaded_manifest["metrics"][
                 "adapter_parameter_count"
             ],
+            "rms_calibration": loaded_manifest.get("rms_calibration"),
         },
     )
 

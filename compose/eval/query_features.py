@@ -1,0 +1,150 @@
+"""Functional query features (image + instruction only, no answers).
+
+For every sample computes:
+
+    z_v = frozen CLIP visual embedding (L2-normalized)
+    z_s = frozen CLIP instruction embedding (L2-normalized)
+    q   = ComposeQueryEncoder(z_v, z_s)   # 128-D L2-normalized
+
+Output is ``{sample_id: {"visual_feature": [...], "text_feature": [...],
+"query": [...]}}`` plus three provenance hashes:
+
+- ``query_encoder_hash``: the encoder's deterministic parameter hash
+  (see ``ComposeQueryEncoder.provenance``),
+- ``feature_hash``: hash of the raw visual/text features,
+- ``query_hash``: hash of the encoder outputs.
+
+The query encoder is loaded from ``--query-encoder`` when provided
+(later tasks reuse the task-0 checkpoint) and created deterministically
+from ``--seed`` otherwise; it is never trained or re-randomized here.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+
+import torch
+from PIL import Image
+from transformers import CLIPModel, CLIPProcessor
+
+from compose.router.functional_query import (
+    ComposeQueryEncoder,
+    load_query_encoder_checkpoint,
+)
+
+CLIP_PATH = "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336"
+FEATURE_SCHEMA_VERSION = 1
+
+
+def _sample_text(record):
+    if "conversations" in record:
+        for message in record["conversations"]:
+            if message["from"] == "human":
+                return message["value"]
+    return record.get("text", "")
+
+
+def _sha256(payload) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--questions", required=True)
+    parser.add_argument("--images", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--query-encoder", default=None,
+                        help="task-0 query encoder checkpoint to reuse")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--device", default="cuda:0")
+    args = parser.parse_args()
+
+    records = json.loads(Path(args.questions).read_text(encoding="utf-8"))
+    clip = CLIPModel.from_pretrained(CLIP_PATH, torch_dtype=torch.float16).to(
+        torch.device(args.device)
+    ).eval()
+    processor = CLIPProcessor.from_pretrained(CLIP_PATH)
+
+    # The query encoder is stable across the whole run: load the task-0
+    # checkpoint when one exists, otherwise create it deterministically.
+    if args.query_encoder and Path(args.query_encoder).is_file():
+        info = load_query_encoder_checkpoint(args.query_encoder)
+        encoder = ComposeQueryEncoder(
+            visual_dim=int(info["visual_dim"]),
+            text_dim=int(info["text_dim"]),
+            query_dim=int(info["query_dim"]),
+            seed=int(info["init_seed"]),
+            initialize=True,
+        )
+        load_query_encoder_checkpoint(args.query_encoder, encoder)
+    else:
+        encoder = ComposeQueryEncoder(seed=args.seed)
+    encoder.freeze()
+    encoder.to(torch.device(args.device)).eval()
+    provenance = encoder.provenance()
+
+    records_out = {}
+    with torch.inference_mode():
+        for offset in range(0, len(records), args.batch_size):
+            batch = records[offset: offset + args.batch_size]
+            images = []
+            texts = []
+            sample_ids = []
+            for record in batch:
+                image_path = os.path.join(args.images, record["image"])
+                if not os.path.isfile(image_path):
+                    raise ValueError("missing image: {}".format(image_path))
+                images.append(Image.open(image_path).convert("RGB"))
+                texts.append(_sample_text(record))
+                sample_ids.append(str(record.get("id", record.get("question_id"))))
+            inputs = processor(
+                text=texts, images=images, return_tensors="pt",
+                padding=True, truncation=True,
+            ).to(torch.device(args.device))
+            outputs = clip(**inputs)
+            z_v = torch.nn.functional.normalize(outputs.image_embeds.float(), dim=-1)
+            z_s = torch.nn.functional.normalize(outputs.text_embeds.float(), dim=-1)
+            queries = encoder(z_v, z_s)
+            for index, sample_id in enumerate(sample_ids):
+                records_out[sample_id] = {
+                    "visual_feature": z_v[index].cpu().tolist(),
+                    "text_feature": z_s[index].cpu().tolist(),
+                    "query": queries[index].cpu().tolist(),
+                }
+
+    payload = {
+        "schema_version": FEATURE_SCHEMA_VERSION,
+        "feature_source": "frozen_clip_l14_336",
+        "query_encoder_provenance": provenance.to_dict(),
+        "query_encoder_hash": provenance.module_hash,
+        "feature_hash": _sha256(
+            {
+                sample_id: (record["visual_feature"], record["text_feature"])
+                for sample_id, record in sorted(records_out.items())
+            }
+        ),
+        "query_hash": _sha256(
+            {
+                sample_id: record["query"]
+                for sample_id, record in sorted(records_out.items())
+            }
+        ),
+        "records": records_out,
+    }
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    with open(args.output, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+    print(
+        "features written to {} ({} samples, query_dim={})".format(
+            args.output, len(records_out), encoder.query_dim
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from compose.adapters.lora import ComposeLinear
 from compose.adapters.runtime import use_selection
-from compose.adapters.types import ComposeSelection
+from compose.adapters.types import PAD_EXPERT_ID, ComposeSelection
 
 
 def _linear_with_experts():
@@ -27,25 +27,34 @@ class ComposeLinearTest(unittest.TestCase):
         layer = _linear_with_experts()
         inputs = torch.tensor([[[3.0, 5.0]], [[7.0, 11.0]]])
         selection = ComposeSelection(
-            torch.tensor([[0, -1], [1, -1]], dtype=torch.long),
-            torch.tensor([[1.0, 0.0], [1.0, 0.0]]),
+            torch.tensor([[0, PAD_EXPERT_ID, PAD_EXPERT_ID], [1, PAD_EXPERT_ID, PAD_EXPERT_ID]], dtype=torch.long),
+            torch.tensor([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
         )
         with use_selection(selection):
             output = layer(inputs)
         torch.testing.assert_close(output, torch.tensor([[[6.0]], [[44.0]]]))
 
-    def test_sample_level_top2_composition_normalizes_gates(self):
+    def test_sample_level_top2_composition_applies_pair_scale(self):
         layer = _linear_with_experts()
         inputs = torch.tensor([[[3.0, 5.0]]])
         selection = ComposeSelection(
-            torch.tensor([[0, 1]], dtype=torch.long),
-            torch.tensor([[1.0, 3.0]]),
+            torch.tensor([[0, 1, PAD_EXPERT_ID]], dtype=torch.long),
+            torch.tensor([[1.0, 3.0, 0.0]]),
             normalization="l1",
         )
         with use_selection(selection):
             output = layer(inputs)
-        torch.testing.assert_close(output, torch.tensor([[[16.5]]]))
+        # l1-normalized gates: 0.25 / 0.75; deltas 2*3=6 and 4*5=20; the
+        # pair composition rule scales the sum by 1/sqrt(2).
+        expected = (0.25 * 6.0 + 0.75 * 20.0) / (2.0 ** 0.5)
+        torch.testing.assert_close(output, torch.tensor([[[expected]]]))
 
-    def test_selection_rejects_more_than_two_experts(self):
-        with self.assertRaisesRegex(ValueError, "exactly 2 slots"):
-            ComposeSelection(torch.tensor([[0, 1, 2]]), torch.ones(1, 3))
+    def test_selection_rejects_non_three_slot_shapes(self):
+        # The unified ComposeSelection is exactly MAX_ACTIVE_EXPERTS=3 slots
+        # wide; every slot count other than 3 is rejected.
+        with self.assertRaisesRegex(ValueError, "exactly 3 slots"):
+            ComposeSelection(torch.tensor([[0, 1]]), torch.ones(1, 2))
+        with self.assertRaisesRegex(ValueError, "exactly 3 slots"):
+            ComposeSelection(
+                torch.tensor([[0, 1, 2, PAD_EXPERT_ID]]), torch.ones(1, 4)
+            )

@@ -1,4 +1,4 @@
-"""Old-expert sufficiency and residual buffers for Compose V6 Stage 07."""
+"""Old-expert sufficiency and residual buffers for Compose Stage 07."""
 
 from .residual_buffer import ResidualBuffer, ResidualRecord
 from .sufficiency import SufficiencyLabel, teacher_sufficiency

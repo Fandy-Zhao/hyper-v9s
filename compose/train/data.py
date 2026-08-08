@@ -3,7 +3,7 @@ import json
 import os
 import random
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 import torch
 import transformers
@@ -18,6 +18,8 @@ from llava.constants import (
     IGNORE_INDEX,
 )
 from llava.mm_utils import tokenizer_image_token
+
+from compose.adapters.types import MAX_ACTIVE_EXPERTS, pad_selection
 
 from .arguments import DataArguments
 
@@ -254,6 +256,85 @@ class DataCollatorForSupervisedDataset:
                 if all(image.shape == images[0].shape for image in images)
                 else images
             )
+        return batch
+
+
+class ComposeSelectionDataset(LazySupervisedDataset):
+    """LazySupervisedDataset with per-sample (teacher set + cluster
+    expert) routing for cluster-wise conditional-residual training.
+
+    ``selections`` maps sample ids to manifest rows with either
+    ``expert_ids`` (the union of the old-teacher set and the new cluster
+    expert, the canonical training selection) or the pair of
+    ``teacher_ids`` / ``cluster_expert_id`` (joined here).
+    """
+
+    def __init__(
+        self,
+        data_path: str,
+        tokenizer,
+        data_args: DataArguments,
+        selections: Dict[str, Dict[str, Any]],
+    ) -> None:
+        super().__init__(data_path, tokenizer, data_args)
+        self.selections = selections
+
+    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+        item = super().__getitem__(index)
+        sample_id = str(self.records[index].get("id", index))
+        selection = self.selections.get(sample_id)
+        if selection is None:
+            raise KeyError(
+                "sample {} missing from the selection manifest".format(sample_id)
+            )
+        item["sample_id"] = sample_id
+        expert_ids = selection.get("expert_ids")
+        if expert_ids is None:
+            teacher_ids = list(selection.get("teacher_ids", []))
+            expert_ids = sorted(set(teacher_ids) | {int(selection["cluster_expert_id"])})
+        item["expert_ids"] = list(expert_ids)
+        return item
+
+
+class ComposeSelectionCollator:
+    """Formal padding plus per-sample unified Compose selections.
+
+    Every sample routes to ``old_teacher_set + cluster_expert`` (1-3
+    experts; a pair teacher plus the new expert is the widest legal
+    selection). Selections are padded to ``MAX_ACTIVE_EXPERTS`` slots
+    with ``PAD_EXPERT_ID`` / zero gates and stored under the
+    ``compose_selections`` batch key consumed by ``ComposeTrainer``.
+    """
+
+    def __init__(self, tokenizer) -> None:
+        self._shim = DataCollatorForSupervisedDataset(tokenizer)
+
+    def supervision_summary(self) -> Dict[str, object]:
+        """Zero-supervision audit, delegated to the wrapped collator."""
+        return self._shim.supervision_summary()
+
+    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
+        sample_ids = [str(instance["sample_id"]) for instance in instances]
+        selections = []
+        for instance in instances:
+            ids = [int(value) for value in instance["expert_ids"]]
+            if len(ids) > MAX_ACTIVE_EXPERTS:
+                raise ValueError(
+                    "selection {} exceeds {} slots (old teacher pair + cluster "
+                    "expert is the legal maximum)".format(ids, MAX_ACTIVE_EXPERTS)
+                )
+            if len(set(ids)) != len(ids):
+                raise ValueError("duplicate expert ids in sample selection: {}".format(ids))
+            gates = [1.0] * len(ids)
+            selections.append(pad_selection(tuple(ids), tuple(gates)))
+        stripped = [
+            {k: v for k, v in instance.items()
+             if k not in ("sample_id", "expert_ids")}
+            for instance in instances
+        ]
+        batch = self._shim(stripped)
+        batch["sample_ids"] = sample_ids
+        batch["compose_selections"] = selections
         return batch
 
 
