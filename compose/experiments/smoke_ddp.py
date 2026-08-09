@@ -293,7 +293,16 @@ def main() -> None:
         "audit_passed": init_ok and post_ok and not problems,
         "wall_time_steps_s": step_time_s * steps_run,
         "mean_step_time_s": step_time_s,
-        "samples_per_second": steps_run * dist.get_world_size() / step_time_s,
+        # Per-step samples = per_device_batch x grad_accum x world (spec
+        # §25: the report compares runs that consume the SAME total
+        # samples, so the single reference runs 4x the steps of the
+        # 4-GPU run and the sample rate must use the true per-step count,
+        # not world_size alone).
+        "samples_per_second": steps_run
+        * dist.get_world_size()
+        * int(training_args.per_device_train_batch_size)
+        * int(training_args.gradient_accumulation_steps)
+        / step_time_s,
         "peak_memory_allocated_bytes": torch.cuda.max_memory_allocated(),
     }
     print(json.dumps(results, indent=2, sort_keys=True), flush=True)

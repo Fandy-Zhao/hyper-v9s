@@ -226,7 +226,12 @@ fi
 
 # ---------------------------------------------------------------------------
 echo "=== Phase 7: scaling report, 256 samples, 1 vs 4 GPUs (§25) ==="
-SCALE_STEPS=8
+# Same total workload on both shapes: per-step samples = batch(1) x
+# accum(2) x world, so the single reference runs 128 steps (256 samples)
+# and the 4-GPU run 32 steps (256 samples). Equal sample counts make the
+# samples/sec and speedup numbers apples-to-apples.
+SCALE_STEPS_SINGLE=128
+SCALE_STEPS_FOUR=32
 SCALE_COMMON=(
   --model_name_or_path "$BASE"
   --vision_tower "$VISION"
@@ -244,7 +249,7 @@ SCALE_COMMON=(
   --model_max_length 2048 --dataloader_num_workers 0
   --cache_dir /tmp/compose_hf_cache --report_to none --seed 42
 )
-if CUDA_VISIBLE_DEVICES=$SINGLE_GPU SMOKE_DDP_STEPS=$SCALE_STEPS \
+if CUDA_VISIBLE_DEVICES=$SINGLE_GPU SMOKE_DDP_STEPS=$SCALE_STEPS_SINGLE \
     RANK=0 LOCAL_RANK=0 WORLD_SIZE=1 MASTER_ADDR=127.0.0.1 MASTER_PORT=29599 \
     $PY -m compose.experiments.smoke_ddp \
     --output_dir "$SCRATCH/scale_single" \
@@ -254,7 +259,7 @@ if CUDA_VISIBLE_DEVICES=$SINGLE_GPU SMOKE_DDP_STEPS=$SCALE_STEPS \
 else
   fail_hard "single-GPU scaling run failed: $(tail -20 "$SCRATCH/scale_single.log")"
 fi
-if CUDA_VISIBLE_DEVICES="$GPUS" SMOKE_DDP_STEPS=$SCALE_STEPS \
+if CUDA_VISIBLE_DEVICES="$GPUS" SMOKE_DDP_STEPS=$SCALE_STEPS_FOUR \
     $PY -m torch.distributed.run --standalone --max-restarts=0 --nproc_per_node=4 \
     -m compose.experiments.smoke_ddp \
     --output_dir "$SCRATCH/scale_four" \
@@ -269,23 +274,29 @@ $PY - "$SCRATCH/scaling_single.json" "$SCRATCH/scaling_four_rank0.json" \
 import json, sys
 single = json.load(open(sys.argv[1]))
 four = json.load(open(sys.argv[2]))
+# Per-step samples = batch(1) x accum(2) x world; both runs consume the
+# same total (128 steps x 2 vs 32 steps x 8 = 256).
+samples_single = single["steps_run"] * 1 * 2 * 1
+samples_four = four["steps_run"] * 1 * 2 * four["world_size"]
+assert samples_single == samples_four, (samples_single, samples_four)
 report = {
-    "samples": 256,
-    "steps": single["steps_run"],
+    "samples": samples_single,
     "single_gpu": {
+        "steps": single["steps_run"],
         "mean_step_time_s": single["mean_step_time_s"],
         "wall_time_steps_s": single["wall_time_steps_s"],
         "samples_per_second": single["samples_per_second"],
         "peak_vram_bytes": single["peak_memory_allocated_bytes"],
     },
     "four_gpu": {
+        "steps": four["steps_run"],
         "mean_step_time_s": four["mean_step_time_s"],
         "wall_time_steps_s": four["wall_time_steps_s"],
         "samples_per_second": four["samples_per_second"],
         "peak_vram_bytes": four["peak_memory_allocated_bytes"],
     },
 }
-report["speedup"] = single["samples_per_second"] / four["samples_per_second"]
+report["speedup"] = four["samples_per_second"] / single["samples_per_second"]
 report["parallel_efficiency"] = report["speedup"] / 4.0
 json.dump(report, open(sys.argv[3], "w"), indent=2)
 print(json.dumps(report, indent=2))
