@@ -166,12 +166,18 @@ EOF
 )
 RMS_SCRATCH="$SCRATCH/rms_single"
 rm -rf "$RMS_SCRATCH"; mkdir -p "$RMS_SCRATCH"
+# --batch-size 4 replicates the 4-GPU per-rank batch shape (16 samples
+# sharded 4x4 -> one batch of 4 per rank). bf16 GEMM rounding depends on
+# the matmul shape, so §17 parity requires identical batch shapes, not
+# just identical fp64 aggregation (batch-size 8 gave kappa diffs ~1e-3;
+# batch-size 4 is bit-identical).
 if CUDA_VISIBLE_DEVICES=$SINGLE_GPU $PY -m compose.eval.rms_stats \
     --model-path "$BASE" --vision-tower "$VISION" --projector-path "$PROJECTOR" \
     --checkpoint-dir "$POOL_DIR" \
     --question-file "$SMOKE_ROOT/task1/data/teacher_val.json" \
     --image-folder "$IMAGES" \
     --checkpoint-hash "$BIN_SHA" \
+    --batch-size 4 \
     --output-dir "$RMS_SCRATCH" --device cuda:0 \
     > "$SCRATCH/rms_single.log" 2>&1; then
   if $PY -m scripts.Compose.check_smoke_parity \
@@ -195,7 +201,7 @@ EVAL_SINGLE="$SCRATCH/answers_eval_single.jsonl"
 EVAL_FOUR="$SCRATCH/answers_eval_4gpu.jsonl"
 # Same snapshot, config, seed, prompts: only the execution strategy differs.
 if $PY -m compose.eval.formal_ucit_eval \
-    --root "$SMOKE_ROOT/task0" --stage-task 0 --config "$CONFIG" \
+    --root "$SMOKE_ROOT" --stage-task 0 --config "$CONFIG" \
     --gpus "$SINGLE_GPU" --no-reuse-s11 \
     > "$SCRATCH/eval_single.log" 2>&1; then
   cp "$SMOKE_ROOT/task0/eval_output/answers.jsonl" "$EVAL_SINGLE"
@@ -203,7 +209,7 @@ else
   fail_hard "single-GPU formal eval failed: $(tail -20 "$SCRATCH/eval_single.log")"
 fi
 if $PY -m compose.eval.formal_ucit_eval \
-    --root "$SMOKE_ROOT/task0" --stage-task 0 --config "$CONFIG" \
+    --root "$SMOKE_ROOT" --stage-task 0 --config "$CONFIG" \
     --gpus "$GPUS" --no-reuse-s11 \
     > "$SCRATCH/eval_four.log" 2>&1; then
   cp "$SMOKE_ROOT/task0/eval_output/answers.jsonl" "$EVAL_FOUR"

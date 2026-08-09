@@ -52,8 +52,9 @@ $PY -m compose.experiments.task_run \
 
 # ---- formal evals after each new stage (same 4 GPUs) ---------------------
 for stage in 3 4 5; do
+  # --root is the RUN root (formal_ucit_eval builds root/task{N}/...).
   $PY -m compose.eval.formal_ucit_eval \
-    --root "$ROOT/task$stage" --stage-task "$stage" \
+    --root "$ROOT" --stage-task "$stage" \
     --config "$CONFIG" --gpus "$GPUS" \
     | tee "$LOG_DIR/formal_eval_stage$stage.log"
 done

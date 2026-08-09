@@ -68,6 +68,11 @@ def compare_rms(path_a, path_b, tolerance):
         map_a = json.load(handle)
     with open(path_b, "r", encoding="utf-8") as handle:
         map_b = json.load(handle)
+    # Calibration payloads wrap the layer map under "calibration".
+    if "calibration" in map_a and isinstance(map_a["calibration"], dict):
+        map_a = map_a["calibration"]
+    if "calibration" in map_b and isinstance(map_b["calibration"], dict):
+        map_b = map_b["calibration"]
     worst = 0.0
     layers = sorted(set(map_a) | set(map_b))
     for layer in layers:
