@@ -181,9 +181,15 @@ def main() -> None:
     # find_unused_parameters=True mirrors the S6 launch (required there:
     # per-sample cluster routing leaves some new experts unused on a rank
     # in a given step); the audit must exercise the same DDP setting.
-    model = torch.nn.parallel.DistributedDataParallel(
-        model, device_ids=[local_rank], find_unused_parameters=True
-    )
+    # world1 (single-GPU reference, spec §25): DDP adds no gradient sync,
+    # and its forward machinery triggers a host cuDNN engine-selection
+    # failure (CUDNN_STATUS_NOT_INITIALIZED at the vision conv) only in
+    # the world1 shape, so the reference runs the bare module.
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if world_size > 1 or os.environ.get("SMOKE_DDP_WRAP_DDP") == "1":
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[local_rank], find_unused_parameters=True
+        )
     init_hex = _expert_state_hash(manager, cluster_expert_ids)
     init_ok = _all_equal_hex(init_hex)
 
