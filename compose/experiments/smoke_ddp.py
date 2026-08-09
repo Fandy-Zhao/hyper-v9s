@@ -297,9 +297,9 @@ def main() -> None:
         # §25: the report compares runs that consume the SAME total
         # samples, so the single reference runs 4x the steps of the
         # 4-GPU run and the sample rate must use the true per-step count,
-        # not world_size alone).
-        "samples_per_second": steps_run
-        * dist.get_world_size()
+        # not world_size alone). step_time_s is the MEAN per-step time,
+        # so the rate is per-step samples / mean step time.
+        "samples_per_second": dist.get_world_size()
         * int(training_args.per_device_train_batch_size)
         * int(training_args.gradient_accumulation_steps)
         / step_time_s,

@@ -275,9 +275,14 @@ import json, sys
 single = json.load(open(sys.argv[1]))
 four = json.load(open(sys.argv[2]))
 # Per-step samples = batch(1) x accum(2) x world; both runs consume the
-# same total (128 steps x 2 vs 32 steps x 8 = 256).
-samples_single = single["steps_run"] * 1 * 2 * 1
-samples_four = four["steps_run"] * 1 * 2 * four["world_size"]
+# same total (128 steps x 2 vs 32 steps x 8 = 256). The rate is derived
+# from the raw wall time (mean_step x steps), not the record's rate
+# field, so the report is robust to record-level formula changes.
+def rate(record, per_step_samples):
+    wall = record["mean_step_time_s"] * record["steps_run"]
+    return record["steps_run"] * per_step_samples / wall
+samples_single = single["steps_run"] * 2 * 1
+samples_four = four["steps_run"] * 2 * four["world_size"]
 assert samples_single == samples_four, (samples_single, samples_four)
 report = {
     "samples": samples_single,
@@ -285,18 +290,18 @@ report = {
         "steps": single["steps_run"],
         "mean_step_time_s": single["mean_step_time_s"],
         "wall_time_steps_s": single["wall_time_steps_s"],
-        "samples_per_second": single["samples_per_second"],
+        "samples_per_second": rate(single, 2 * 1),
         "peak_vram_bytes": single["peak_memory_allocated_bytes"],
     },
     "four_gpu": {
         "steps": four["steps_run"],
         "mean_step_time_s": four["mean_step_time_s"],
         "wall_time_steps_s": four["wall_time_steps_s"],
-        "samples_per_second": four["samples_per_second"],
+        "samples_per_second": rate(four, 2 * four["world_size"]),
         "peak_vram_bytes": four["peak_memory_allocated_bytes"],
     },
 }
-report["speedup"] = four["samples_per_second"] / single["samples_per_second"]
+report["speedup"] = report["four_gpu"]["samples_per_second"] / report["single_gpu"]["samples_per_second"]
 report["parallel_efficiency"] = report["speedup"] / 4.0
 json.dump(report, open(sys.argv[3], "w"), indent=2)
 print(json.dumps(report, indent=2))
