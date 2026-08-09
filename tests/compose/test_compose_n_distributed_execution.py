@@ -28,7 +28,11 @@ from compose.eval.sharding import (
     partial_path,
     shard_records,
 )
-from compose.experiments.task_run import _write_distributed_training_contract
+from compose.experiments.task_run import (
+    _execution_plan,
+    _torchrun_launch,
+    _write_distributed_training_contract,
+)
 
 #: Formal cluster sizes observed across the seed42 run tasks (manifest
 #: lengths that must satisfy the step-count identity ceil(ceil(n/4)/2) ==
@@ -220,6 +224,51 @@ class ShardMergeTest(unittest.TestCase):
 
     def test_partial_path_convention(self):
         self.assertEqual(partial_path("/x/out.json", 2), "/x/out.json.rank2")
+
+
+class TorchrunLaunchConstructionTest(unittest.TestCase):
+    """The 4-GPU S6/S9 launches must parse as torchrun module launches.
+
+    torchrun's ``--module`` consumes the next positional as the module
+    name; embedding the command's own ``[PYTHON, "-m"]`` makes torchrun
+    treat the python executable path as the module (regression: verified
+    empirically that `--module <python> -m <module>` exits nonzero).
+    """
+
+    def test_s6_train_launch(self):
+        plan = _execution_plan("4,5,6,7")
+        command = [
+            "/env/bin/python", "-m", "compose.train.train_compose",
+            "--model_name_or_path", "base",
+        ]
+        launch = _torchrun_launch(plan, command)
+        self.assertNotIn("/env/bin/python", launch[7:])  # executable not positional
+        module_index = launch.index("--module")
+        self.assertEqual(launch[module_index + 1], "compose.train.train_compose")
+        self.assertEqual(launch[module_index + 2], "--model_name_or_path")
+        # torchrun option region untouched.
+        self.assertEqual(launch[:7], plan["torchrun_prefix"])
+
+    def test_s9_rms_launch(self):
+        plan = _execution_plan("4,5,6,7")
+        command = [
+            "/env/bin/python", "-m", "compose.eval.rms_stats",
+            "--checkpoint-dir", "pool",
+        ]
+        launch = _torchrun_launch(plan, command)
+        module_index = launch.index("--module")
+        self.assertEqual(launch[module_index + 1], "compose.eval.rms_stats")
+
+    def test_single_gpu_plan_has_no_torchrun_prefix(self):
+        plan = _execution_plan("4")
+        self.assertEqual(plan["mode"], "single")
+        self.assertNotIn("torchrun_prefix", plan)
+
+    def test_wrong_gpu_count_is_hard_stop(self):
+        with self.assertRaises(ValueError):
+            _execution_plan("4,5,6")
+        with self.assertRaises(ValueError):
+            _execution_plan("4,5,6,7,8")
 
 
 if __name__ == "__main__":

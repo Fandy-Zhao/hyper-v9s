@@ -364,6 +364,16 @@ def _all_gpu_env(plan: Dict[str, Any]) -> Dict[str, str]:
     return dict(os.environ, CUDA_VISIBLE_DEVICES=",".join(plan["gpus"]))
 
 
+def _torchrun_launch(plan: Dict[str, Any], command: List[str]) -> List[str]:
+    """Assemble a torchrun launch from a ``python -m <module>`` command.
+
+    torchrun's ``--module`` consumes the next positional as the module
+    name, so the command's own leading ``[PYTHON, "-m"]`` is dropped:
+    ``python -m torch.distributed.run ... --module <module> <args>``.
+    """
+    return plan["torchrun_prefix"] + command[2:]
+
+
 def _run_shards(
     command_per_shard: List[List[str]],
     env_per_shard: List[Dict[str, str]],
@@ -1511,8 +1521,7 @@ def run_task(
                 root, task_id, config, len(training_manifest), plan
             )
             train_command = (
-                plan["torchrun_prefix"]
-                + train_command
+                _torchrun_launch(plan, train_command)
                 + [
                     "--per_device_train_batch_size", "1",
                     "--gradient_accumulation_steps", str(
@@ -1780,7 +1789,7 @@ def run_task(
                 # manifest (no averaging; single-vs-four parity is checked
                 # by the smoke, spec §17).
                 _run(
-                    plan["torchrun_prefix"] + rms_command,
+                    _torchrun_launch(plan, rms_command),
                     _all_gpu_env(plan),
                     root,
                     "s9_rms",
