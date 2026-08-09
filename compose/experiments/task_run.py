@@ -462,10 +462,12 @@ def _merge_feature_shards(
     payload is identical to the single-GPU payload up to the recomputed
     provenance hashes; the query_encoder provenance comes from shard 0.
     """
+    # Workers write partial_path(args.output, shard_index), i.e.
+    # train_features.json.rank{index} under root/features/.
     partials = [
         root
         / "features"
-        / "{}_{}_features.json.rank{}".format(tag, index)
+        / "{}_features.json.rank{}".format(tag, index)
         for index in range(plan["world_size"])
     ]
     payloads = [json.loads(path.read_text(encoding="utf-8")) for path in partials]

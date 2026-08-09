@@ -61,7 +61,7 @@ echo "=== Phase 1: DDP gradient audit (§9/§21) ==="
 AUDIT_ROOT="$SCRATCH/audit"
 rm -rf "$AUDIT_ROOT"
 mkdir -p "$AUDIT_ROOT"
-if torchrun --standalone --max-restarts=0 --nproc_per_node=4 \
+if $PY -m torch.distributed.run --standalone --max-restarts=0 --nproc_per_node=4 \
     -m compose.experiments.smoke_ddp \
     --model_name_or_path "$BASE" \
     --vision_tower "$VISION" \
@@ -94,6 +94,8 @@ fi
 
 # ---------------------------------------------------------------------------
 echo "=== Phase 2: mini task0 pipeline, 4-GPU (§24) ==="
+# A pipeline failure is BLOCKING (spec: bug -> STOP): no point running
+# later phases against a broken root.
 if $PY -m compose.experiments.task_run \
     --config "$CONFIG" --root "$SMOKE_ROOT" \
     --first-task 0 --last-task 0 --gpus "$GPUS" \
@@ -101,7 +103,7 @@ if $PY -m compose.experiments.task_run \
   verdict ok "phase2 task0 pipeline completed"
 else
   tail -80 "$SCRATCH/task0.log" >&2
-  verdict fail "phase2 task0 pipeline"
+  fail_hard "task0 pipeline failed"
 fi
 
 # ---------------------------------------------------------------------------
@@ -113,7 +115,7 @@ if $PY -m compose.experiments.task_run \
   verdict ok "phase3 task1 pipeline completed"
 else
   tail -80 "$SCRATCH/task1.log" >&2
-  verdict fail "phase3 task1 pipeline"
+  fail_hard "task1 pipeline failed"
 fi
 
 # ---------------------------------------------------------------------------
@@ -230,7 +232,7 @@ SCALE_COMMON=(
   --cache_dir /tmp/compose_hf_cache --report_to none --seed 42
 )
 if CUDA_VISIBLE_DEVICES=$SINGLE_GPU SMOKE_DDP_STEPS=$SCALE_STEPS \
-    torchrun --standalone --max-restarts=0 --nproc_per_node=1 \
+    $PY -m torch.distributed.run --standalone --max-restarts=0 --nproc_per_node=1 \
     -m compose.experiments.smoke_ddp \
     --output_dir "$SCRATCH/scale_single" \
     "${SCALE_COMMON[@]}" \
@@ -240,7 +242,7 @@ else
   fail_hard "single-GPU scaling run failed: $(tail -20 "$SCRATCH/scale_single.log")"
 fi
 if SMOKE_DDP_STEPS=$SCALE_STEPS \
-    torchrun --standalone --max-restarts=0 --nproc_per_node=4 \
+    $PY -m torch.distributed.run --standalone --max-restarts=0 --nproc_per_node=4 \
     -m compose.experiments.smoke_ddp \
     --output_dir "$SCRATCH/scale_four" \
     "${SCALE_COMMON[@]}" \

@@ -30,6 +30,7 @@ from compose.eval.sharding import (
 )
 from compose.experiments.task_run import (
     _execution_plan,
+    _merge_feature_shards,
     _torchrun_launch,
     _write_distributed_training_contract,
 )
@@ -269,6 +270,38 @@ class TorchrunLaunchConstructionTest(unittest.TestCase):
             _execution_plan("4,5,6")
         with self.assertRaises(ValueError):
             _execution_plan("4,5,6,7,8")
+
+    def test_merge_feature_shards_reads_worker_partial_names(self):
+        """Regression: sharded query_features workers write
+        ``<output>.rank{i}`` (partial_path convention); the merge must
+        read exactly those names (previously built ``{tag}_{i}_
+        features.json.rank{i}`` and raised IndexError)."""
+        plan = _execution_plan("4,5,6,7")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "features").mkdir()
+            for index in range(4):
+                payload = {
+                    "schema_version": 1,
+                    "feature_source": "frozen_clip_l14_336",
+                    "query_encoder_provenance": {},
+                    "query_encoder_hash": "q",
+                    "records": {
+                        "sample{}".format(index): {
+                            "visual_feature": [1.0],
+                            "text_feature": [2.0],
+                            "query": [3.0],
+                        }
+                    },
+                }
+                (root / "features" / "train_features.json.rank{}".format(index)).write_text(
+                    json.dumps(payload)
+                )
+            records = [{"id": "sample{}".format(index)} for index in range(4)]
+            target = _merge_feature_shards(root, "train", records, plan)
+            merged = json.loads(target.read_text(encoding="utf-8"))
+            self.assertEqual(sorted(merged["records"]), ["sample0", "sample1", "sample2", "sample3"])
+            self.assertTrue((root / "features" / "train_features.json").is_file())
 
 
 if __name__ == "__main__":
