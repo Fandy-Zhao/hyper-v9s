@@ -89,6 +89,32 @@ def _resolve_expert_roles(active_experts, trainable_value: str):
     return active, trainable
 
 
+def _enable_non_reentrant_checkpointing() -> None:
+    """4-GPU DDP only: switch activation checkpointing to non-reentrant.
+
+    ``find_unused_parameters=True`` is required for cluster training
+    (per-sample cluster routing leaves some new experts unused on a rank
+    in a given step), but reentrant checkpointing (torch default,
+    transformers 4.33 ``torch.utils.checkpoint.checkpoint``) is
+    incompatible with DDP unused-parameter detection: the recompute
+    pass marks parameters ready twice ('Expected to mark a variable
+    ready only once', observed on the 4-GPU smoke audit). Non-reentrant
+    checkpointing (torch >= 2.0) is the supported combination. The
+    single-GPU path keeps the reentrant default so it mirrors the formal
+    single-GPU reference exactly; the recomputed math is identical.
+    """
+    import torch.utils.checkpoint as checkpoint_mod
+
+    original = checkpoint_mod.checkpoint
+
+    def _non_reentrant(*args, **kwargs):
+        if "use_reentrant" not in kwargs:
+            kwargs["use_reentrant"] = False
+        return original(*args, **kwargs)
+
+    checkpoint_mod.checkpoint = _non_reentrant
+
+
 def _prepare_cluster_expert_backward() -> None:
     """Make per-sample selections visible to checkpoint recomputation.
 
@@ -280,6 +306,10 @@ def train() -> None:
         # standard HF LoRA + gradient-checkpointing arrangement.
         model.gradient_checkpointing_enable()
         model.model.embed_tokens.weight.requires_grad_(True)
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            # DDP + find_unused_parameters=True (see S6 4-GPU launch)
+            # requires non-reentrant checkpointing.
+            _enable_non_reentrant_checkpointing()
     else:
         _load_old_checkpoint(pool, model_args, training_args)
         selected_experts, trainable_experts = _resolve_expert_roles(

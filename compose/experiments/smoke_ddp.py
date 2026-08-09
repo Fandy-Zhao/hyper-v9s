@@ -60,6 +60,7 @@ from compose.train.data import ComposeSelectionCollator, ComposeSelectionDataset
 from compose.train.train_compose import (
     _build_model,
     _csv_ints,
+    _enable_non_reentrant_checkpointing,
     _inject_and_pool,
     _load_old_checkpoint,
     _load_selection_manifest,
@@ -141,6 +142,10 @@ def main() -> None:
     _register_new_experts(pool, cluster_expert_ids, model_args)
     pool.train_only(cluster_expert_ids)
     model.gradient_checkpointing_enable()
+    # Mirrors the S6 4-GPU path: find_unused_parameters=True + DDP
+    # requires non-reentrant checkpointing (reentrant marks params ready
+    # twice in backward).
+    _enable_non_reentrant_checkpointing()
     model.model.embed_tokens.weight.requires_grad_(True)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
