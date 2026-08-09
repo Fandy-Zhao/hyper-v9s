@@ -239,6 +239,33 @@ def _record_id(record: Dict[str, Any]) -> str:
     return str(record["question_id"])
 
 
+def _assign_unique_record_ids(
+    records: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Stable unique per-record internal ids.
+
+    UCIT train files are not identity-clean: question_ids repeat within a
+    file (VizWiz 32.7%, Flickr30k 31.9%, CLEVR 1.5%). The pipeline keys
+    features, teacher selections, residuals, cluster membership and the
+    training manifest by sample_id (= record["id"] when present, else
+    question_id), so two records sharing a question_id collide: clustering
+    may assign the same id to two clusters and manifest construction
+    crashes with "duplicate sample <id> in training manifest" (reproduced
+    on the formal seed42 run, task2 S5, 2026-08-09). Tag every record
+    with a unique deterministic "<question_id>#<absolute index in the
+    train file>" id before features are computed; every downstream keying
+    site (query_features, nll_eval, selections, residuals, cluster
+    manifest, training manifest, compose selection dataset) is id-first
+    and stays consistent.
+    """
+    annotated = []
+    for index, record in enumerate(records):
+        copy = dict(record)
+        copy["id"] = "{}#{}".format(_record_id(record), index)
+        annotated.append(copy)
+    return annotated
+
+
 def _question_text(record: Dict[str, Any]) -> str:
     if "conversations" in record:
         for message in record["conversations"]:
@@ -596,6 +623,10 @@ def run_task(
     records_all = json.load(open(train_path, "r", encoding="utf-8"))
     train_limit = int(config["tasks"]["teacher_search_train_samples"])
     val_limit = int(config["tasks"]["teacher_search_validation_samples"])
+    # UCIT train files repeat question_ids (VizWiz/Flickr30k/CLEVR); a
+    # unique internal id per record keeps features/selections/residuals/
+    # clusters/manifest keyed consistently (see _assign_unique_record_ids).
+    records_all = _assign_unique_record_ids(records_all)
     teacher_train = records_all[:train_limit]
     teacher_val = records_all[train_limit: train_limit + val_limit]
 
