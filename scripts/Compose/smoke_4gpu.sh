@@ -343,10 +343,12 @@ if n0 < 1:
     problems.append("task0: no experts committed")
 if n1 <= n0:
     problems.append("task1: expert count {} not > task0 {}".format(n1, n0))
-if reg0.get("pool_version") != n0:
-    problems.append("task0: pool_version {} != expert count {}".format(reg0.get("pool_version"), n0))
-if reg1.get("pool_version") != n1:
-    problems.append("task1: pool_version {} != expert count {}".format(reg1.get("pool_version"), n1))
+# pool_version starts at POOL_VERSION_INITIAL=1 (empty pool) and bumps
+# once per commit, so pool_version == 1 + committed expert count.
+if reg0.get("pool_version") != 1 + n0:
+    problems.append("task0: pool_version {} != 1 + expert count {}".format(reg0.get("pool_version"), n0))
+if reg1.get("pool_version") != 1 + n1:
+    problems.append("task1: pool_version {} != 1 + expert count {}".format(reg1.get("pool_version"), n1))
 # RMS executed distributed.
 summary = load("task1/rms/rms_summary.json")
 if summary.get("execution", {}).get("mode") != "4gpu_torchrun":
