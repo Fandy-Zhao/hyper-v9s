@@ -173,8 +173,11 @@ def main() -> None:
 
     # §21: init identity across ranks (before training, after DDP wrap so
     # the initial broadcast is included).
+    # find_unused_parameters=True mirrors the S6 launch (required there:
+    # per-sample cluster routing leaves some new experts unused on a rank
+    # in a given step); the audit must exercise the same DDP setting.
     model = torch.nn.parallel.DistributedDataParallel(
-        model, device_ids=[local_rank], find_unused_parameters=False
+        model, device_ids=[local_rank], find_unused_parameters=True
     )
     init_hex = _expert_state_hash(manager, cluster_expert_ids)
     init_ok = _all_equal_hex(init_hex)

@@ -1533,7 +1533,15 @@ def run_task(
                     "--gradient_accumulation_steps", str(
                         contract["four_gpu"]["gradient_accumulation_steps"]
                     ),
-                    "--ddp_find_unused_parameters", "False",
+                    # find_unused_parameters=True is REQUIRED: cluster
+                    # training routes each sample to its cluster's new
+                    # expert, so a rank whose micro-batches touch only a
+                    # subset of the new experts produces no grad for the
+                    # others; with False the reducer raises on the next
+                    # backward (observed on the smoke: every-other-expert
+                    # indices missing). Unused ranks contribute zero to
+                    # the mean-reduce, preserving gradient equivalence.
+                    "--ddp_find_unused_parameters", "True",
                 ]
             )
             _run(train_command, _all_gpu_env(plan), root, "s6_cluster_training")
