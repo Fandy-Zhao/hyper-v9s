@@ -106,17 +106,26 @@ def _prepare_cluster_expert_backward() -> None:
 
     1. Pin the backward to the calling thread so the recompute runs with
        the selection context active.
-    2. Refuse multi-GPU DataParallel: ``nn.DataParallel`` runs the forward
-       on its own worker threads, where the selection context is invisible
-       in *both* passes, silently training backbone-only experts.
+    2. Refuse single-process multi-GPU DataParallel: ``nn.DataParallel``
+       runs the forward on its own worker threads, where the selection
+       context is invisible in *both* passes, silently training
+       backbone-only experts. Distributed DDP (world_size > 1 via
+       torchrun) is safe: each rank is its own process, its forward and
+       backward run on the main thread, and the selection context stays
+       visible in both passes (verified by the 4-GPU gradient-audit
+       smoke, spec §9).
     """
-    if torch.cuda.device_count() > 1:
+    distributed = (
+        torch.distributed.is_available() and torch.distributed.is_initialized()
+    )
+    if not distributed and torch.cuda.device_count() > 1:
         raise ValueError(
-            "cluster_expert mode requires exactly one visible GPU "
-            "(CUDA_VISIBLE_DEVICES with a single device): nn.DataParallel "
-            "runs the model forward on worker threads where the per-sample "
-            "selection context is invisible, which silently trains "
-            "backbone-only experts. Got {} visible GPUs.".format(
+            "cluster_expert mode requires exactly one visible GPU per "
+            "process (CUDA_VISIBLE_DEVICES with a single device), or a "
+            "distributed launch (torchrun, one GPU per rank): "
+            "nn.DataParallel runs the model forward on worker threads "
+            "where the per-sample selection context is invisible, which "
+            "silently trains backbone-only experts. Got {} visible GPUs.".format(
                 torch.cuda.device_count()
             )
         )

@@ -1,0 +1,1538 @@
+[
+  {
+    "sample_id": "n01443537/art_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_13.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_14.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_15.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_16.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_19.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_22.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_23.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_25.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_26.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_27.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_29.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_30.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_31.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_34.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_35.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_36.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_37.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_38.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_40.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_41.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/cartoon_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_14.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_15.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_16.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/deviantart_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/embroidery_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_13.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_14.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_16.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_18.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_20.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_21.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graffiti_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graphic_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graphic_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graphic_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/graphic_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/misc_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/origami_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_13.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_14.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_15.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_17.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_18.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_19.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_22.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_23.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_24.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_27.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_28.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_29.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_30.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_31.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_32.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_33.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_34.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_35.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_36.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_37.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/painting_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sculpture_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sculpture_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_13.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_15.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_16.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_17.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_18.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_19.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sketch_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sticker_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/sticker_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_14.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_16.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/toy_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_13.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/videogame_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_13.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_16.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_17.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/art_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_13.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_14.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/cartoon_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_14.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_15.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_16.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_17.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_18.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_19.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_21.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_24.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_25.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/deviantart_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/graffiti_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/graphic_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/graphic_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/graphic_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_8.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/misc_9.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/origami_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/origami_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/origami_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/origami_4.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/origami_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/origami_7.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_1.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_13.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_14.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_15.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_17.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_19.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01484850/painting_20.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  }
+]

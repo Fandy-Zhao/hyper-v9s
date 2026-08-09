@@ -38,6 +38,7 @@ all heavy work is delegated to ``python -m compose...`` subprocesses.
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -49,6 +50,11 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from compose.eval.sharding import (
+    merge_partial_answer_files,
+    merge_partial_maps,
+    partial_path,
+)
 from compose.experts.registry import ExpertRegistry
 from compose.experts.task_state import TaskStage, TaskStateMachine
 from compose.experts.transaction import CommitTransaction
@@ -321,6 +327,309 @@ def _run(
     return result
 
 
+def _execution_plan(gpus: str) -> Dict[str, Any]:
+    """Execution strategy derived from ``--gpus`` (spec §1-§4).
+
+    Exactly 1 GPU -> single-GPU serial execution (the frozen protocol);
+    exactly 4 GPUs -> 4-GPU execution: sample-sharded stages (S1/S2/S9/
+    S11) run one worker per physical GPU, cluster LoRA training (S6) runs
+    under torchrun DDP, and clustering/keys/commit/snapshot stay rank-0
+    only on the orchestrator process. Any other count is a hard STOP.
+    """
+    gpu_list = [value.strip() for value in gpus.split(",") if value.strip()]
+    if len(gpu_list) == 1:
+        return {"mode": "single", "gpus": gpu_list, "world_size": 1}
+    if len(gpu_list) == 4:
+        return {
+            "mode": "4gpu",
+            "gpus": gpu_list,
+            "world_size": 4,
+            "torchrun_prefix": [
+                PYTHON, "-m", "torch.distributed.run",
+                "--standalone", "--max-restarts=0", "--nproc_per_node=4", "--module",
+            ],
+        }
+    raise ValueError(
+        "--gpus must name exactly 1 or 4 physical GPUs; got {!r}".format(gpus)
+    )
+
+
+def _worker_env(plan: Dict[str, Any], index: int) -> Dict[str, str]:
+    """Env for one shard worker: exactly one physical GPU (logical cuda:0)."""
+    return dict(os.environ, CUDA_VISIBLE_DEVICES=plan["gpus"][index])
+
+
+def _all_gpu_env(plan: Dict[str, Any]) -> Dict[str, str]:
+    """Env for a torchrun launch: all physical GPUs visible, one per rank."""
+    return dict(os.environ, CUDA_VISIBLE_DEVICES=",".join(plan["gpus"]))
+
+
+def _run_shards(
+    command_per_shard: List[List[str]],
+    env_per_shard: List[Dict[str, str]],
+    root: Path,
+    tag: str,
+) -> None:
+    """Run one worker per shard concurrently (4-GPU execution, §13/§15/§18).
+
+    Each worker sees exactly one physical GPU; stdout/stderr are captured
+    per shard; any nonzero exit raises with the failing shard's stderr
+    tail (BLOCKING -> STOP).
+    """
+    (root / "logs").mkdir(parents=True, exist_ok=True)
+    procs = []
+    for index, (command, env) in enumerate(zip(command_per_shard, env_per_shard)):
+        stdout_path = root / "logs" / "{}_rank{}_stdout.log".format(tag, index)
+        stderr_path = root / "logs" / "{}_rank{}_stderr.log".format(tag, index)
+        stdout_handle = open(stdout_path, "w", encoding="utf-8")
+        stderr_handle = open(stderr_path, "w", encoding="utf-8")
+        procs.append(
+            (
+                index,
+                subprocess.Popen(
+                    command, env=env, stdout=stdout_handle, stderr=stderr_handle
+                ),
+                stdout_handle,
+                stderr_handle,
+            )
+        )
+    for index, proc, stdout_handle, stderr_handle in procs:
+        returncode = proc.wait()
+        stdout_handle.close()
+        stderr_handle.close()
+        if returncode != 0:
+            stderr_tail = (
+                root / "logs" / "{}_rank{}_stderr.log".format(tag, index)
+            ).read_text(encoding="utf-8", errors="replace")[-4000:]
+            raise RuntimeError(
+                "{} shard {} failed (exit {}):\n{}".format(
+                    tag, index, returncode, stderr_tail
+                )
+            )
+
+
+def _run_sharded_nll(
+    base_command: List[str],
+    expected_records: Sequence[Dict[str, Any]],
+    root: Path,
+    tag: str,
+    plan: Dict[str, Any],
+) -> None:
+    """S2 teacher-search NLL across sample shards, then merge and verify
+    (spec §13: merged ids == expected ids, duplicates=0, missing=0).
+
+    Sharding slices SAMPLES only; the per-sample candidate sets come from
+    the shared selections file, so every sample's teacher candidate space
+    is identical to single-GPU (spec §14).
+    """
+    commands = [
+        base_command
+        + ["--num-shards", str(plan["world_size"]), "--shard-index", str(index)]
+        for index in range(plan["world_size"])
+    ]
+    _run_shards(
+        commands,
+        [_worker_env(plan, index) for index in range(plan["world_size"])],
+        root,
+        tag,
+    )
+    output = base_command[base_command.index("--output") + 1]
+    expected_ids = [_record_id(record) for record in expected_records]
+    merged = merge_partial_maps(
+        [partial_path(output, index) for index in range(plan["world_size"])],
+        expected_ids,
+    )
+    _write_json(output, merged)
+
+
+def _merge_feature_shards(
+    root: Path, tag: str, records: Sequence[Dict[str, Any]], plan: Dict[str, Any]
+) -> Path:
+    """Merge per-shard feature payloads into the canonical features file
+    (spec §15) and verify the union equals the expected sample ids exactly.
+
+    Per-sample features are deterministic (frozen CLIP), so the merged
+    payload is identical to the single-GPU payload up to the recomputed
+    provenance hashes; the query_encoder provenance comes from shard 0.
+    """
+    partials = [
+        root
+        / "features"
+        / "{}_{}_features.json.rank{}".format(tag, index)
+        for index in range(plan["world_size"])
+    ]
+    payloads = [json.loads(path.read_text(encoding="utf-8")) for path in partials]
+    records_out = {}
+    for payload in payloads:
+        records_out.update(payload["records"])
+    expected_ids = [_record_id(record) for record in records]
+    if sorted(records_out) != sorted(expected_ids):
+        missing = sorted(set(expected_ids) - set(records_out))
+        foreign = sorted(set(records_out) - set(expected_ids))
+        raise ValueError(
+            "feature shard merge mismatch: {} missing, {} foreign".format(
+                len(missing), len(foreign)
+            )
+        )
+    payload = {
+        "schema_version": payloads[0]["schema_version"],
+        "feature_source": payloads[0]["feature_source"],
+        "query_encoder_provenance": payloads[0]["query_encoder_provenance"],
+        "query_encoder_hash": payloads[0]["query_encoder_hash"],
+        "feature_hash": _stable_hash(
+            {
+                sample_id: (record["visual_feature"], record["text_feature"])
+                for sample_id, record in sorted(records_out.items())
+            }
+        ),
+        "query_hash": _stable_hash(
+            {
+                sample_id: record["query"]
+                for sample_id, record in sorted(records_out.items())
+            }
+        ),
+        "records": records_out,
+    }
+    target = root / "features" / "{}_features.json".format(tag)
+    _write_json(str(target), payload)
+    return target
+
+
+def _run_sharded_features(
+    base_command: List[str],
+    records: Sequence[Dict[str, Any]],
+    root: Path,
+    tag: str,
+    plan: Dict[str, Any],
+) -> None:
+    commands = [
+        base_command
+        + ["--num-shards", str(plan["world_size"]), "--shard-index", str(index)]
+        for index in range(plan["world_size"])
+    ]
+    _run_shards(
+        commands,
+        [_worker_env(plan, index) for index in range(plan["world_size"])],
+        root,
+        tag,
+    )
+    _merge_feature_shards(root, tag, records, plan)
+
+
+def _write_distributed_training_contract(
+    root: Path,
+    task_id: int,
+    config: Dict[str, Any],
+    n_samples: int,
+    plan: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Spec §6: the 4-GPU training contract with equality assertions.
+
+    Single-GPU reference (frozen protocol): ``per_device x grad_accum x 1``
+    with SUM gradient accumulation (HF Trainer 4.33 backpropagates the
+    undivided micro-batch loss). 4-GPU: ``per_device x grad_accum' x
+    world_size`` with the same global batch; ComposeTrainer scales the
+    loss by world_size so the DDP-averaged accumulated gradient is exactly
+    the single-GPU gradient (no LR change, spec §5). The optimizer step
+    counts are recomputed for the ACTUAL manifest size (including
+    DistributedSampler divisibility padding, spec §7) and asserted equal;
+    any mismatch raises (STOP).
+    """
+    per_device = int(config["training"]["per_device_train_batch_size"])
+    accum_single = int(config["training"]["gradient_accumulation_steps"])
+    epochs = int(config["training"]["num_train_epochs"])
+    learning_rate = float(config["training"]["learning_rate"])
+    warmup_ratio = float(config["training"]["warmup_ratio"])
+    scheduler = str(config["training"]["lr_scheduler_type"])
+    seed = int(config["data"]["seed"])
+    world = int(plan["world_size"])
+    if per_device != 1:
+        raise ValueError(
+            "training contract recomposition requires per_device_train_batch_size "
+            "== 1; got {}".format(per_device)
+        )
+    if accum_single % world != 0:
+        raise ValueError(
+            "gradient_accumulation_steps {} not divisible by world_size {}; "
+            "global batch cannot be preserved".format(accum_single, world)
+        )
+    accum_four = accum_single // world
+    global_batch_single = per_device * accum_single * 1
+    global_batch_four = per_device * accum_four * world
+    # DistributedSampler: every rank draws ceil(n/world) samples; the
+    # padding repeats are explicit and recorded (§7).
+    n_rank = int(math.ceil(n_samples / world))
+    padding = n_rank * world - n_samples
+    steps_single = int(math.ceil(n_samples / global_batch_single))
+    steps_four = int(math.ceil(n_rank / accum_four))
+    total_single = steps_single * epochs
+    total_four = steps_four * epochs
+    warmup_single = int(math.ceil(warmup_ratio * total_single))
+    warmup_four = int(math.ceil(warmup_ratio * total_four))
+    assertions = {
+        "global_batch_equal": global_batch_single == global_batch_four,
+        "steps_per_epoch_equal": steps_single == steps_four,
+        "total_optimizer_steps_equal": total_single == total_four,
+        "epochs_equal": True,
+        "learning_rate_equal": True,
+        "warmup_ratio_equal": warmup_ratio == float(config["training"]["warmup_ratio"]),
+        "scheduler_equal": True,
+        "seed_equal": True,
+    }
+    if not all(assertions.values()):
+        raise RuntimeError(
+            "distributed training contract violated (STOP): {}".format(assertions)
+        )
+    contract = {
+        "task_id": task_id,
+        "execution_mode": "4gpu_torchrun_ddp",
+        "samples": n_samples,
+        "single_gpu_reference": {
+            "per_device_train_batch_size": per_device,
+            "gradient_accumulation_steps": accum_single,
+            "world_size": 1,
+            "global_batch": global_batch_single,
+            "steps_per_epoch": steps_single,
+            "total_optimizer_steps": total_single,
+            "warmup_steps": warmup_single,
+            "num_train_epochs": epochs,
+            "learning_rate": learning_rate,
+            "warmup_ratio": warmup_ratio,
+            "lr_scheduler_type": scheduler,
+            "seed": seed,
+        },
+        "four_gpu": {
+            "per_device_train_batch_size": per_device,
+            "gradient_accumulation_steps": accum_four,
+            "world_size": world,
+            "global_batch": global_batch_four,
+            "steps_per_epoch": steps_four,
+            "total_optimizer_steps": total_four,
+            "warmup_steps": warmup_four,
+            "num_train_epochs": epochs,
+            "learning_rate": learning_rate,
+            "warmup_ratio": warmup_ratio,
+            "lr_scheduler_type": scheduler,
+            "seed": seed,
+        },
+        "distributed_sampler": {
+            "samples_per_rank": n_rank,
+            "divisibility_padding": padding,
+            "note": "padding repeats DistributedSampler's last samples on "
+                    "the tail ranks' final shards; recorded explicitly (spec §7)",
+        },
+        "gradient_equivalence": {
+            "mechanism": "HF Trainer 4.33 SUM accumulation + DDP average + "
+                         "ComposeTrainer loss x world_size scaling",
+            "lora_learning_rate_unchanged": True,
+            "key_learning_unchanged": True,
+        },
+        "assertions": assertions,
+    }
+    _write_json(str(root / "distributed_training_contract.json"), contract)
+    return contract
+
+
 def _load_config(path: Optional[str]) -> Dict[str, Any]:
     config = json.loads(json.dumps(DEFAULT_CONFIG))
     if path and os.path.isfile(path):
@@ -581,7 +890,15 @@ def run_task(
     data_hash = _data_hash(train_path, test_path, seed)
     empty_pool = task_id == 0
     machine, registry = _load_or_create_state(root, task_id, task_name)
-    env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpus.split(",")[0])
+    plan = _execution_plan(gpus)
+    env = _worker_env(plan, 0)
+    if plan["mode"] == "4gpu":
+        print(
+            "execution plan: 4-GPU distributed (GPUs {}) — task-level "
+            "strictly sequential, same-task stages sharded per spec §1-§29".format(
+                ",".join(plan["gpus"])
+            )
+        )
 
     # ---- S0: snapshot load (task > 0) / cold start (task 0) ---------------
     if not _stage_done(root, "s0_snapshot_load"):
@@ -639,20 +956,26 @@ def run_task(
         if encoder_path.is_file():
             query_encoder_args = ["--query-encoder", str(encoder_path)]
         for tag in ("train", "val"):
-            _run(
-                [
-                    PYTHON, "-m", "compose.eval.query_features",
-                    "--questions", str(root / "data" / "teacher_{}.json".format(tag)),
-                    "--images", IMAGE_FOLDER,
-                    "--output", str(root / "features" / "{}_features.json".format(tag)),
-                    "--seed", str(seed),
-                    "--device", "cuda:0",
-                ]
-                + query_encoder_args,
-                env,
-                root,
-                "s1_{}".format(tag),
-            )
+            feature_command = [
+                PYTHON, "-m", "compose.eval.query_features",
+                "--questions", str(root / "data" / "teacher_{}.json".format(tag)),
+                "--images", IMAGE_FOLDER,
+                "--output", str(root / "features" / "{}_features.json".format(tag)),
+                "--seed", str(seed),
+                "--device", "cuda:0",
+            ] + query_encoder_args
+            if plan["mode"] == "4gpu":
+                # Spec §15: sample-sharded workers (one physical GPU each),
+                # merged and verified on the orchestrator.
+                _run_sharded_features(
+                    feature_command,
+                    teacher_train if tag == "train" else teacher_val,
+                    root,
+                    "s1_{}".format(tag),
+                    plan,
+                )
+            else:
+                _run(feature_command, env, root, "s1_{}".format(tag))
         # Persist the deterministic task-0 query encoder for every later task
         # (frozen; never re-randomized).
         if not encoder_path.is_file():
@@ -715,23 +1038,24 @@ def run_task(
                 if task_id > 0
                 else _ensure_base_only(root)
             )
-            _run(
-                [
-                    PYTHON, "-m", "compose.eval.nll_eval",
-                    "--model-path", BASE_MODEL,
-                    "--vision-tower", VISION_TOWER,
-                    "--projector-path", PROJECTOR_PATH,
-                    "--checkpoint-dir", str(scoring_pool),
-                    "--question-file", str(root / "data" / "teacher_{}.json".format(tag)),
-                    "--image-folder", IMAGE_FOLDER,
-                    "--selections", str(root / "data" / "{}_selections_r1.json".format(tag)),
-                    "--output", str(root / "teacher" / "{}_nll_r1.json".format(tag)),
-                    "--device", "cuda:0",
-                ],
-                env,
-                root,
-                "s2_{}_r1".format(tag),
-            )
+            nll_r1_command = [
+                PYTHON, "-m", "compose.eval.nll_eval",
+                "--model-path", BASE_MODEL,
+                "--vision-tower", VISION_TOWER,
+                "--projector-path", PROJECTOR_PATH,
+                "--checkpoint-dir", str(scoring_pool),
+                "--question-file", str(root / "data" / "teacher_{}.json".format(tag)),
+                "--image-folder", IMAGE_FOLDER,
+                "--selections", str(root / "data" / "{}_selections_r1.json".format(tag)),
+                "--output", str(root / "teacher" / "{}_nll_r1.json".format(tag)),
+                "--device", "cuda:0",
+            ]
+            if plan["mode"] == "4gpu":
+                # Spec §13/§14: sample shards only; candidate sets shared
+                # verbatim; merge verifies 0 missing / 0 duplicates.
+                _run_sharded_nll(nll_r1_command, subset, root, "s2_{}_r1".format(tag), plan)
+            else:
+                _run(nll_r1_command, env, root, "s2_{}_r1".format(tag))
             if task_id > 0:
                 lambda_expert = float(config["teacher"]["lambda_expert"])
                 top_k_for_pair = int(config["teacher"]["top_k_for_pair"])
@@ -765,23 +1089,22 @@ def run_task(
                     str(root / "data" / "{}_selections_r2.json".format(tag)),
                     pair_selections,
                 )
-                _run(
-                    [
-                        PYTHON, "-m", "compose.eval.nll_eval",
-                        "--model-path", BASE_MODEL,
-                        "--vision-tower", VISION_TOWER,
-                        "--projector-path", PROJECTOR_PATH,
-                        "--checkpoint-dir", str(scoring_pool),
-                        "--question-file", str(root / "data" / "teacher_{}.json".format(tag)),
-                        "--image-folder", IMAGE_FOLDER,
-                        "--selections", str(root / "data" / "{}_selections_r2.json".format(tag)),
-                        "--output", str(root / "teacher" / "{}_nll_r2.json".format(tag)),
-                        "--device", "cuda:0",
-                    ],
-                    env,
-                    root,
-                    "s2_{}_r2".format(tag),
-                )
+                nll_r2_command = [
+                    PYTHON, "-m", "compose.eval.nll_eval",
+                    "--model-path", BASE_MODEL,
+                    "--vision-tower", VISION_TOWER,
+                    "--projector-path", PROJECTOR_PATH,
+                    "--checkpoint-dir", str(scoring_pool),
+                    "--question-file", str(root / "data" / "teacher_{}.json".format(tag)),
+                    "--image-folder", IMAGE_FOLDER,
+                    "--selections", str(root / "data" / "{}_selections_r2.json".format(tag)),
+                    "--output", str(root / "teacher" / "{}_nll_r2.json".format(tag)),
+                    "--device", "cuda:0",
+                ]
+                if plan["mode"] == "4gpu":
+                    _run_sharded_nll(nll_r2_command, subset, root, "s2_{}_r2".format(tag), plan)
+                else:
+                    _run(nll_r2_command, env, root, "s2_{}_r2".format(tag))
 
             nll_r1 = json.loads(
                 (root / "teacher" / "{}_nll_r1.json".format(tag)).read_text()
@@ -1163,8 +1486,6 @@ def run_task(
             "--output_dir", str(lora_dir),
             "--bf16", "True",
             "--tf32", "True",
-            "--per_device_train_batch_size", str(config["training"]["per_device_train_batch_size"]),
-            "--gradient_accumulation_steps", str(config["training"]["gradient_accumulation_steps"]),
             "--num_train_epochs", str(config["training"]["num_train_epochs"]),
             "--learning_rate", str(config["training"]["learning_rate"]),
             "--warmup_ratio", str(config["training"]["warmup_ratio"]),
@@ -1181,7 +1502,36 @@ def run_task(
         if task_id > 0:
             prev_pool = _prev_pool_dir(prev_root, task_id)
             train_command += ["--compose-checkpoint", str(prev_pool)]
-        _run(train_command, env, root, "s6_cluster_training")
+        if plan["mode"] == "4gpu":
+            # Spec §4/§5/§6: same effective global batch
+            # (per_device x grad_accum x world_size), same optimizer steps,
+            # same LR/scheduler/epochs — asserted by the contract before
+            # training starts (any violation raises: STOP).
+            contract = _write_distributed_training_contract(
+                root, task_id, config, len(training_manifest), plan
+            )
+            train_command = (
+                plan["torchrun_prefix"]
+                + train_command
+                + [
+                    "--per_device_train_batch_size", "1",
+                    "--gradient_accumulation_steps", str(
+                        contract["four_gpu"]["gradient_accumulation_steps"]
+                    ),
+                    "--ddp_find_unused_parameters", "False",
+                ]
+            )
+            _run(train_command, _all_gpu_env(plan), root, "s6_cluster_training")
+        else:
+            train_command += [
+                "--per_device_train_batch_size", str(
+                    config["training"]["per_device_train_batch_size"]
+                ),
+                "--gradient_accumulation_steps", str(
+                    config["training"]["gradient_accumulation_steps"]
+                ),
+            ]
+            _run(train_command, env, root, "s6_cluster_training")
         missing = [
             expert_id
             for expert_id in cluster_expert_ids
@@ -1409,25 +1759,34 @@ def run_task(
         if cluster_expert_ids:
             bin_sha256 = _sha256_file(str(pool_dir / "compose_experts.bin"))
             rms_output = root / "rms"
-            _run(
-                [
-                    PYTHON, "-m", "compose.eval.rms_stats",
-                    "--model-path", BASE_MODEL,
-                    "--vision-tower", VISION_TOWER,
-                    "--projector-path", PROJECTOR_PATH,
-                    "--checkpoint-dir", str(pool_dir),
-                    "--question-file", str(root / "data" / "teacher_val.json"),
-                    "--image-folder", IMAGE_FOLDER,
-                    "--checkpoint-hash", bin_sha256,
-                    "--dataset-manifest-hash", data_hash,
-                    "--composition-config-hash", config_hash,
-                    "--output-dir", str(rms_output),
-                    "--device", "cuda:0",
-                ],
-                env,
-                root,
-                "s9_rms",
-            )
+            rms_command = [
+                PYTHON, "-m", "compose.eval.rms_stats",
+                "--model-path", BASE_MODEL,
+                "--vision-tower", VISION_TOWER,
+                "--projector-path", PROJECTOR_PATH,
+                "--checkpoint-dir", str(pool_dir),
+                "--question-file", str(root / "data" / "teacher_val.json"),
+                "--image-folder", IMAGE_FOLDER,
+                "--checkpoint-hash", bin_sha256,
+                "--dataset-manifest-hash", data_hash,
+                "--composition-config-hash", config_hash,
+                "--output-dir", str(rms_output),
+                "--device", "cuda:0",
+            ]
+            if plan["mode"] == "4gpu":
+                # Spec §17: torchrun — each rank computes its sample shard,
+                # the per-layer moments are all-reduced by exact fp64 sums,
+                # rank 0 builds the kappa calibration and patches the
+                # manifest (no averaging; single-vs-four parity is checked
+                # by the smoke, spec §17).
+                _run(
+                    plan["torchrun_prefix"] + rms_command,
+                    _all_gpu_env(plan),
+                    root,
+                    "s9_rms",
+                )
+            else:
+                _run(rms_command, env, root, "s9_rms")
         else:
             _write_json(
                 str(root / "rms" / "vacuous.json"),
@@ -1511,7 +1870,85 @@ def run_task(
             # No router (degenerate smoke case): the frozen backbone (or
             # previous pool) is evaluated with an empty selection.
             eval_command += ["--checkpoint-dir", str(pool_dir), "--expert-ids", ""]
-        _run(eval_command, env, root, "s11_eval")
+        if plan["mode"] == "4gpu":
+            # Spec §18 mode B: 3000 test samples sharded across 4 ranks
+            # (~750 each); deterministic generation -> merged answers are
+            # identical to single-GPU; merge verifies 0 missing/0 duplicate
+            # and restores the original record order.
+            all_records = json.load(open(test_path, "r", encoding="utf-8"))
+            chunk_commands = [
+                eval_command
+                + [
+                    "--num-chunks", str(plan["world_size"]),
+                    "--chunk-idx", str(index),
+                    "--answers-file", str(eval_output / "answers.rank{}.jsonl".format(index)),
+                    "--run-summary-file", str(eval_output / "run_summary.rank{}.json".format(index)),
+                ]
+                for index in range(plan["world_size"])
+            ]
+            _run_shards(
+                chunk_commands,
+                [_worker_env(plan, index) for index in range(plan["world_size"])],
+                root,
+                "s11_eval",
+            )
+            merged_answers = merge_partial_answer_files(
+                [
+                    str(eval_output / "answers.rank{}.jsonl".format(index))
+                    for index in range(plan["world_size"])
+                ],
+                len(all_records),
+            )
+            (eval_output / "answers.jsonl").write_text(merged_answers, encoding="utf-8")
+            summaries = [
+                json.loads(
+                    (eval_output / "run_summary.rank{}.json".format(index)).read_text(
+                        encoding="utf-8"
+                    )
+                )
+                for index in range(plan["world_size"])
+            ]
+            merged_summary = dict(summaries[0])
+            merged_summary["samples"] = sum(
+                entry["samples"] for entry in summaries
+            )
+            merged_summary["duration_seconds"] = sum(
+                entry["duration_seconds"] for entry in summaries
+            )
+            merged_summary["samples_per_second"] = (
+                merged_summary["samples"] / merged_summary["duration_seconds"]
+                if merged_summary["duration_seconds"]
+                else 0.0
+            )
+            merged_summary["peak_memory_bytes"] = max(
+                entry["peak_memory_bytes"] for entry in summaries
+            )
+            histograms = [
+                entry.get("router_selection_histogram")
+                for entry in summaries
+                if entry.get("router_selection_histogram") is not None
+            ]
+            if histograms:
+                merged_histogram = {}
+                for entry in histograms:
+                    for key, count in entry.items():
+                        merged_histogram[str(key)] = (
+                            merged_histogram.get(str(key), 0) + int(count)
+                        )
+                merged_summary["router_selection_histogram"] = merged_histogram
+            merged_summary["execution"] = {
+                "mode": "4gpu_sharded",
+                "world_size": plan["world_size"],
+                "shards": plan["world_size"],
+                "merge_verified": {
+                    "missing": 0,
+                    "duplicates": 0,
+                    "lines": len(all_records),
+                },
+            }
+            _write_json(str(eval_output / "run_summary.json"), merged_summary)
+        else:
+            _run(eval_command, env, root, "s11_eval")
         _advance(
             root, machine, TaskStage.EVALUATION_COMPLETE,
             note="router-based evaluation done",

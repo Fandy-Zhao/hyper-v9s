@@ -21,6 +21,7 @@ from PIL import Image
 
 from compose.adapters.types import ComposeSelection, pad_selection
 from compose.eval.load_compose import load_compose_model
+from compose.eval.sharding import partial_path, shard_records
 from compose.teacher.scorer import answer_token_nll
 from compose.train.data import DataCollatorForSupervisedDataset
 from llava import conversation as conversation_lib
@@ -57,6 +58,8 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--shard-index", type=int, default=0)
     args = parser.parse_args()
 
     with open(args.selections, "r", encoding="utf-8") as handle:
@@ -64,6 +67,10 @@ def main() -> None:
     records = _records(args.question_file)
     if args.max_samples:
         records = records[: args.max_samples]
+    # 4-GPU execution (spec §13): shard by SAMPLE only; the per-sample
+    # candidate sets in the shared selections file are never sharded, so
+    # every sample's teacher candidate space is identical to single-GPU.
+    records = shard_records(records, args.num_shards, args.shard_index)
 
     bundle = load_compose_model(
         model_path=args.model_path,
@@ -150,10 +157,13 @@ def main() -> None:
             flush=True,
         )
 
-    os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as handle:
+    target = partial_path(args.output, args.shard_index) if args.num_shards > 1 else args.output
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+    with open(target, "w", encoding="utf-8") as handle:
         json.dump(results, handle, indent=2, sort_keys=True)
-    print("NLL results written to {}".format(args.output))
+    print("NLL results written to {} (shard {}/{})".format(
+        target, args.shard_index, args.num_shards
+    ))
 
 
 if __name__ == "__main__":

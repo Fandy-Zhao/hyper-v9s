@@ -31,6 +31,8 @@ from typing import Any, Dict, List
 import torch
 from PIL import Image
 
+from compose.eval.sharding import shard_records
+
 from llava.constants import DEFAULT_IMAGE_TOKEN, IMAGE_TOKEN_INDEX
 from llava.conversation import conv_templates
 from llava.mm_utils import process_images, tokenizer_image_token
@@ -168,7 +170,24 @@ def _build_batches(
     return batches
 
 
+def _init_distributed() -> int:
+    """Return the local rank (0 when not launched under torchrun).
+
+    torchrun sets RANK/LOCAL_RANK/WORLD_SIZE; this module initializes the
+    process group itself (HF Trainer's accelerate init is not available
+    here). Each rank processes a shard of the calibration split, the
+    per-layer moments are all-reduced by SUM (``RMSStatistics.all_reduce_``,
+    exact fp64 aggregation — spec §17 forbids averaging), and only local
+    rank 0 builds the kappa calibration and patches the manifest.
+    """
+    if int(os.environ.get("WORLD_SIZE", "1")) > 1:
+        torch.distributed.init_process_group(backend="nccl")
+        return int(os.environ.get("LOCAL_RANK", "0"))
+    return 0
+
+
 def main() -> None:
+    local_rank = _init_distributed()
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--vision-tower", required=True)
@@ -193,6 +212,18 @@ def main() -> None:
         records = records[: args.max_samples]
     if not records:
         raise ValueError("calibration split is empty")
+    total_samples = len(records)
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        # Sample-shard per rank (spec §17); the moments all-reduce below
+        # makes the aggregation mathematically identical to single-GPU.
+        records = shard_records(
+            records,
+            torch.distributed.get_world_size(),
+            local_rank,
+        )
+        if not records:
+            raise ValueError("calibration split empty on rank {}".format(local_rank))
+        args.device = "cuda:{}".format(local_rank % torch.cuda.device_count())
 
     bundle = load_compose_model(
         model_path=args.model_path,
@@ -227,6 +258,14 @@ def main() -> None:
         forward_fn=lambda inputs: bundle.model(**inputs, return_dict=True),
         device=args.device,
     )
+    is_rank0 = not (
+        torch.distributed.is_available() and torch.distributed.is_initialized()
+    ) or local_rank == 0
+    if not is_rank0:
+        # Non-root ranks only contributed moments; the kappa calibration,
+        # manifest patch and all outputs are written by rank 0 (spec §17).
+        # No barrier here: rank 0 is still running its own writes.
+        return
     if not validate_rms_freshness(stats, args.checkpoint_hash):
         raise ValueError(
             "RMS statistics invalidated: checkpoint hash {} mismatch".format(
@@ -234,6 +273,9 @@ def main() -> None:
             )
         )
     calibration = build_kappa_calibration(stats, expert_ids, config)
+    # Pair cross-term diagnostics cover rank 0's shard only (they feed the
+    # diagnostic rms_report.json, never the calibration); the moments
+    # themselves were all-reduced across all ranks.
     report = rms_report(stats, expert_ids, pair_moments, config)
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -268,13 +310,27 @@ def main() -> None:
     summary = {
         "calibration_split": CALIBRATION_SPLIT,
         "expert_ids": expert_ids,
-        "samples": len(records),
+        "samples": total_samples,
         "layers": report["layers"],
         "calibration_sha256": calibration_sha256,
         "checkpoint_hash": args.checkpoint_hash,
         "manifest_patched": True,
         "layers_with_kappa": len(calibration),
         "output_dir": str(output),
+        "execution": {
+            "mode": (
+                "4gpu_torchrun"
+                if torch.distributed.is_available() and torch.distributed.is_initialized()
+                else "single_gpu"
+            ),
+            "world_size": (
+                torch.distributed.get_world_size()
+                if torch.distributed.is_available() and torch.distributed.is_initialized()
+                else 1
+            ),
+            "pair_diagnostics_shard": "rank0_only",
+            "aggregation": "sum_all_reduce_fp64",
+        },
     }
     _atomic_write_json(output / "rms_summary.json", summary)
     print(json.dumps(summary, indent=2, sort_keys=True))

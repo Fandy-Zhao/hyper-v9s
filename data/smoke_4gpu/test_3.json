@@ -1,0 +1,194 @@
+[
+  {
+    "question_id": "21219",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/21219/image.png",
+    "text": "Bill is washing his dog one morning. His watch shows the time. What time is it?\n0. 11:00 P.M.\n1. 11:00 A.M.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "1"
+  },
+  {
+    "question_id": "91718",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/91718/image.png",
+    "text": "How many trucks are there?\nAnswer the question using a single word or phrase.",
+    "answer": "25"
+  },
+  {
+    "question_id": "80545",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/80545/image.png",
+    "text": "How many diamonds are there?\n0. 89\n1. 88\n2. 95\nAnswer with the option's letter from the given choices directly.",
+    "answer": "2"
+  },
+  {
+    "question_id": "70961",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/70961/image.png",
+    "text": "If you select a marble without looking, how likely is it that you will pick a black one?\n0. impossible\n1. probable\n2. unlikely\n3. certain\nAnswer with the option's letter from the given choices directly.",
+    "answer": "2"
+  },
+  {
+    "question_id": "56751",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/56751/image.png",
+    "text": "Are there more pencils than pieces of paper?\n0. no\n1. yes\nAnswer with the option's letter from the given choices directly.",
+    "answer": "0"
+  },
+  {
+    "question_id": "66809",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/66809/image.png",
+    "text": "If you select a marble without looking, how likely is it that you will pick a black one?\n0. unlikely\n1. impossible\n2. certain\n3. probable\nAnswer with the option's letter from the given choices directly.",
+    "answer": "1"
+  },
+  {
+    "question_id": "63891",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/63891/image.png",
+    "text": "What number is shown?\nAnswer the question using a single word or phrase.",
+    "answer": "20"
+  },
+  {
+    "question_id": "3002",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/3002/image.png",
+    "text": "What shape is this?\n0. cube\n1. cone\n2. sphere\nAnswer with the option's letter from the given choices directly.",
+    "answer": "0"
+  },
+  {
+    "question_id": "103006",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/103006/image.png",
+    "text": "How many cubes tall is the flower?\nAnswer the question using a single word or phrase.",
+    "answer": "2"
+  },
+  {
+    "question_id": "61296",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/61296/image.png",
+    "text": "How many marbles are there? Estimate.\n0. about 90\n1. about 50\nAnswer with the option's letter from the given choices directly.",
+    "answer": "1"
+  },
+  {
+    "question_id": "82238",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/82238/image.png",
+    "text": "Does this shape have a triangle as a face?\n0. no\n1. yes\nAnswer with the option's letter from the given choices directly.",
+    "answer": "0"
+  },
+  {
+    "question_id": "99131",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/99131/image.png",
+    "text": "Jen is going for a run in the morning. Jen's watch shows the time. What time is it?\n0. 7:00 A.M.\n1. 7:00 P.M.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "0"
+  },
+  {
+    "question_id": "68625",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/68625/image.png",
+    "text": "How many shapes are blue?\nAnswer the question using a single word or phrase.",
+    "answer": "4"
+  },
+  {
+    "question_id": "40776",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/40776/image.png",
+    "text": "How many diamonds are there?\nAnswer the question using a single word or phrase.",
+    "answer": "1"
+  },
+  {
+    "question_id": "17983",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/17983/image.png",
+    "text": "If you select a marble without looking, how likely is it that you will pick a black one?\n0. unlikely\n1. impossible\n2. probable\n3. certain\nAnswer with the option's letter from the given choices directly.",
+    "answer": "2"
+  },
+  {
+    "question_id": "49194",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/49194/image.png",
+    "text": "Are there more birdcages than birds?\n0. no\n1. yes\nAnswer with the option's letter from the given choices directly.",
+    "answer": "1"
+  },
+  {
+    "question_id": "19276",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/19276/image.png",
+    "text": "Ed is flying a kite on a windy afternoon. His watch shows the time. What time is it?\n0. 2:00 P.M.\n1. 2:00 A.M.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "0"
+  },
+  {
+    "question_id": "102061",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/102061/image.png",
+    "text": "How many squares are there?\n0. 2\n1. 3\n2. 5\n3. 1\n4. 4\nAnswer with the option's letter from the given choices directly.",
+    "answer": "2"
+  },
+  {
+    "question_id": "20847",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/20847/image.png",
+    "text": "How many fish are there?\nAnswer the question using a single word or phrase.",
+    "answer": "19"
+  },
+  {
+    "question_id": "70474",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/70474/image.png",
+    "text": "How many flowers are there?\n0. 84\n1. 76\n2. 83\nAnswer with the option's letter from the given choices directly.",
+    "answer": "0"
+  },
+  {
+    "question_id": "71906",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/71906/image.png",
+    "text": "Use dice to measure the line. The line is about (_) dice long.",
+    "answer": "3"
+  },
+  {
+    "question_id": "69057",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/69057/image.png",
+    "text": "Are there enough bones for every dog?\n0. no\n1. yes\nAnswer with the option's letter from the given choices directly.",
+    "answer": "1"
+  },
+  {
+    "question_id": "49782",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/49782/image.png",
+    "text": "Move the ruler to measure the length of the slug to the nearest inch. The slug is about (_) inches long.",
+    "answer": "3"
+  },
+  {
+    "question_id": "73204",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/73204/image.png",
+    "text": "The clocks show when some friends took out the trash Sunday before bed. Who took out the trash latest?\n0. Dalton\n1. Nate\n2. Julia\nAnswer with the option's letter from the given choices directly.",
+    "answer": "2"
+  },
+  {
+    "question_id": "19061",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/19061/image.png",
+    "text": "On which color is the spinner more likely to land?\n0. white\n1. yellow\nAnswer with the option's letter from the given choices directly.",
+    "answer": "0"
+  },
+  {
+    "question_id": "9732",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/9732/image.png",
+    "text": "What number is shown?\nAnswer the question using a single word or phrase.",
+    "answer": "1,877"
+  },
+  {
+    "question_id": "68952",
+    "image": "IconQA/iconqa_data/iconqa/val/fill_in_blank/68952/image.png",
+    "text": "How many shapes are blue?\nAnswer the question using a single word or phrase.",
+    "answer": "5"
+  },
+  {
+    "question_id": "64817",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/64817/image.png",
+    "text": "How many shapes are there?\n0. 3\n1. 2\n2. 1\nAnswer with the option's letter from the given choices directly.",
+    "answer": "1"
+  },
+  {
+    "question_id": "646",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/646/image.png",
+    "text": "How many stars are there?\n0. 77\n1. 79\n2. 83\nAnswer with the option's letter from the given choices directly.",
+    "answer": "1"
+  },
+  {
+    "question_id": "3704",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/3704/image.png",
+    "text": "Roy is making his bed one morning. The clock shows the time. What time is it?\n0. 8:00 A.M.\n1. 8:00 P.M.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "0"
+  },
+  {
+    "question_id": "31350",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/31350/image.png",
+    "text": "How many bears are there?\n0. 1\n1. 2\n2. 3\n3. 5\n4. 4\nAnswer with the option's letter from the given choices directly.",
+    "answer": "4"
+  },
+  {
+    "question_id": "82375",
+    "image": "IconQA/iconqa_data/iconqa/val/choose_txt/82375/image.png",
+    "text": "Ed is baking a cake one evening. The clock shows the time. What time is it?\n0. 7:00 A.M.\n1. 7:00 P.M.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "1"
+  }
+]

@@ -1,0 +1,194 @@
+[
+  {
+    "question_id": "5309",
+    "image": "ArxivQA/images/0802.0989_3.jpg",
+    "text": "What can be inferred about the error bars associated with the Γ₀ measurements?They represent the confidence interval for each measurement.\nThey decrease as the momentum p increases.\nThey are smallest at the highest and lowest values of momentum p.\nThey are consistent across all values of momentum p.\nRationale:The error bars for Γ₀, represented by the vertical lines extending from the data points on the lower plot, appear to be of consistent length across different values of momentum p. This suggests that the uncertainty or variability associated with the measurements of Γ₀ is roughly the same throughout the range of momentum p presented.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "D"
+  },
+  {
+    "question_id": "1046",
+    "image": "ArxivQA/images/1703.03901_3.jpg",
+    "text": "Which dataset shows a clearer deviation from the power-law distribution in the tail of the distribution?A. Sogou-08\nB. Sogou-11\nC. Yahoo-10\nD. All datasets show no deviation\nRationale:In subfigure (a), the Sogou-08 dataset shows a deviation from the straight line in the tail on the log-log plot, indicating a deviation from the power-law distribution.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "A"
+  },
+  {
+    "question_id": "3874",
+    "image": "ArxivQA/images/2210.04287_1.jpg",
+    "text": "What concept is demonstrated by the pairing of the query \"toward - red - [s] - love\" with the image of a red flower?A. The association between the color red and affection.\nB. The process of a flower turning red.\nC. The use of \"[s]\" as a placeholder for search algorithms.\nD. The concept of movement towards an object.\n## Figure (b)\nRationale:The query includes the word \"love,\" which is often symbolically associated with the color red, as is the flower depicted. This suggests an associative learning concept where the color red is linked to the concept of love.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "A"
+  },
+  {
+    "question_id": "1344",
+    "image": "ArxivQA/images/2203.02241_1.jpg",
+    "text": "What information is being conveyed in figure 'd'?A. Migration patterns of animals\nB. Air traffic routes and live plane locations\nC. Shipping routes and live ship locations\nD. Weather patterns across a continent\nRationale:Figure 'd' is taken from Flightradar24, a live flight tracking service, which shows planes in flight indicated by yellow icons over a geographical map.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "8052",
+    "image": "ArxivQA/images/2208.07075_0.jpg",
+    "text": "Based on the figure, which compression technique is closest to the \"Ground Truth\" in terms of numerical value?A) Compressed Image with QF=1\nB) NPT\nC) CPT (Ours)\nD) None of the above\nRationale:The \"Ground Truth\" is marked with a numerical value of 476. Comparing the numerical values presented for NPT and CPT, the value for CPT (471.23) is closer to the Ground Truth than the value for NPT (419.90), indicating that CPT is closer in performance to the Ground Truth based on this metric.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "6207",
+    "image": "ArxivQA/images/0908.2380_0.jpg",
+    "text": "Which of the following best describes the trend of Im(ψ) when γ < γ_PT as seen in the figure?Im(ψ) is zero at all points.\nIm(ψ) shows a single peak and remains constant otherwise.\nIm(ψ) exhibits multiple peaks and troughs.\nIm(ψ) remains constant at a positive value.\nRationale:In the second panel labeled \"Im(ψ)\" under the condition γ < γ_PT, we observe that Im(ψ) has multiple peaks and troughs across the range of X values, indicating a fluctuating behavior rather than a constant or singular peak pattern.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "5878",
+    "image": "ArxivQA/images/1906.03824_1.jpg",
+    "text": "What does the grid in the 'Interaction' section of the second diagram imply about the process being depicted?A. It represents a matrix or table of results.\nB. It shows the various potential pathways for interaction.\nC. It is a placeholder for statistical data visualization.\nD. It signifies the compartmentalization of different interaction processes.\nRationale:The grid is likely indicative of multiple potential interactions or pathways, as it is in the 'Interaction' section and shows multiple cells which could represent different possible states or outcomes of an interaction.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "3057",
+    "image": "ArxivQA/images/cond-mat0011289_0.jpg",
+    "text": "Which temperature curve shows the greatest change in \\( M'_{\\parallel} \\) near \\( B_0 = -1 \\) T?A) 0.7 K\nB) 0.8 K\nC) 0.9 K\nD) 1 K\n-\nRationale:Near \\( B_0 = -1 \\) T, the 1 K curve shows the most significant deviation from the baseline, indicating the greatest change in \\( M'_{\\parallel} \\).\nAnswer with the option's letter from the given choices directly.",
+    "answer": "D"
+  },
+  {
+    "question_id": "2600",
+    "image": "ArxivQA/images/1202.3509_3.jpg",
+    "text": "Based on the data presented, what can be inferred about the density of data points in relation to \\( \\left< v(r, \\Delta t_b) \\right> \\)?A) Data points are more densely packed at higher values of \\( \\left< v(r, \\Delta t_b) \\right> \\).\nB) Data points are more densely packed at lower values of \\( \\left< v(r, \\Delta t_b) \\right> \\).\nC) Data points are evenly distributed across all values of \\( \\left< v(r, \\Delta t_b) \\right> \\).\nD) There is no discernible pattern in the density of data points.\nRationale:The scatter plot indicates a higher concentration of data points at the lower values of \\( \\left< v(r, \\Delta t_b) \\right> \\), which becomes sparser as the value increases.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "4336",
+    "image": "ArxivQA/images/2006.11955_1.jpg",
+    "text": "Which statement is true regarding humidity percentages across the US Census Regions according to the boxplot?A. The South has the highest median humidity percentage.\nB. The Midwest has the broadest range of humidity percentages.\nC. The Northeast has a higher median humidity percentage than the South.\nD. Humidity percentages are highest in the West.\nRationale:The boxplot for the South shows the highest median (the line within the box), which is higher than the median of any other region.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "A"
+  },
+  {
+    "question_id": "5732",
+    "image": "ArxivQA/images/1906.00480_2.jpg",
+    "text": "Which of the following statements is true based on the figure?A) The highest value of \\( \\omega_p \\) corresponds to the deflagration region.\nB) The detonation region is represented at the lower left corner of the figure.\nC) A hybrid regime exists between deflagration and detonation regions for \\( \\omega_w > 0.5 \\).\nD) \\( \\omega_p \\) and \\( \\omega_w \\) are independent of each other.\nRationale:The figure shows a region labeled \"Hybrid\" that lies between the deflagration and detonation regions, and this hybrid region begins just after \\( \\omega_w = 0.5 \\) as indicated by the green vertical line. Therefore, it is true that a hybrid regime exists between the two regions for \\( \\omega_w > 0.5 \\).\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "3803",
+    "image": "ArxivQA/images/1705.06994_1.jpg",
+    "text": "Based on figure (c), how does the system size affect the profile of \\( N_{SS} \\) as a function of \\( \\alpha / \\kappa \\)?A. Larger systems result in a sharper transition from sub-critical to super-critical behavior.\nB. Smaller systems have a delayed transition in \\( N_{SS} \\) as \\( \\alpha / \\kappa \\) increases.\nC. System size has no effect on the \\( N_{SS} \\) profile.\nD. Larger systems result in a lower overall value of \\( N_{SS} \\).\nRationale:Figure (c) shows three curves for different system sizes (60x60, 120x120, 240x240). As the system size increases, the transition in \\( N_{SS} \\) becomes more pronounced, suggesting that larger systems result in a sharper transition from sub-critical to super-critical behavior.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "A"
+  },
+  {
+    "question_id": "6103",
+    "image": "ArxivQA/images/2111.11709_1.jpg",
+    "text": "Based on the figure, what could be inferred about the power output of solar panels with respect to wind speed?A) Power output increases with higher wind speeds.\nB) Power output decreases with higher wind speeds.\nC) Power output is not affected by wind speeds.\nD) Power output initially increases and then decreases with higher wind speeds.\n## For Figure (b):\nRationale:Since the Clear Sky Index is an indicator of the potential solar irradiance, a lower Clear Sky Index at higher wind speeds suggests that the power output of solar panels would decrease with higher wind speeds.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "1052",
+    "image": "ArxivQA/images/1905.08314_2.jpg",
+    "text": "What can be inferred about the control strategy 'K-DRL-delay' from its impact on the acceleration 'ui' in scenarios (a) and (b)?A. It results in the highest acceleration 'ui'.\nB. It introduces a delay in achieving peak acceleration 'ui'.\nC. It has a smoothing effect on the acceleration profile 'ui'.\nD. It causes the most erratic changes in acceleration 'ui'.\nRationale:The 'K-DRL-delay' shows a noticeable lag in the response of the acceleration 'ui' compared to 'K-DRL' and 'K-DP', especially evident in scenario (a), indicating that the delay aspect in the control strategy introduces a temporal lag before reaching peak acceleration.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "2784",
+    "image": "ArxivQA/images/2210.03899_52.jpg",
+    "text": "What is the purpose of the 'Transformer Encoder' in this figure?A. To decompose the image into high and low frequency components.\nB. To classify the image into different categories.\nC. To enhance the feature representation for subsequent classification.\nD. To perform the discrete wavelet transform (DWT) on the image.\nRationale:The 'Transformer Encoder' is positioned after the feature extraction ('Feat') block and before the 'FSF (scale 1)' component. This indicates that its role is to process and enhance the features extracted from the image, improving the representation for the classifier that follows.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "7120",
+    "image": "ArxivQA/images/0911.3209_1.jpg",
+    "text": "What is the effect of the catalyst on the intermediate stages of the reaction pathway?A. It increases the number of intermediate stages.\nB. It decreases the energy of the intermediate stages.\nC. It increases the overall energy of the reaction.\nD. It changes the end products of the reaction.\nRationale:The bottom figure demonstrates lower energy levels at intermediate stages (between x1, x2, x3, etc.) compared to the top figure, indicating that the catalyst decreases the energy of the intermediate stages.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "4037",
+    "image": "ArxivQA/images/hep-ex0312021_0.jpg",
+    "text": "What does the inset graph in the figure represent?The distribution of candidates over a narrower J/ψπ+ π− mass range\nA magnified view of the candidates in the main graph\nThe time evolution of the J/ψπ+ π− mass distribution\nThe error bars of the J/ψπ+ π− mass distribution\nRationale:The inset graph is a smaller graph placed within the larger one, representing a more detailed view of the data over a narrower J/ψπ+ π− mass range between 3.80 and 3.95 GeV/c^2. This can be inferred from the x-axis of the inset graph, which shows a limited range compared to the main graph.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "A"
+  },
+  {
+    "question_id": "7448",
+    "image": "ArxivQA/images/2007.15986_2.jpg",
+    "text": "Which dataset shows the largest overall increase in the value of Z as ρ increases?A) The dataset with square markers.\nB) The dataset with diamond markers.\nC) The dataset with circle markers.\nD) None of the datasets show an overall increase.\nRationale:The dataset with square markers, represented by the dashed line with the largest slope, shows an increase in the value of Z with increasing ρ, indicating a positive correlation.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "A"
+  },
+  {
+    "question_id": "1610",
+    "image": "ArxivQA/images/2008.02389_3.jpg",
+    "text": "At approximately which epoch does ContinuousNet(Euler) first achieve a Test Accuracy comparable to the peak accuracy of ContinuousNet(RK4-Classic)?A. Epoch 20\nB. Epoch 40\nC. Epoch 60\nD. Epoch 80\nRationale:Around epoch 60, the Test Accuracy of ContinuousNet(Euler) rises to meet that of ContinuousNet(RK4-Classic) and remains comparable thereafter.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "5181",
+    "image": "ArxivQA/images/2210.08922_0.jpg",
+    "text": "In the embeddings section of the figure, what does the overlapping of circles B and B* suggest?A. B and B* are unrelated entities\nB. B and B* have been perfectly aligned by the model\nC. There is an error in the alignment between B and B*\nD. B and B* represent the same entity in different knowledge graphs\nRationale:The overlapping circles B and B* in the embeddings section of the figure suggest that the entities have been aligned closely by the model. This indicates a successful alignment, as the goal is to have corresponding entities from different knowledge graphs (KG and KG*) occupy the same point in the embedding space.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "5725",
+    "image": "ArxivQA/images/0906.5304_3.jpg",
+    "text": "At approximately what distance from the nucleus does the He II/Hβ line ratio peak before it starts to decline?A) 15 arcsec\nB) 20 arcsec\nC) 25 arcsec\n-\nRationale:The He II/Hβ ratio peaks at around 20 arcsec from the nucleus as seen on the graph, after which it begins to decline.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "4604",
+    "image": "ArxivQA/images/2111.00961_1.jpg",
+    "text": "What is the main focus of comparison in the figures?A) The classification of noise in images.\nB) The effect of training methods on data point classification.\nC) The color distribution of data points in different classes.\nD) The number of mergers detected in each scenario.\nRationale:The two figures compare \"Regular training\" and \"Domain Adaptation\" methods, as indicated by the titles above the scatter plots. Each scatter plot shows classified data points, where the classification is influenced by the training method applied.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "3287",
+    "image": "ArxivQA/images/2112.02960_3.jpg",
+    "text": "What risks are associated with the labeled portion of a noisy dataset in a semi-supervised learning (SSL) setting according to the diagram?A) Model overfitting and sample redundancy\nB) Label noise and confirmation bias\nC) Insufficient data and model underfitting\nD) Data leakage and privacy concerns\n# Question 2 for Figure (b)\nRationale:The diagram explicitly marks the labeled portion of a noisy dataset with two risks: label noise and confirmation bias, indicating that these are the specific issues that can arise in an SSL setting when dealing with labeled data.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "7626",
+    "image": "ArxivQA/images/2106.03293_2.jpg",
+    "text": "According to the graph, how does the presence of a magnetic field ('withB') affect the LOG(Growth factor) compared to when it is absent ('withoutB')?A. The presence of a magnetic field does not affect the LOG(Growth factor).\nB. The presence of a magnetic field decreases the LOG(Growth factor).\nC. The presence of a magnetic field increases the LOG(Growth factor) after 1 ns.\nD. The LOG(Growth factor) is only affected by the magnetic field at the beginning of the time scale.\nRationale:The graph shows that for both simulation and experimental data, the 'withB' lines are above the 'withoutB' lines after 1 ns, indicating an increase in the LOG(Growth factor) due to the presence of a magnetic field.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "2266",
+    "image": "ArxivQA/images/1906.12053_1.jpg",
+    "text": "What operation does the figure A demonstrate in binary tree manipulation?A. Node deletion\nB. Node swapping\nC. Leaf insertion\nD. Subtree merging\nRationale:Figure A shows a binary tree with a new leaf node '3' added to an existing node 'e', which indicates a leaf insertion operation.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "6900",
+    "image": "ArxivQA/images/1403.7919_1.jpg",
+    "text": "What does the dashed line in the dispersion relation (a) likely represent?The speed of light in vacuum\nThe boundary between two different media\nThe frequency at which the plasmon becomes non-propagating\nThe group velocity of the plasmon\nRationale:The dashed line in the dispersion diagram typically represents a limit or a critical frequency at which the wave behavior changes. In this context, it likely represents the frequency at which the bulk plasmon (ω_BP), surface plasmon (ω_SP), and particle plasmon (ω_PP) become non-propagating, as indicated by the labels on the right-hand side of the figure.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "7574",
+    "image": "ArxivQA/images/2007.13866_0.jpg",
+    "text": "Based on the figure, which item appears only in part (a) and not in part (b)?A. A blue bottle\nB. A black lid\nC. A green plant\nD. A brick wall background\nRationale:A green plant can be seen in part (a) of the figure, while it is absent in part (b), which features the blue bottle, black lid, and brick wall but not the plant.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C. A green plant"
+  },
+  {
+    "question_id": "3866",
+    "image": "ArxivQA/images/2305.14515_1.jpg",
+    "text": "For the trend represented by \\( t_0 = 20 \\), at approximately what angular frequency does the noise power reduce to \\( 10^{-2} \\) arbitrary units?A. \\( 10^0 \\)\nB. \\( 10^1 \\)\nC. \\( 10^2 \\)\nD. \\( 10^3 \\)\nRationale:Observing the blue line corresponding to \\( t_0 = 20 \\), it crosses the \\( 10^{-2} \\) arbitrary units level at an angular frequency of approximately \\( 10^1 \\), as can be seen on the x-axis of the graph.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "B"
+  },
+  {
+    "question_id": "4398",
+    "image": "ArxivQA/images/1907.06607_0.jpg",
+    "text": "If the sequence length is set at 500, which two conditions have the most similar runtimes?Full and Full, masked\nFull, masked and Aggregated, masked\nAggregated and Aggregated, masked\nFull and Aggregated\nRationale:At a sequence length of 500, the \"Aggregated\" (dashed red line) and \"Aggregated, masked\" (solid red line) are nearly overlapping, indicating very similar runtimes. The other pairs of conditions show more distinct separations at this sequence length.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "8202",
+    "image": "ArxivQA/images/2006.05964_1.jpg",
+    "text": "What is the primary task demonstrated by the 'Fill' column in the 'Train Images' and 'Test Images' sections?A) Object recognition\nB) Image classification\nC) Image segmentation\nD) Image inpainting\nRationale:The 'Fill' column shows parts of the images being reconstructed, which is indicative of image inpainting tasks where the goal is to fill in missing or corrupted parts of images.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "D"
+  },
+  {
+    "question_id": "6458",
+    "image": "ArxivQA/images/1408.3459_2.jpg",
+    "text": "What does the trend of the graph labeled \"E-E_min\" suggest about the system being analyzed?A. The system's energy is increasing over iterations.\nB. The system's energy is fluctuating but remains constant overall.\nC. The energy of the system decreases exponentially over iterations.\nD. The system reaches its maximum energy at the beginning and then stabilizes.\nRationale:The graph shows a logarithmic scale on the y-axis and a linear decrease in \"E-E_min\", which suggests an exponential decrease in the system's energy relative to the minimum energy as the number of iterations increases.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  },
+  {
+    "question_id": "1742",
+    "image": "ArxivQA/images/2210.13856_6.jpg",
+    "text": "What role does the Onboard Graph play in the system?It provides real-time control commands to the robots.\nIt acts as a temporary storage for raw data before processing.\nIt aids in the generation of constraints for map optimization.\nIt serves as the primary navigation tool for the robots.\nRationale:The Onboard Graph is linked with Graph Evaluation, which includes constraint generation for each robot, indicating its role in providing constraints for optimizing the map through processes such as spectral comparison.\nAnswer with the option's letter from the given choices directly.",
+    "answer": "C"
+  }
+]

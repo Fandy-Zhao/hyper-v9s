@@ -1,0 +1,194 @@
+[
+  {
+    "question_id": "3594",
+    "image": "CLEVR/images/val/CLEVR_val_002857.png",
+    "text": "Add 1 green rubber cubes. How many objects exist?\nAnswer the question using a single word or phrase.",
+    "answer": "10"
+  },
+  {
+    "question_id": "9120",
+    "image": "CLEVR/images/val/CLEVR_val_003259.png",
+    "text": "Add 1 large gray objects. How many large gray objects exist?\nAnswer the question using a single word or phrase.",
+    "answer": "2"
+  },
+  {
+    "question_id": "7071",
+    "image": "CLEVR/images/val/CLEVR_val_003845.png",
+    "text": "Subtract 0 blue balls. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "3"
+  },
+  {
+    "question_id": "3704",
+    "image": "CLEVR/images/val/CLEVR_val_006773.png",
+    "text": "Subtract 2 cubes. How many cubes are left?\nAnswer the question using a single word or phrase.",
+    "answer": "2"
+  },
+  {
+    "question_id": "1278",
+    "image": "CLEVR/images/val/CLEVR_val_003208.png",
+    "text": "Add 3 tiny matte objects. How many objects exist?\nAnswer the question using a single word or phrase.",
+    "answer": "9"
+  },
+  {
+    "question_id": "708",
+    "image": "CLEVR/images/val/CLEVR_val_012940.png",
+    "text": "Add 5 large yellow objects. How many large yellow objects exist?\nAnswer the question using a single word or phrase.",
+    "answer": "6"
+  },
+  {
+    "question_id": "8388",
+    "image": "CLEVR/images/val/CLEVR_val_009303.png",
+    "text": "Subtract all cylinders. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "3"
+  },
+  {
+    "question_id": "3277",
+    "image": "CLEVR/images/val/CLEVR_val_009040.png",
+    "text": "Subtract all red cubes. How many cubes are left?\nAnswer the question using a single word or phrase.",
+    "answer": "1"
+  },
+  {
+    "question_id": "9423",
+    "image": "CLEVR/images/val/CLEVR_val_014146.png",
+    "text": "Subtract 1 brown cylinders. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "7"
+  },
+  {
+    "question_id": "7372",
+    "image": "CLEVR/images/val/CLEVR_val_003532.png",
+    "text": "Subtract all cyan cubes. Subtract all purple cylinders. How many cubes are left?\nAnswer the question using a single word or phrase.",
+    "answer": "2"
+  },
+  {
+    "question_id": "1542",
+    "image": "CLEVR/images/val/CLEVR_val_014923.png",
+    "text": "Subtract all gray cubes. Subtract all purple spheres. How many cubes are left?\nAnswer the question using a single word or phrase.",
+    "answer": "4"
+  },
+  {
+    "question_id": "1297",
+    "image": "CLEVR/images/val/CLEVR_val_002423.png",
+    "text": "Subtract 1 purple cubes. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "2"
+  },
+  {
+    "question_id": "7027",
+    "image": "CLEVR/images/val/CLEVR_val_002318.png",
+    "text": "Subtract all blocks. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "6"
+  },
+  {
+    "question_id": "8442",
+    "image": "CLEVR/images/val/CLEVR_val_002225.png",
+    "text": "Add 4 tiny gray rubber balls. How many objects exist?\nAnswer the question using a single word or phrase.",
+    "answer": "8"
+  },
+  {
+    "question_id": "6315",
+    "image": "CLEVR/images/val/CLEVR_val_012805.png",
+    "text": "Subtract all gray spheres. Subtract all yellow cylinders. How many spheres are left?\nAnswer the question using a single word or phrase.",
+    "answer": "1"
+  },
+  {
+    "question_id": "6533",
+    "image": "CLEVR/images/val/CLEVR_val_006777.png",
+    "text": "Subtract all blue blocks. How many brown spheres are left?\nAnswer the question using a single word or phrase.",
+    "answer": "0"
+  },
+  {
+    "question_id": "2042",
+    "image": "CLEVR/images/val/CLEVR_val_006334.png",
+    "text": "Subtract 3 cubes. How many cubes are left?\nAnswer the question using a single word or phrase.",
+    "answer": "3"
+  },
+  {
+    "question_id": "129",
+    "image": "CLEVR/images/val/CLEVR_val_005683.png",
+    "text": "Subtract all large purple rubber objects. Subtract all big yellow objects. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "3"
+  },
+  {
+    "question_id": "1006",
+    "image": "CLEVR/images/val/CLEVR_val_014905.png",
+    "text": "Add 1 large cyan matte things. How many objects exist?\nAnswer the question using a single word or phrase.",
+    "answer": "6"
+  },
+  {
+    "question_id": "1086",
+    "image": "CLEVR/images/val/CLEVR_val_007582.png",
+    "text": "Add 5 large gray things. How many large gray things exist?\nAnswer the question using a single word or phrase.",
+    "answer": "6"
+  },
+  {
+    "question_id": "6512",
+    "image": "CLEVR/images/val/CLEVR_val_000921.png",
+    "text": "Subtract all balls. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "2"
+  },
+  {
+    "question_id": "8894",
+    "image": "CLEVR/images/val/CLEVR_val_011343.png",
+    "text": "Subtract all cyan spheres. How many spheres are left?\nAnswer the question using a single word or phrase.",
+    "answer": "6"
+  },
+  {
+    "question_id": "2346",
+    "image": "CLEVR/images/val/CLEVR_val_006057.png",
+    "text": "Subtract all tiny green cylinders. Subtract all tiny metal things. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "3"
+  },
+  {
+    "question_id": "8188",
+    "image": "CLEVR/images/val/CLEVR_val_000754.png",
+    "text": "Subtract all blocks. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "4"
+  },
+  {
+    "question_id": "2775",
+    "image": "CLEVR/images/val/CLEVR_val_000669.png",
+    "text": "Subtract 0 gray spheres. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "9"
+  },
+  {
+    "question_id": "2446",
+    "image": "CLEVR/images/val/CLEVR_val_011754.png",
+    "text": "Add 3 gray metallic things. How many gray metallic things are left?\nAnswer the question using a single word or phrase.",
+    "answer": "4"
+  },
+  {
+    "question_id": "7702",
+    "image": "CLEVR/images/val/CLEVR_val_013141.png",
+    "text": "Add 2 large gray metal cylinders. How many objects exist?\nAnswer the question using a single word or phrase.",
+    "answer": "5"
+  },
+  {
+    "question_id": "3096",
+    "image": "CLEVR/images/val/CLEVR_val_000699.png",
+    "text": "Subtract all big blue shiny cubes. Subtract all large green metal things. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "2"
+  },
+  {
+    "question_id": "1251",
+    "image": "CLEVR/images/val/CLEVR_val_007978.png",
+    "text": "Subtract all gray cylinders. Subtract all large brown cubes. How many objects are left?\nAnswer the question using a single word or phrase.",
+    "answer": "3"
+  },
+  {
+    "question_id": "3538",
+    "image": "CLEVR/images/val/CLEVR_val_006340.png",
+    "text": "Subtract all brown blocks. Subtract all blue cylinders. How many blocks are left?\nAnswer the question using a single word or phrase.",
+    "answer": "4"
+  },
+  {
+    "question_id": "1334",
+    "image": "CLEVR/images/val/CLEVR_val_013787.png",
+    "text": "Subtract all green spheres. How many spheres are left?\nAnswer the question using a single word or phrase.",
+    "answer": "2"
+  },
+  {
+    "question_id": "4457",
+    "image": "CLEVR/images/val/CLEVR_val_008354.png",
+    "text": "Add 3 gray metal objects. How many objects exist?\nAnswer the question using a single word or phrase.",
+    "answer": "6"
+  }
+]

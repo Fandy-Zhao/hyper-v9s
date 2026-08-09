@@ -1,0 +1,114 @@
+[
+  {
+    "id": "n01443537/art_0.jpg",
+    "image": "ImageNet-R/train/n01443537/art_0.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nWhat is the object in the image?\nAnswer the question using a single word or phrase."
+      },
+      {
+        "from": "gpt",
+        "value": "Goldfish"
+      }
+    ]
+  },
+  {
+    "id": "n01443537/art_10.jpg",
+    "image": "ImageNet-R/train/n01443537/art_10.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nWhat is the object in the image?\nAnswer the question using a single word or phrase."
+      },
+      {
+        "from": "gpt",
+        "value": "Goldfish"
+      }
+    ]
+  },
+  {
+    "id": "n01443537/art_11.jpg",
+    "image": "ImageNet-R/train/n01443537/art_11.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nWhat is the object in the image?\nAnswer the question using a single word or phrase."
+      },
+      {
+        "from": "gpt",
+        "value": "Goldfish"
+      }
+    ]
+  },
+  {
+    "id": "n01443537/art_12.jpg",
+    "image": "ImageNet-R/train/n01443537/art_12.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nWhat is the object in the image?\nAnswer the question using a single word or phrase."
+      },
+      {
+        "from": "gpt",
+        "value": "Goldfish"
+      }
+    ]
+  },
+  {
+    "id": "n01443537/art_2.jpg",
+    "image": "ImageNet-R/train/n01443537/art_2.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nWhat is the object in the image?\nAnswer the question using a single word or phrase."
+      },
+      {
+        "from": "gpt",
+        "value": "Goldfish"
+      }
+    ]
+  },
+  {
+    "id": "n01443537/art_3.jpg",
+    "image": "ImageNet-R/train/n01443537/art_3.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nWhat is the object in the image?\nAnswer the question using a single word or phrase."
+      },
+      {
+        "from": "gpt",
+        "value": "Goldfish"
+      }
+    ]
+  },
+  {
+    "id": "n01443537/art_5.jpg",
+    "image": "ImageNet-R/train/n01443537/art_5.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nWhat is the object in the image?\nAnswer the question using a single word or phrase."
+      },
+      {
+        "from": "gpt",
+        "value": "Goldfish"
+      }
+    ]
+  },
+  {
+    "id": "n01443537/art_6.jpg",
+    "image": "ImageNet-R/train/n01443537/art_6.jpg",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "<image>\nWhat is the object in the image?\nAnswer the question using a single word or phrase."
+      },
+      {
+        "from": "gpt",
+        "value": "Goldfish"
+      }
+    ]
+  }
+]

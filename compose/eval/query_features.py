@@ -29,6 +29,7 @@ import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
+from compose.eval.sharding import partial_path, shard_records
 from compose.router.functional_query import (
     ComposeQueryEncoder,
     load_query_encoder_checkpoint,
@@ -62,9 +63,16 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--num-shards", type=int, default=1)
+    parser.add_argument("--shard-index", type=int, default=0)
     args = parser.parse_args()
 
     records = json.loads(Path(args.questions).read_text(encoding="utf-8"))
+    # 4-GPU execution (spec §15): shard by SAMPLE only. The frozen CLIP
+    # features are deterministic per sample (the text embedding is read at
+    # the eos position and the visual embedding is per-image), so the
+    # merged shards reproduce the single-GPU payload exactly.
+    records = shard_records(records, args.num_shards, args.shard_index)
     clip = CLIPModel.from_pretrained(CLIP_PATH, torch_dtype=torch.float16).to(
         torch.device(args.device)
     ).eval()
@@ -136,12 +144,17 @@ def main() -> None:
         ),
         "records": records_out,
     }
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as handle:
+    # A sharded worker writes only its partial payload; the orchestrator
+    # merges the partials and recomputes the provenance hashes over the
+    # full record set (the shard-level hashes cover only this shard).
+    target = partial_path(args.output, args.shard_index) if args.num_shards > 1 else args.output
+    Path(target).parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
     print(
-        "features written to {} ({} samples, query_dim={})".format(
-            args.output, len(records_out), encoder.query_dim
+        "features written to {} ({} samples, query_dim={}, shard {}/{})".format(
+            target, len(records_out), encoder.query_dim,
+            args.shard_index, args.num_shards,
         )
     )
 

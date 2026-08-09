@@ -1,4 +1,5 @@
 import os
+from contextlib import nullcontext
 
 import torch
 
@@ -64,7 +65,13 @@ class ComposeTrainer(LLaVATrainer):
                 [list(gates) for _, gates in raw], dtype=torch.float32
             )
             selection = ComposeSelection(expert_ids, gates)
-        if selection is not None:
+        distributed = (
+            torch.distributed.is_available() and torch.distributed.is_initialized()
+        )
+        if distributed:
+            # 4-GPU (torchrun): gradient-exact DDP step (spec §4/§5).
+            loss = self._ddp_training_step(model, inputs, selection)
+        elif selection is not None:
             with use_selection(selection):
                 loss = super().training_step(model, inputs)
         else:
@@ -87,6 +94,51 @@ class ComposeTrainer(LLaVATrainer):
             self.max_finite_gradient_lora_b_count, finite_count
         )
         return loss
+
+    def _ddp_training_step(self, model, inputs, selection):
+        """4-GPU (torchrun) training step — gradient-exact DDP (spec §4/§5).
+
+        Verbatim body of the pinned transformers 4.33.3
+        ``Trainer.training_step`` (LLaVATrainer does not override it), with
+        two additions:
+
+        1. The per-sample selection ContextVar stays active across the
+           whole step, so activation-checkpoint recomputation during
+           ``backward()`` sees the same LoRA routing (same contract as the
+           single-GPU path; see ``_prepare_cluster_expert_backward``).
+        2. World-size loss scaling: 4.33 backpropagates the undivided
+           micro-batch loss and accumulates gradients by SUM over
+           ``gradient_accumulation_steps``, while DDP all-reduces
+           (averages) each micro-step gradient over the ranks. With the
+           global batch held constant (``per_device x grad_accum x
+           world_size``), the accumulated DDP gradient would be
+           1/world_size of the single-GPU gradient for the same samples.
+           Scaling the loss by ``world_size`` makes the accumulated
+           gradient EXACTLY equal to the single-GPU protocol's — a
+           gradient-equivalence compensation, not a learning-rate change.
+           The returned (logging) loss is unscaled.
+        """
+        from compose.adapters.runtime import use_selection
+
+        world_size = int(self.args.world_size)
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+        context = use_selection(selection) if selection is not None else nullcontext()
+        with context:
+            with self.compute_loss_context_manager():
+                loss = self.compute_loss(model, inputs)
+            if self.args.n_gpu > 1:
+                loss = loss.mean()
+            if self.do_grad_scaling:
+                self.scaler.scale(loss * world_size).backward()
+            elif self.use_apex:
+                from apex import amp
+
+                with amp.scale_loss(loss * world_size, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                self.accelerator.backward(loss * world_size)
+        return loss.detach() / self.args.gradient_accumulation_steps
 
     def _save(self, output_dir=None, state_dict=None) -> None:
         output_dir = output_dir or self.args.output_dir

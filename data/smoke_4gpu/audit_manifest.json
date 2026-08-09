@@ -1,0 +1,50 @@
+[
+  {
+    "sample_id": "n01443537/art_0.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_10.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_11.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_12.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_2.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_3.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_5.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  },
+  {
+    "sample_id": "n01443537/art_6.jpg",
+    "task_id": 0,
+    "cluster_expert_id": 77,
+    "teacher_ids": []
+  }
+]
