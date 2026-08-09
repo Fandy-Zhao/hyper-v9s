@@ -11,7 +11,13 @@
 #   Phase 5  §17     RMS kappa parity: single-GPU vs 4-GPU torchrun, <=1e-5
 #   Phase 6  §19     eval parity: 64 test samples, single vs 4-GPU,
 #                    byte-identical answers
-#   Phase 7  §25     scaling report: 256 samples, 1 vs 4 GPUs
+#   Phase 7  §25     scaling report: 256 samples, 1 vs 4 GPUs; the
+#                    single-GPU reference runs the identical smoke_ddp
+#                    path as plain python (torchrun world1 hits a cuDNN
+#                    8.8-vs-8.9 engine-selection quirk on this host:
+#                    CUDNN_STATUS_NOT_INITIALIZED / "unable to find an
+#                    engine"; verified plain python world1 passes the
+#                    full forward+backward path)
 #   Phase 8  invariants: distributed training contract, registry
 #                    pool_version deltas, RMS execution mode, S11 merge,
 #                    snapshots
@@ -61,7 +67,8 @@ echo "=== Phase 1: DDP gradient audit (§9/§21) ==="
 AUDIT_ROOT="$SCRATCH/audit"
 rm -rf "$AUDIT_ROOT"
 mkdir -p "$AUDIT_ROOT"
-if $PY -m torch.distributed.run --standalone --max-restarts=0 --nproc_per_node=4 \
+if env CUDA_VISIBLE_DEVICES="$GPUS" $PY -m torch.distributed.run \
+    --standalone --max-restarts=0 --nproc_per_node=4 \
     -m compose.experiments.smoke_ddp \
     --model_name_or_path "$BASE" \
     --vision_tower "$VISION" \
@@ -232,8 +239,8 @@ SCALE_COMMON=(
   --cache_dir /tmp/compose_hf_cache --report_to none --seed 42
 )
 if CUDA_VISIBLE_DEVICES=$SINGLE_GPU SMOKE_DDP_STEPS=$SCALE_STEPS \
-    $PY -m torch.distributed.run --standalone --max-restarts=0 --nproc_per_node=1 \
-    -m compose.experiments.smoke_ddp \
+    RANK=0 LOCAL_RANK=0 WORLD_SIZE=1 MASTER_ADDR=127.0.0.1 MASTER_PORT=29599 \
+    $PY -m compose.experiments.smoke_ddp \
     --output_dir "$SCRATCH/scale_single" \
     "${SCALE_COMMON[@]}" \
     > "$SCRATCH/scale_single.log" 2>&1; then
@@ -241,7 +248,7 @@ if CUDA_VISIBLE_DEVICES=$SINGLE_GPU SMOKE_DDP_STEPS=$SCALE_STEPS \
 else
   fail_hard "single-GPU scaling run failed: $(tail -20 "$SCRATCH/scale_single.log")"
 fi
-if SMOKE_DDP_STEPS=$SCALE_STEPS \
+if CUDA_VISIBLE_DEVICES="$GPUS" SMOKE_DDP_STEPS=$SCALE_STEPS \
     $PY -m torch.distributed.run --standalone --max-restarts=0 --nproc_per_node=4 \
     -m compose.experiments.smoke_ddp \
     --output_dir "$SCRATCH/scale_four" \

@@ -165,6 +165,10 @@ def main() -> None:
     # We bypass accelerate (no HF Trainer here), so move the whole model
     # (base + vision tower + projector) to this rank's device explicitly;
     # under torchrun, TrainingArguments.device is cuda:0 on every rank.
+    # model.train() is required: activation checkpointing only engages
+    # when self.training (the HF Trainer path calls it; without it the
+    # full graph is retained and a 7B bf16 model OOMs at backward).
+    model.train()
     model = model.to("cuda:{}".format(local_rank))
 
     # §21: init identity across ranks (before training, after DDP wrap so
@@ -199,6 +203,17 @@ def main() -> None:
     wall_start = torch.cuda.Event(enable_timing=True)
     wall_end = torch.cuda.Event(enable_timing=True)
     wall_start.record()
+    module = model.module if hasattr(model, "module") else model
+    print(
+        "rank{}: training={} grad_checkpointing={} seq={} weights_gb={:.1f}".format(
+            local_rank,
+            module.training,
+            module.model.gradient_checkpointing,
+            loader.dataset.records[0].get("conversations", [{}])[0].get("value", "")[:20],
+            sum(parameter.numel() for parameter in module.parameters()) * 2 / 1e9,
+        ),
+        flush=True,
+    )
     for batch in loader:
         device_batch = {
             key: value.to("cuda:{}".format(local_rank)) if torch.is_tensor(value) else value
@@ -215,7 +230,26 @@ def main() -> None:
         with use_selection(selection):
             outputs = model(**device_batch)
             loss = outputs.loss
+            if steps_run == 0:
+                print(
+                    "rank{}: input_len={} labels_len={} after_forward_mb={:.0f}".format(
+                        local_rank,
+                        int(device_batch["input_ids"].numel()),
+                        int(device_batch["labels"].numel()),
+                        torch.cuda.memory_allocated() / 1e6,
+                    ),
+                    flush=True,
+                )
             loss.backward()
+            if steps_run == 0:
+                print(
+                    "rank{}: after_backward_mb={:.0f} peak_mb={:.0f}".format(
+                        local_rank,
+                        torch.cuda.memory_allocated() / 1e6,
+                        torch.cuda.max_memory_allocated() / 1e6,
+                    ),
+                    flush=True,
+                )
         _audit_gradients(model, manager, cluster_expert_ids, local_rank, problems)
         optimizer.step()
         optimizer.zero_grad()
