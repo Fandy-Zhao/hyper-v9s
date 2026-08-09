@@ -453,21 +453,25 @@ def _run_sharded_nll(
 
 
 def _merge_feature_shards(
-    root: Path, tag: str, records: Sequence[Dict[str, Any]], plan: Dict[str, Any]
+    output_path: Path,
+    records: Sequence[Dict[str, Any]],
+    plan: Dict[str, Any],
 ) -> Path:
     """Merge per-shard feature payloads into the canonical features file
     (spec §15) and verify the union equals the expected sample ids exactly.
+
+    ``output_path`` is the canonical target the workers were launched with
+    (their ``--output``), so partials are partial_path(output_path, rank),
+    i.e. train_features.json.rank{index} — the same convention
+    ``_run_sharded_nll`` relies on; the caller's log tag never enters the
+    file naming.
 
     Per-sample features are deterministic (frozen CLIP), so the merged
     payload is identical to the single-GPU payload up to the recomputed
     provenance hashes; the query_encoder provenance comes from shard 0.
     """
-    # Workers write partial_path(args.output, shard_index), i.e.
-    # train_features.json.rank{index} under root/features/.
     partials = [
-        root
-        / "features"
-        / "{}_features.json.rank{}".format(tag, index)
+        Path(partial_path(str(output_path), index))
         for index in range(plan["world_size"])
     ]
     payloads = [json.loads(path.read_text(encoding="utf-8")) for path in partials]
@@ -502,9 +506,8 @@ def _merge_feature_shards(
         ),
         "records": records_out,
     }
-    target = root / "features" / "{}_features.json".format(tag)
-    _write_json(str(target), payload)
-    return target
+    _write_json(str(output_path), payload)
+    return output_path
 
 
 def _run_sharded_features(
@@ -525,7 +528,8 @@ def _run_sharded_features(
         root,
         tag,
     )
-    _merge_feature_shards(root, tag, records, plan)
+    output_path = Path(base_command[base_command.index("--output") + 1])
+    _merge_feature_shards(output_path, records, plan)
 
 
 def _write_distributed_training_contract(

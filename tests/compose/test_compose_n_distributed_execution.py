@@ -298,7 +298,9 @@ class TorchrunLaunchConstructionTest(unittest.TestCase):
                     json.dumps(payload)
                 )
             records = [{"id": "sample{}".format(index)} for index in range(4)]
-            target = _merge_feature_shards(root, "train", records, plan)
+            target = _merge_feature_shards(
+                root / "features" / "train_features.json", records, plan
+            )
             merged = json.loads(target.read_text(encoding="utf-8"))
             self.assertEqual(sorted(merged["records"]), ["sample0", "sample1", "sample2", "sample3"])
             self.assertTrue((root / "features" / "train_features.json").is_file())
