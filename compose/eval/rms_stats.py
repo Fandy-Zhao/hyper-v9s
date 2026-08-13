@@ -47,6 +47,7 @@ from compose.lora.rms import (
     rms_report,
     save_calibration,
     validate_rms_freshness,
+    merge_commit_frozen_calibration,
 )
 
 CALIBRATION_SPLIT = "validation"
@@ -205,6 +206,8 @@ def main() -> None:
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--frozen-calibration", default=None)
+    parser.add_argument("--new-expert-ids", default="")
     args = parser.parse_args()
 
     records = json.loads(Path(args.question_file).read_text(encoding="utf-8"))
@@ -272,7 +275,21 @@ def main() -> None:
                 args.checkpoint_hash
             )
         )
-    calibration = build_kappa_calibration(stats, expert_ids, config)
+    dynamic_calibration = build_kappa_calibration(stats, expert_ids, config)
+    frozen_payload = None
+    new_expert_ids = [
+        int(value) for value in args.new_expert_ids.split(",") if value.strip()
+    ]
+    if args.frozen_calibration:
+        frozen_payload = json.loads(
+            Path(args.frozen_calibration).read_text(encoding="utf-8")
+        )
+        frozen_map = frozen_payload.get("calibration", frozen_payload)
+        calibration = merge_commit_frozen_calibration(
+            frozen_map, dynamic_calibration, new_expert_ids
+        )
+    else:
+        calibration = dynamic_calibration
     # Pair cross-term diagnostics cover rank 0's shard only (they feed the
     # diagnostic rms_report.json, never the calibration); the moments
     # themselves were all-reduced across all ranks.
@@ -316,6 +333,10 @@ def main() -> None:
         "checkpoint_hash": args.checkpoint_hash,
         "manifest_patched": True,
         "layers_with_kappa": len(calibration),
+        "rms_mode": "commit_frozen",
+        "new_expert_ids": new_expert_ids or expert_ids,
+        "historical_expert_ids": sorted(set(expert_ids) - set(new_expert_ids)),
+        "frozen_calibration_source": args.frozen_calibration,
         "output_dir": str(output),
         "execution": {
             "mode": (

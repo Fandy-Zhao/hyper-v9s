@@ -74,6 +74,7 @@ clustering:
   random_seed: 42
   max_iterations: 100
   silhouette_sample_size: 2000
+  n_init: 20
 
 key_learning:
   learning_rate: 3.0e-4

@@ -194,7 +194,17 @@ def compute_expert_rms(
         for hook in hooks:
             hook.remove()
     if torch.distributed.is_available() and torch.distributed.is_initialized():
-        stats.all_reduce_(torch.device(device))
+        # The hook path materializes every expert delta.  Large expert pools
+        # can leave most of the device in PyTorch's caching allocator even
+        # after the final forward has released its live tensors.  NCCL still
+        # needs a small device buffer for the exact fp64 scalar reductions;
+        # release only unused cached blocks before allocating that buffer.
+        # This does not alter samples, moments, reduction order, or kappa.
+        target = torch.device(device)
+        if target.type == "cuda":
+            torch.cuda.synchronize(target)
+            torch.cuda.empty_cache()
+        stats.all_reduce_(target)
     return stats, pair_moments
 
 
@@ -243,6 +253,31 @@ def build_kappa_calibration(
             layer_map[str(expert_id)] = float(kappa)
         calibration[layer] = layer_map
     return calibration
+
+
+def merge_commit_frozen_calibration(
+    frozen: Mapping[str, Mapping[str, float]],
+    current: Mapping[str, Mapping[str, float]],
+    new_expert_ids: Sequence[int],
+) -> Dict[str, Dict[str, float]]:
+    """Preserve every committed kappa and add values only for new experts.
+
+    ``current`` may have been measured over the expanded pool, but historical
+    entries are deliberately ignored. This makes an expert's effective LoRA
+    scale immutable after its commit boundary.
+    """
+    new_ids = {str(int(value)) for value in new_expert_ids}
+    merged = {
+        str(layer): {str(expert_id): float(value) for expert_id, value in values.items()}
+        for layer, values in frozen.items()
+    }
+    for layer, values in current.items():
+        target = merged.setdefault(str(layer), {})
+        for expert_id, value in values.items():
+            if str(expert_id) in new_ids:
+                target[str(expert_id)] = float(value)
+    return {layer: dict(sorted(values.items(), key=lambda item: int(item[0])))
+            for layer, values in sorted(merged.items())}
 
 
 def apply_kappa_calibration(model, calibration: Mapping[str, Mapping[str, float]]) -> None:

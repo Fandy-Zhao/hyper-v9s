@@ -70,6 +70,7 @@ from compose.expansion.expert_formation import (
 )
 from compose.expansion.query_clustering import (
     ComposeClusteringConfig,
+    build_single_bootstrap_cluster,
     cluster_residual_queries,
     load_cluster_manifest,
     write_cluster_manifest,
@@ -176,6 +177,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "random_seed": 42,
         "max_iterations": 100,
         "silhouette_sample_size": 2000,
+        "n_init": 20,
     },
     "key_learning": {
         "learning_rate": 3.0e-4,
@@ -1381,17 +1383,32 @@ def run_task(
             sample_ids = [record["sample_id"] for record in residual]
             queries = _build_features_matrix(features, sample_ids)
             cluster_config = ComposeClusteringConfig(**config["clustering"])
-            result = cluster_residual_queries(
-                queries,
-                sample_ids,
-                cluster_config,
-                task_id=task_id,
-                query_hash=features.get("query_hash", ""),
-            )
+            if task_id == 0 and not registry.get_active_experts():
+                result = build_single_bootstrap_cluster(
+                    queries,
+                    sample_ids,
+                    task_id=task_id,
+                    query_hash=features.get("query_hash", ""),
+                    seed=cluster_config.random_seed,
+                    n_init=cluster_config.n_init,
+                )
+                clustering_mode = "single_bootstrap_no_clustering"
+            else:
+                result = cluster_residual_queries(
+                    queries,
+                    sample_ids,
+                    cluster_config,
+                    task_id=task_id,
+                    query_hash=features.get("query_hash", ""),
+                )
+                clustering_mode = "standard_cosine_silhouette_multi_init"
             write_cluster_manifest(
                 result,
                 str(root / "cluster" / "clusters.json"),
-                extra={"query_hash": features.get("query_hash", "")},
+                extra={
+                    "query_hash": features.get("query_hash", ""),
+                    "clustering_mode": clustering_mode,
+                },
             )
             formed, noise_ids = form_cluster_experts(
                 result,
@@ -1429,6 +1446,28 @@ def run_task(
                     "cluster_sizes": [
                         cluster.size for cluster in result.clusters
                     ],
+                    "residual_count": len(residual),
+                    "n_init": result.n_init,
+                    "random_seed": result.seed,
+                    "effective_cluster_count": result.effective_cluster_count,
+                    "clustering_mode": clustering_mode,
+                },
+            )
+            clustering_dir = root / "clustering"
+            clustering_dir.mkdir(parents=True, exist_ok=True)
+            _write_json(
+                str(clustering_dir / "clustering_diagnostics.json"),
+                {
+                    "residual_count": len(residual),
+                    "S2": result.silhouette_by_k.get(2),
+                    "S3": result.silhouette_by_k.get(3),
+                    "S4": result.silhouette_by_k.get(4),
+                    "selected_K": result.selected_k,
+                    "cluster_sizes": [cluster.size for cluster in result.clusters],
+                    "n_init": result.n_init,
+                    "random_seed": result.seed,
+                    "effective_cluster_count": result.effective_cluster_count,
+                    "clustering_mode": clustering_mode,
                 },
             )
         _mark_stage(root, "s5_clustering")
@@ -1484,6 +1523,44 @@ def run_task(
         )
         lora_dir = root / "lora" / "cluster_training"
         lora_dir.mkdir(parents=True, exist_ok=True)
+        rank = int(config["lora"]["rank"])
+        alpha = float(config["lora"]["alpha"])
+        world_size = int(plan["world_size"])
+        grad_accum = int(config["training"]["gradient_accumulation_steps"])
+        if plan["mode"] == "4gpu":
+            grad_accum //= world_size
+        global_batch = (
+            int(config["training"]["per_device_train_batch_size"])
+            * grad_accum
+            * world_size
+        )
+        optimizer_steps = (
+            int(math.ceil(len(training_manifest) / global_batch))
+            * int(config["training"]["num_train_epochs"])
+        )
+        # The formal path keeps a fixed 131,072,000 shared parameters
+        # trainable and adds 2,498,560 LoRA parameters per expert/rank unit.
+        # The training entry prints the realized count after initialization;
+        # the study summarizer verifies it equals this preflight prediction.
+        expert_trainable_params = len(cluster_expert_ids) * rank * 2_498_560
+        total_trainable_params = 131_072_000 + expert_trainable_params
+        dataset_size = len(json.loads((root / "data" / "teacher_train.json").read_text()))
+        contract = [
+            "RUN_NAME={}".format(root.parent.name),
+            "TASK={}:{}".format(task_id, task_name),
+            "RANK={}".format(rank),
+            "NUM_EXPERTS={}".format(len(cluster_expert_ids)),
+            "TOTAL_TRAINABLE_PARAMS={}".format(total_trainable_params),
+            "DATASET_SIZE={}".format(dataset_size),
+            "RESIDUAL_SIZE={}".format(len(training_manifest)),
+            "CLUSTER_SIZES={}".format([expert.size for expert in formed]),
+            "GLOBAL_BATCH={}".format(global_batch),
+            "OPTIMIZER_STEPS={}".format(optimizer_steps),
+            "ALPHA={}".format(alpha),
+            "ALPHA/RANK={}".format(alpha / rank),
+            "OUTPUT_DIR={}".format(lora_dir),
+        ]
+        print("\n".join(contract), flush=True)
         _advance(
             root, machine, TaskStage.CLUSTER_EXPERTS_TRAINING,
             note="cluster LoRA training started",
@@ -1499,6 +1576,8 @@ def run_task(
             "--compose-mode", "cluster_expert",
             "--compose-selection-manifest", str(root / "cluster" / "selection_manifest.json"),
             "--compose-cluster-expert-ids", ",".join(str(value) for value in cluster_expert_ids),
+            "--compose_rank", str(rank),
+            "--compose_alpha", str(alpha),
             "--output_dir", str(lora_dir),
             "--bf16", "True",
             "--tf32", "True",
@@ -1587,6 +1666,8 @@ def run_task(
                 "--expert-state-dict", str(root / "lora" / "cluster_training" / "expert_{:04d}.pt".format(expert_id)),
                 "--expert-id", str(expert_id),
                 "--output-dir", str(output_dir),
+                "--rank", str(int(config["lora"]["rank"])),
+                "--alpha", str(float(config["lora"]["alpha"])),
             ]
             if pool_dir is not None:
                 assemble_command += ["--old-expert-checkpoint", str(pool_dir)]
@@ -1795,7 +1876,24 @@ def run_task(
                 "--composition-config-hash", config_hash,
                 "--output-dir", str(rms_output),
                 "--device", "cuda:0",
+                # RMS recomputes every visible expert delta inside hooks.
+                # Keep the exact sample set and fp64 moment reduction while
+                # bounding activation memory for high-rank expert pools.
+                "--batch-size", str(config.get("rms", {}).get("batch_size", 1)),
+                "--new-expert-ids", ",".join(str(value) for value in cluster_expert_ids),
             ]
+            if task_id > 0:
+                previous_calibration = (
+                    prev_root / "snapshots" / "task{}".format(task_id - 1)
+                    / "rms_calibration.json"
+                )
+                if not previous_calibration.is_file():
+                    raise FileNotFoundError(
+                        "commit-frozen RMS requires previous calibration: {}".format(
+                            previous_calibration
+                        )
+                    )
+                rms_command += ["--frozen-calibration", str(previous_calibration)]
             if plan["mode"] == "4gpu":
                 # Spec §17: torchrun — each rank computes its sample shard,
                 # the per-layer moments are all-reduced by exact fp64 sums,
@@ -1817,6 +1915,31 @@ def run_task(
             )
         _advance(root, machine, TaskStage.RMS_READY, note="RMS done")
         _mark_stage(root, "s9_rms")
+
+    if cluster_expert_ids and not _stage_done(root, "s9_rms_frozen_binding"):
+        calibration_path = root / "rms" / "rms_calibration.json"
+        statistics_path = root / "rms" / "rms_statistics.json"
+        if not calibration_path.is_file() or not statistics_path.is_file():
+            raise FileNotFoundError("RMS artifacts missing after S9")
+        calibration_sha256 = _sha256_file(str(calibration_path))
+        for expert_id in cluster_expert_ids:
+            metadata = registry.get(expert_id)
+            metadata.rms_stats_path = str(statistics_path)
+            metadata.extra["rms_mode"] = "commit_frozen"
+            metadata.extra["rms_calibration_path"] = str(calibration_path)
+            metadata.extra["rms_calibration_sha256"] = calibration_sha256
+        registry.save_json(str(root / "state" / "expert_registry.json"))
+        _write_json(
+            str(root / "rms" / "frozen_binding.json"),
+            {
+                "mode": "commit_frozen",
+                "expert_ids": cluster_expert_ids,
+                "rms_statistics_path": str(statistics_path),
+                "rms_calibration_path": str(calibration_path),
+                "rms_calibration_sha256": calibration_sha256,
+            },
+        )
+        _mark_stage(root, "s9_rms_frozen_binding")
 
     # ---- S10: task-boundary snapshot --------------------------------------
     if not _stage_done(root, "s10_snapshot"):

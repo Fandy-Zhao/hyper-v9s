@@ -5,8 +5,10 @@ Distance is ``1 - cosine(q_i, q_j)``.
 
 Procedure:
 
-1. For K = 1 .. K_max run spherical K-Means (K-means++ init, fixed seed).
-2. For K >= 2 compute the cosine silhouette; for K = 1 silhouette is
+1. For K = 1 .. K_max run spherical K-Means with multiple deterministic
+   K-means++ initializations and retain the lowest cosine-inertia solution.
+2. For K >= 2 compute the standard cosine silhouette (mean intra-cluster
+   distance versus the minimum mean distance to another cluster); for K = 1 silhouette is
    treated as optimal (a single cluster always fits).
 3. ``K_star = argmax_K silhouette(K)``; if ``best_silhouette`` falls below
    ``silhouette_threshold`` the assignment degrades to K = 1.
@@ -44,6 +46,7 @@ class ComposeClusteringConfig:
     random_seed: int = 42
     max_iterations: int = 100
     silhouette_sample_size: int = 2000
+    n_init: int = 20
 
     def __post_init__(self) -> None:
         if self.algorithm != "spherical_kmeans":
@@ -60,6 +63,8 @@ class ComposeClusteringConfig:
             raise ValueError("max_iterations must be positive")
         if self.silhouette_sample_size < 0:
             raise ValueError("silhouette_sample_size must be non-negative")
+        if self.n_init < 1:
+            raise ValueError("n_init must be positive")
 
     def to_dict(self) -> Dict[str, object]:
         return asdict(self)
@@ -93,6 +98,8 @@ class ClusterResult:
     noise_sample_ids: List[str]
     seed: int
     query_hash: str
+    n_init: int = 20
+    effective_cluster_count: int = 0
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -106,6 +113,8 @@ class ClusterResult:
             "noise_sample_ids": list(self.noise_sample_ids),
             "seed": self.seed,
             "query_hash": self.query_hash,
+            "n_init": self.n_init,
+            "effective_cluster_count": self.effective_cluster_count,
         }
 
 
@@ -166,16 +175,18 @@ def spherical_kmeans(
                 # Re-seed an empty center from the least-represented query.
                 counts = torch.bincount(new_assignments, minlength=k).float()
                 least = int(counts.argmin().item())
-                fallback = queries[torch.randint(queries.shape[0], (1,))[0]]
+                fallback_index = int(torch.randint(queries.shape[0], (1,), generator=generator).item())
+                fallback = queries[fallback_index]
                 new_centers.append(F.normalize(fallback, dim=0))
                 new_assignments = new_assignments.clone()
-                new_assignments[torch.randint(queries.shape[0], (1,))[0]] = least
+                new_assignments[fallback_index] = least
                 continue
             new_centers.append(F.normalize(members.float().mean(dim=0), dim=0))
         centers = torch.stack(new_centers)
-        if bool(torch.all(new_assignments == assignments)):
-            break
+        converged = bool(torch.all(new_assignments == assignments))
         assignments = new_assignments
+        if converged:
+            break
     return assignments, centers
 
 
@@ -205,32 +216,55 @@ def cosine_silhouette(
         assignments = assignments[indices]
     if queries.shape[0] < 2:
         return None
-    similarities = queries @ queries.T  # [N, N] cosine
-    similarities.fill_diagonal_(-2.0)  # exclude self (cosine lies in [-1, 1])
-    sil = []
-    for cluster in range(k):
-        members = assignments == cluster
-        others = ~members
-        if int(members.sum()) < 2 or int(others.sum()) == 0:
+    distances = (1.0 - queries @ queries.T).clamp_(0.0, 2.0)
+    values = []
+    for index in range(queries.shape[0]):
+        own = int(assignments[index])
+        own_mask = assignments == own
+        own_mask[index] = False
+        if int(own_mask.sum()) == 0:
+            values.append(0.0)
             continue
-        intra = similarities[members][:, members].max(dim=1).values
-        inter = similarities[members][:, others].max(dim=1).values
-        # Distances are 1 - cosine. float32 cosine products can slightly
-        # exceed 1.0 (identical/near-identical vectors), which would make
-        # ``a``/``b`` negative and the silhouette ratio numerically
-        # unstable (division by a ~1e-12 denominator). Clamp the distances
-        # to [0, 2] and score a vanishing intra+inter distance as
-        # silhouette 0 (no separation) instead of dividing by noise.
-        a = (1.0 - intra).clamp_min(0.0)
-        b = (1.0 - inter).clamp_min(0.0)
-        denom = torch.maximum(a, b)
-        per_point = torch.zeros_like(a)
-        separable = denom >= 1e-6
-        per_point[separable] = ((b - a) / denom)[separable]
-        sil.append(per_point.mean().item())
-    if not sil:
+        a = distances[index, own_mask].mean()
+        other_means = []
+        for cluster in range(k):
+            if cluster == own:
+                continue
+            mask = assignments == cluster
+            if int(mask.sum()) > 0:
+                other_means.append(distances[index, mask].mean())
+        if not other_means:
+            values.append(0.0)
+            continue
+        b = torch.stack(other_means).min()
+        denominator = torch.maximum(a, b)
+        values.append(float((b - a) / denominator) if float(denominator) >= 1e-12 else 0.0)
+    if not values:
         return None
-    return float(sum(sil) / len(sil))
+    return float(sum(values) / len(values))
+
+
+def _cosine_inertia(queries: Tensor, assignments: Tensor, centers: Tensor) -> float:
+    selected = centers[assignments]
+    return float((1.0 - (queries * selected).sum(dim=1)).clamp_min(0.0).sum())
+
+
+def spherical_kmeans_multi_init(
+    queries: Tensor, k: int, max_iterations: int, seed: int, n_init: int
+) -> Tuple[Tensor, Tensor]:
+    best = None
+    for init_index in range(int(n_init)):
+        init_seed = int(seed) + init_index * 104729
+        assignments, centers = spherical_kmeans(
+            queries, k, max_iterations=max_iterations, seed=init_seed
+        )
+        inertia = _cosine_inertia(queries, assignments, centers)
+        signature = tuple(int(value) for value in assignments.tolist())
+        candidate = (inertia, signature, assignments, centers)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+    assert best is not None
+    return best[2], best[3]
 
 
 def cluster_residual_queries(
@@ -257,11 +291,12 @@ def cluster_residual_queries(
     assignments_by_k = {}
     silhouette_by_k = {}
     for k in range(1, k_max + 1):
-        assignments, _ = spherical_kmeans(
+        assignments, _ = spherical_kmeans_multi_init(
             queries,
             k,
             max_iterations=config.max_iterations,
             seed=config.random_seed,
+            n_init=config.n_init,
         )
         assignments_by_k[k] = assignments
         silhouette_by_k[k] = cosine_silhouette(
@@ -322,6 +357,45 @@ def cluster_residual_queries(
         noise_sample_ids=sorted(set(noise_ids)),
         seed=int(config.random_seed),
         query_hash=str(query_hash),
+        n_init=int(config.n_init),
+        effective_cluster_count=len(clusters),
+    )
+
+
+def build_single_bootstrap_cluster(
+    queries: Tensor,
+    sample_ids: Sequence[str],
+    task_id: int = 0,
+    query_hash: str = "",
+    seed: int = 42,
+    n_init: int = 20,
+) -> ClusterResult:
+    """Create the Task0 bootstrap cluster without residual model selection."""
+    queries = queries.detach().float()
+    if task_id != 0:
+        raise ValueError("single bootstrap is restricted to task 0")
+    if queries.ndim != 2 or queries.shape != (len(sample_ids), 128):
+        raise ValueError("queries and sample_ids must align as [N, 128]")
+    if not sample_ids:
+        raise ValueError("bootstrap requires at least one sample")
+    centroid = F.normalize(queries.mean(dim=0), dim=0)
+    cluster = ClusterAssignment(
+        cluster_id=0,
+        sample_ids=[str(value) for value in sample_ids],
+        size=len(sample_ids),
+        centroid=centroid.detach().cpu().tolist(),
+    )
+    return ClusterResult(
+        task_id=0,
+        selected_k=1,
+        selected_silhouette=None,
+        silhouette_by_k={1: None},
+        clusters=[cluster],
+        noise_sample_ids=[],
+        seed=int(seed),
+        query_hash=str(query_hash),
+        n_init=int(n_init),
+        effective_cluster_count=1,
     )
 
 
