@@ -25,16 +25,16 @@
 set -euo pipefail
 
 PY=/home/zhaozhuofan/miniconda3/envs/hyper/bin/python
+export PATH=/home/zhaozhuofan/miniconda3/envs/hyper/bin:"$PATH"
 REPO=/home/zhaozhuofan/Hyper-LlaVA
 cd "$REPO"
 
 GPUS="4,5,6,7"
 SINGLE_GPU="4"
 CONFIG="$REPO/configs/compose_ucit_smoke_4gpu.yaml"
-SMOKE_ROOT="$REPO/experiments/runs/compose_ucit_smoke_4gpu"
+SMOKE_ROOT="$REPO/experiments/runs/compose_ucit_v62_smoke_4gpu_r5"
 SCRATCH=/tmp/compose_smoke_4gpu
 mkdir -p "$SCRATCH"
-rm -rf "$SMOKE_ROOT"   # one-shot smoke; a fresh root is part of the test
 
 BASE=/data/ckpt/zhaozhuofan/models/llava-v1.5-7b
 VISION=/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336
@@ -53,6 +53,8 @@ verdict() { # verdict <ok|fail> <label>
 }
 
 fail_hard() { echo "FATAL: $*" >&2; exit 1; }
+
+[ ! -e "$SMOKE_ROOT" ] || fail_hard "smoke root already exists: $SMOKE_ROOT"
 
 # ---------------------------------------------------------------------------
 echo "=== Phase 0: preflight (GPUs 4-7 free) ==="
@@ -117,7 +119,7 @@ fi
 echo "=== Phase 3: mini task1 pipeline, 4-GPU (§24, historical experts) ==="
 if $PY -m compose.experiments.task_run \
     --config "$CONFIG" --root "$SMOKE_ROOT" \
-    --first-task 1 --last-task 1 --gpus "$GPUS" \
+    --first-task 1 --last-task 1 --gpus "$GPUS" --resume \
     > "$SCRATCH/task1.log" 2>&1; then
   verdict ok "phase3 task1 pipeline completed"
 else
@@ -166,18 +168,23 @@ EOF
 )
 RMS_SCRATCH="$SCRATCH/rms_single"
 rm -rf "$RMS_SCRATCH"; mkdir -p "$RMS_SCRATCH"
-# --batch-size 4 replicates the 4-GPU per-rank batch shape (16 samples
-# sharded 4x4 -> one batch of 4 per rank). bf16 GEMM rounding depends on
-# the matmul shape, so §17 parity requires identical batch shapes, not
-# just identical fp64 aggregation (batch-size 8 gave kappa diffs ~1e-3;
-# batch-size 4 is bit-identical).
+# The pipeline uses RMS batch_size=1 on every rank. bf16 GEMM rounding
+# depends on the matmul shape, so the single reference must use that exact
+# per-rank batch shape before comparing the fp64 aggregate.
 if CUDA_VISIBLE_DEVICES=$SINGLE_GPU $PY -m compose.eval.rms_stats \
     --model-path "$BASE" --vision-tower "$VISION" --projector-path "$PROJECTOR" \
     --checkpoint-dir "$POOL_DIR" \
     --question-file "$SMOKE_ROOT/task1/data/teacher_val.json" \
     --image-folder "$IMAGES" \
     --checkpoint-hash "$BIN_SHA" \
-    --batch-size 4 \
+    --frozen-calibration "$SMOKE_ROOT/task0/snapshots/task0/rms_calibration.json" \
+    --new-expert-ids "$($PY - <<EOF
+import json
+p=json.load(open("$SMOKE_ROOT/task1/committed/commit_summary.json"))
+print(",".join(str(x["expert_id"]) for x in p["committed"]))
+EOF
+)" \
+    --batch-size 1 \
     --output-dir "$RMS_SCRATCH" --device cuda:0 \
     > "$SCRATCH/rms_single.log" 2>&1; then
   if $PY -m scripts.Compose.check_smoke_parity \
@@ -194,28 +201,46 @@ fi
 
 # ---------------------------------------------------------------------------
 echo "=== Phase 6: eval parity 64 samples, single vs 4-GPU (§19) ==="
-# Preserve the pipeline's own 4-GPU S11 answers first (formal_ucit_eval
-# --no-reuse-s11 overwrites eval_output/answers.jsonl).
+# Preserve the pipeline's own 4-GPU S11 answers first.
 cp "$SMOKE_ROOT/task0/eval_output/answers.jsonl" "$SCRATCH/answers_s11_4gpu.jsonl"
 EVAL_SINGLE="$SCRATCH/answers_eval_single.jsonl"
 EVAL_FOUR="$SCRATCH/answers_eval_4gpu.jsonl"
-# Same snapshot, config, seed, prompts: only the execution strategy differs.
-if $PY -m compose.eval.formal_ucit_eval \
-    --root "$SMOKE_ROOT" --stage-task 0 --config "$CONFIG" \
-    --gpus "$SINGLE_GPU" --no-reuse-s11 \
-    > "$SCRATCH/eval_single.log" 2>&1; then
-  cp "$SMOKE_ROOT/task0/eval_output/answers.jsonl" "$EVAL_SINGLE"
-else
-  fail_hard "single-GPU formal eval failed: $(tail -20 "$SCRATCH/eval_single.log")"
+# Same 64-record file, snapshot, seed and generation protocol: only the
+# execution strategy differs. Do not use formal_ucit_eval here: it is
+# intentionally fixed to the full 3000-record UCIT test files.
+POOL0="$SMOKE_ROOT/task0/committed/pool_0000"
+ROUTER0="$SMOKE_ROOT/task0/snapshots/task0/router_checkpoint.pt"
+EVAL_COMMON=(
+  -m compose.eval.eval_task --adapter-kind compose
+  --model-path "$BASE" --vision-tower "$VISION"
+  --projector-path "$PROJECTOR" --question-file "$DATA/parity64.json"
+  --image-folder "$IMAGES" --checkpoint-dir "$POOL0"
+  --router-checkpoint "$ROUTER0" --device cuda:0 --max-new-tokens 128
+)
+if CUDA_VISIBLE_DEVICES=$SINGLE_GPU $PY "${EVAL_COMMON[@]}" \
+    --answers-file "$EVAL_SINGLE" \
+    --run-summary-file "$SCRATCH/eval_single_summary.json" \
+    > "$SCRATCH/eval_single.log" 2>&1; then :; else
+  fail_hard "single-GPU 64-sample eval failed: $(tail -20 "$SCRATCH/eval_single.log")"
 fi
-if $PY -m compose.eval.formal_ucit_eval \
-    --root "$SMOKE_ROOT" --stage-task 0 --config "$CONFIG" \
-    --gpus "$GPUS" --no-reuse-s11 \
-    > "$SCRATCH/eval_four.log" 2>&1; then
-  cp "$SMOKE_ROOT/task0/eval_output/answers.jsonl" "$EVAL_FOUR"
-else
-  fail_hard "4-GPU formal eval failed: $(tail -20 "$SCRATCH/eval_four.log")"
-fi
+declare -a EVAL_PIDS=()
+for rank in 0 1 2 3; do
+  gpu=$((SINGLE_GPU + rank))
+  CUDA_VISIBLE_DEVICES=$gpu $PY "${EVAL_COMMON[@]}" \
+    --num-chunks 4 --chunk-idx "$rank" \
+    --answers-file "$SCRATCH/eval_four_rank${rank}.jsonl" \
+    --run-summary-file "$SCRATCH/eval_four_summary_rank${rank}.json" \
+    > "$SCRATCH/eval_four_rank${rank}.log" 2>&1 &
+  EVAL_PIDS+=("$!")
+done
+for rank in 0 1 2 3; do
+  if ! wait "${EVAL_PIDS[$rank]}"; then
+    fail_hard "4-GPU 64-sample eval rank $rank failed: $(tail -20 "$SCRATCH/eval_four_rank${rank}.log")"
+  fi
+done
+: > "$EVAL_FOUR"
+for rank in 0 1 2 3; do cat "$SCRATCH/eval_four_rank${rank}.jsonl" >> "$EVAL_FOUR"; done
+[ "$(wc -l < "$EVAL_FOUR")" -eq 64 ] || fail_hard "4-GPU eval merge did not produce 64 rows"
 if $PY -m scripts.Compose.check_smoke_parity \
     --answers-a "$EVAL_SINGLE" --answers-b "$EVAL_FOUR" \
     > "$SCRATCH/parity_eval.log" 2>&1; then
@@ -255,7 +280,7 @@ if CUDA_VISIBLE_DEVICES=$SINGLE_GPU SMOKE_DDP_STEPS=$SCALE_STEPS_SINGLE \
     --output_dir "$SCRATCH/scale_single" \
     "${SCALE_COMMON[@]}" \
     > "$SCRATCH/scale_single.log" 2>&1; then
-  grep '"rank": 0' "$SCRATCH/scale_single.log" > "$SCRATCH/scaling_single.json" || true
+  :
 else
   fail_hard "single-GPU scaling run failed: $(tail -20 "$SCRATCH/scale_single.log")"
 fi
@@ -265,10 +290,38 @@ if CUDA_VISIBLE_DEVICES="$GPUS" SMOKE_DDP_STEPS=$SCALE_STEPS_FOUR \
     --output_dir "$SCRATCH/scale_four" \
     "${SCALE_COMMON[@]}" \
     > "$SCRATCH/scale_four.log" 2>&1; then
-  grep '"rank": 0' "$SCRATCH/scale_four.log" > "$SCRATCH/scaling_four_rank0.json" || true
+  :
 else
   fail_hard "4-GPU scaling run failed: $(tail -20 "$SCRATCH/scale_four.log")"
 fi
+# smoke_ddp prints pretty, multi-line JSON after ordinary diagnostic lines;
+# extract the complete final rank-0 object instead of grepping one field.
+$PY - "$SCRATCH/scale_single.log" "$SCRATCH/scaling_single.json" \
+    "$SCRATCH/scale_four.log" "$SCRATCH/scaling_four_rank0.json" <<'EOF'
+import json, sys
+
+def extract(source, target):
+    text = open(source, encoding="utf-8", errors="replace").read()
+    decoder = json.JSONDecoder()
+    matches = []
+    for offset, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text[offset:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("rank") == 0 and "samples_per_second" in value:
+            matches.append(value)
+    if not matches:
+        raise ValueError("no final rank-0 scaling record in {}".format(source))
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(matches[-1], handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+extract(sys.argv[1], sys.argv[2])
+extract(sys.argv[3], sys.argv[4])
+EOF
 $PY - "$SCRATCH/scaling_single.json" "$SCRATCH/scaling_four_rank0.json" \
     "$SMOKE_ROOT/scaling_report.json" <<'EOF'
 import json, sys
@@ -339,8 +392,8 @@ reg0 = load("task0/state/expert_registry.json")
 reg1 = load("task1/state/expert_registry.json")
 n0 = len(reg0.get("experts", {}))
 n1 = len(reg1.get("experts", {}))
-if n0 < 1:
-    problems.append("task0: no experts committed")
+if n0 != 1:
+    problems.append("task0: expected exactly one bootstrap expert, got {}".format(n0))
 if n1 <= n0:
     problems.append("task1: expert count {} not > task0 {}".format(n1, n0))
 # pool_version starts at POOL_VERSION_INITIAL=1 (empty pool) and bumps
@@ -353,6 +406,18 @@ if reg1.get("pool_version") != 1 + n1:
 summary = load("task1/rms/rms_summary.json")
 if summary.get("execution", {}).get("mode") != "4gpu_torchrun":
     problems.append("rms: execution.mode != 4gpu_torchrun")
+if summary.get("rms_mode") != "commit_frozen":
+    problems.append("rms: rms_mode != commit_frozen")
+cluster0 = load("task0/clustering/clustering_diagnostics.json")
+cluster1 = load("task1/clustering/clustering_diagnostics.json")
+if cluster0.get("clustering_mode") != "single_bootstrap_no_clustering" or cluster0.get("selected_K") != 1:
+    problems.append("task0: single bootstrap diagnostics invalid")
+if cluster1.get("n_init") != 20:
+    problems.append("task1: n_init != 20")
+contribution = load("task1/contribution/summary.json")
+for field in ("empty_rate", "single_rate", "pair_rate", "SetExactAcc", "average_active_experts"):
+    if field not in contribution:
+        problems.append("task1 contribution summary missing {}".format(field))
 # S11 answers merged with zero missing/duplicates.
 summary = load("task0/eval_output/run_summary.json")
 merge = summary.get("execution", {}).get("merge_verified", {})

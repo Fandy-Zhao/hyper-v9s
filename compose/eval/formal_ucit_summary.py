@@ -173,6 +173,7 @@ def collect_expert_diagnostics(root: Path, num_tasks: int = 6) -> Dict[str, Any]
         rms_summary = _load_json(task_root / "rms" / "rms_summary.json") or {}
         keys = _load_json(task_root / "keys" / "key_learning_results.json") or {}
         recall = _load_json(task_root / "teacher" / "recall_audit.json") or {}
+        contribution = _load_json(task_root / "contribution" / "summary.json") or {}
 
         teacher_train = _load_json(task_root / "teacher" / "teacher_records_train.json") or []
         committed_ids = [int(item["expert_id"]) for item in commits.get("committed", [])]
@@ -223,6 +224,12 @@ def collect_expert_diagnostics(root: Path, num_tasks: int = 6) -> Dict[str, Any]
             "teacher_single": teacher.get("train_teacher_single_count"),
             "teacher_pair": teacher.get("train_teacher_pair_count"),
             "eval_histogram": run_summary.get("router_selection_histogram"),
+            "EmptyAcc": contribution.get("EmptyAcc"),
+            "SingleRecall": contribution.get("SingleRecall"),
+            "PairRecall": contribution.get("PairRecall"),
+            "SetExactAcc": contribution.get("SetExactAcc"),
+            "average_active_experts": contribution.get("average_active_experts"),
+            "historical_route_decision_drift": contribution.get("historical_route_decision_drift"),
         })
         cluster_rows.append({
             "task": t,
@@ -346,7 +353,7 @@ def main() -> None:
 
     diagnostics = collect_expert_diagnostics(root)
     _write_csv_rows(root, "expert_growth.csv", diagnostics["expert_growth"])
-    _write_csv_rows(root, "expert_reuse_matrix.csv", diagnostics["expert_reuse"])
+    _write_csv_rows(root, "cross_task_contribution.csv", diagnostics["expert_reuse"])
     collapse = _routing_collapse_audit(root, diagnostics["routing"])
     payload = {
         "schema_version": 1,
@@ -363,6 +370,11 @@ def main() -> None:
     with open(root / "evaluation" / "compose_method_diagnostics.json", "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
         handle.write("\n")
+    with open(root / "evaluation" / "routing_diagnostics.json", "w", encoding="utf-8") as handle:
+        json.dump({"routing": diagnostics["routing"], "collapse_audit": collapse}, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    wrapper_path = root / "evaluation" / "continual_metrics_wrapper.json"
+    wrapper_path.write_text(json.dumps({"metrics": wrapper, "self_consistency": checks}, indent=2, sort_keys=True) + "\n")
 
     print(json.dumps({
         "metrics_original": original["metrics"],

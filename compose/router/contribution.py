@@ -118,6 +118,14 @@ def train_contribution_set_router(
         predicted = predict_sets(output, 0.65)
     exact = sum(tuple(sorted(map(int, target))) == tuple(sorted(prediction))
                 for target, prediction in zip(targets, predicted))
+    empty_indices = [index for index, target in enumerate(targets) if len(target) == 0]
+    single_indices = [index for index, target in enumerate(targets) if len(target) == 1]
+    pair_indices = [index for index, target in enumerate(targets) if len(target) == 2]
+    def recall(indices):
+        return sum(
+            set(map(int, targets[index])).issubset(set(predicted[index]))
+            for index in indices
+        ) / max(1, len(indices))
     histogram = {size: sum(len(value) == size for value in predicted) for size in range(3)}
     anchor_drift = 0.0
     if previous_anchor_predictions:
@@ -130,6 +138,9 @@ def train_contribution_set_router(
         "final_loss": float(final[0]),
         "loss_parts": {name: float(value) for name, value in final[1].items()},
         "SetExactAcc": exact / max(1, len(targets)),
+        "EmptyAcc": sum(len(predicted[index]) == 0 for index in empty_indices) / max(1, len(empty_indices)),
+        "SingleRecall": recall(single_indices),
+        "PairRecall": recall(pair_indices),
         "empty_rate": histogram[0] / max(1, len(targets)),
         "single_rate": histogram[1] / max(1, len(targets)),
         "pair_rate": histogram[2] / max(1, len(targets)),

@@ -1132,7 +1132,24 @@ def run_task(
                     "--device", "cuda:0",
                 ]
                 if plan["mode"] == "4gpu":
-                    _run_sharded_nll(nll_r2_command, subset, root, "s2_{}_r2".format(tag), plan)
+                    # Pair search is legitimately sparse: with fewer than two
+                    # retrieved experts (notably Task1's one-expert history),
+                    # there are no pair candidates for that sample.  Workers
+                    # still shard the full question file, but only samples
+                    # present in the shared pair-selection map emit results;
+                    # validate the merge against exactly that sparse domain.
+                    pair_subset = [
+                        record
+                        for record in subset
+                        if _record_id(record) in pair_selections
+                    ]
+                    _run_sharded_nll(
+                        nll_r2_command,
+                        pair_subset,
+                        root,
+                        "s2_{}_r2".format(tag),
+                        plan,
+                    )
                 else:
                     _run(nll_r2_command, env, root, "s2_{}_r2".format(tag))
 
@@ -2072,7 +2089,15 @@ def run_task(
             metadata.extra["rms_mode"] = "commit_frozen"
             metadata.extra["rms_calibration_path"] = str(calibration_path)
             metadata.extra["rms_calibration_sha256"] = calibration_sha256
-        registry.save_json(str(root / "state" / "expert_registry.json"))
+        # S8 already published this task's registry atomically.  S9 only
+        # attaches immutable RMS provenance to those same expert records, so
+        # this is the one intentional post-commit replacement of the task
+        # checkpoint.  Keeping the default write-once guard everywhere else
+        # still catches accidental or cross-task overwrites.
+        registry.save_atomic(
+            str(root / "state" / "expert_registry.json"),
+            allow_overwrite=True,
+        )
         _write_json(
             str(root / "rms" / "frozen_binding.json"),
             {
@@ -2399,11 +2424,42 @@ def main() -> None:
     parser.add_argument("--first-task", type=int, default=0)
     parser.add_argument("--last-task", type=int, default=5)
     parser.add_argument("--gpus", default="0")
+    parser.add_argument("--resume", action="store_true",
+                        help="resume from complete stage markers in a non-empty run root")
     args = parser.parse_args()
 
     config = _load_config(args.config)
     root = Path(args.root)
+    if root.exists() and any(root.iterdir()) and not args.resume:
+        raise FileExistsError(
+            "run root is non-empty; pass --resume to reuse verified stage markers: {}".format(root)
+        )
     root.mkdir(parents=True, exist_ok=True)
+    if args.gpus != "4,5,6,7":
+        raise ValueError("formal V6.2 task_run requires physical GPUs 4,5,6,7")
+    manifest_path = root / "run_manifest.json"
+    manifest = {
+        "schema_version": 1,
+        "method": "Compose V6.2",
+        "seed": int(config["data"]["seed"]),
+        "task_order": [entry["name"] for entry in config["task_sequence"]],
+        "first_task": int(args.first_task),
+        "last_task": int(args.last_task),
+        "gpus": [4, 5, 6, 7],
+        "git_commit": _git_commit(),
+        "config_hash": config["config_hash"],
+        "resume": bool(args.resume),
+        "seed43_44_started": False,
+    }
+    if manifest_path.is_file():
+        previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for key in ("method", "seed", "task_order", "gpus", "git_commit", "config_hash"):
+            if previous.get(key) != manifest.get(key):
+                raise ValueError("resume manifest mismatch for {}".format(key))
+        manifest["first_task"] = min(int(previous.get("first_task", args.first_task)), args.first_task)
+        manifest["last_task"] = max(int(previous.get("last_task", args.last_task)), args.last_task)
+        manifest["resume"] = True
+    _write_json(str(manifest_path), manifest)
     for task_id in range(args.first_task, args.last_task + 1):
         task_root = root / "task{}".format(task_id)
         prev_root = root / "task{}".format(task_id - 1)
