@@ -36,12 +36,9 @@ class NoGlobalCalibrationTest(unittest.TestCase):
         names = [name for name, _ in router.named_parameters()]
         self.assertFalse(any("calibr" in name for name in names))
         self.assertFalse(any("temperat" in name for name in names))
-        # The query encoder's Linear biases are legitimate structure; a
-        # router-level bias head (outside the encoder) is what's forbidden.
-        router_level = [name for name in names if not name.startswith("query_encoder")]
-        self.assertFalse(any("bias" in name for name in router_level))
-        # Only the query encoder + the expert keys exist.
-        expected_prefixes = {"query_encoder", "key_store"}
+        # V6.2 permits a lightweight contribution-supervised set scorer;
+        # ordinary MLP biases there are not global key calibration.
+        expected_prefixes = {"query_encoder", "key_store", "set_router"}
         self.assertTrue(
             all(name.split(".")[0] in expected_prefixes for name in names),
             names,

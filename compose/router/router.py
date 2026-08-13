@@ -27,6 +27,8 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from .expert_keys import ExpertKeyMetadata, ExpertKeyStore
+from .inference import predict_sets
+from .set_router import ExpertSetRouter
 
 COMPOSE_ROUTER_CHECKPOINT_VERSION = 1
 ROUTER_MODES = ("training_retrieval", "inference_selection")
@@ -98,6 +100,10 @@ class ComposeRouter(nn.Module):
         self.key_store = ExpertKeyStore(metadata=[], query_dim=self.query_dim, seed=seed)
         self.pool_version = None  # type: Optional[int]
         self.config_hash = None  # type: Optional[str]
+        self.set_router = ExpertSetRouter(self.query_dim, self.top_m)
+        self.set_router_enabled = False
+        self.pair_threshold = 0.65
+        self.route_anchors = []  # train-only compressed query/decision anchors
 
     # ------------------------------------------------------------------
     # Key management
@@ -225,6 +231,16 @@ class ComposeRouter(nn.Module):
             return ComposeRouterSelection(
                 sets=tuple(sets), probabilities=similarities, expert_ids=()
             )
+        if self.set_router_enabled:
+            keys = self.key_store.normalized(ids)
+            visible_mask = torch.ones(
+                query.shape[0], len(ids), dtype=torch.bool, device=query.device
+            )
+            output = self.set_router(query, keys, ids, visible_mask)
+            learned_sets = tuple(predict_sets(output, self.pair_threshold))
+            return ComposeRouterSelection(
+                sets=learned_sets, probabilities=similarities, expert_ids=ids
+            )
         for row in similarities:
             values, indices = torch.topk(
                 row, k=min(self.max_active_experts, count), sorted=True
@@ -276,6 +292,10 @@ class ComposeRouter(nn.Module):
             "feature_extractor_version": self.feature_extractor_version,
             "pool_version": int(pool_version),
             "config_hash": str(config_hash),
+            "set_router_enabled": bool(self.set_router_enabled),
+            "set_router": self.set_router.state_dict(),
+            "pair_threshold": float(self.pair_threshold),
+            "route_anchors": list(self.route_anchors),
         }
 
     def load_state_dict_extra(self, state: Dict[str, Any]) -> None:
@@ -314,6 +334,12 @@ class ComposeRouter(nn.Module):
         self.feature_extractor_version = str(state["feature_extractor_version"])
         self.pool_version = int(state["pool_version"])
         self.config_hash = str(state["config_hash"])
+        if "set_router" in state:
+            self.set_router = ExpertSetRouter(self.query_dim, self.top_m)
+            self.set_router.load_state_dict(state["set_router"])
+            self.set_router_enabled = bool(state.get("set_router_enabled", False))
+            self.pair_threshold = float(state.get("pair_threshold", 0.65))
+            self.route_anchors = [dict(value) for value in state.get("route_anchors", [])]
 
     def validate_pool_version(self, pool_version: int) -> None:
         if self.pool_version is None:

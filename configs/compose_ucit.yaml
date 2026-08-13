@@ -67,6 +67,12 @@ router:
   query_dim: 128
   key_mode: learnable
 
+set_router:
+  epochs: 40
+  learning_rate: 1.0e-3
+  pair_threshold: 0.65
+  anchors_per_cardinality: 32
+
 clustering:
   max_clusters: 4
   silhouette_threshold: 0.15

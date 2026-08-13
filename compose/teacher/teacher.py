@@ -187,7 +187,7 @@ class ComposeTeacherSearcher:
                     best_single.score - pair.score
                 )
                 pair.valid_pair = (
-                    pair.raw_gain_over_best_single >= self.config.delta_pair_raw
+                    pair.raw_gain_over_best_single > self.config.delta_pair_raw
                     and pair.penalized_gain_over_best_single > 0
                 )
                 pairs.append(pair)

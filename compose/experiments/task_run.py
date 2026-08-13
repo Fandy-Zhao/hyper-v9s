@@ -96,6 +96,12 @@ from compose.router.router import (
     load_compose_router_checkpoint,
     save_compose_router_checkpoint,
 )
+from compose.router.contribution import (
+    contribution_record,
+    refine_new_keys_from_contribution,
+    train_contribution_set_router,
+    update_route_anchors,
+)
 from compose.teacher.oracle_set import OracleConfig
 from compose.teacher.teacher import (
     ComposeTeacherSearcher,
@@ -169,6 +175,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_active_experts": 2,
         "query_dim": 128,
         "key_mode": "learnable",
+    },
+    "set_router": {
+        "epochs": 40,
+        "learning_rate": 1.0e-3,
+        "pair_threshold": 0.65,
+        "anchors_per_cardinality": 32,
     },
     "clustering": {
         "max_clusters": 4,
@@ -1730,6 +1742,92 @@ def run_task(
                 key=torch.tensor(expert.centroid, dtype=torch.float32),
                 key_initialization="centroid",
             )
+        # Re-score the expanded pool on train-only routing splits. Labels now
+        # describe actual empty/single/pair NLL contribution, not membership
+        # in the residual query cluster that initialized each new key.
+        contribution_records_by_split = {}
+        contribution_queries_by_split = {}
+        for tag, subset in (("train", teacher_train), ("val", teacher_val)):
+            tag_features = json.loads(
+                (root / "features" / "{}_features.json".format(tag)).read_text()
+            )
+            tag_sample_ids = [_record_id(record) for record in subset]
+            tag_queries = _build_features_matrix(tag_features, tag_sample_ids)
+            contribution_queries_by_split[tag] = tag_queries
+            retrieval = router.retrieve(tag_queries, list(router.expert_ids))
+            selections = {}
+            candidate_rows = {}
+            import itertools
+            for sample_id, row in zip(tag_sample_ids, retrieval.expert_ids.tolist()):
+                candidates = [int(value) for value in row if int(value) != -1][
+                    : int(config["teacher"]["top_k_for_pair"])
+                ]
+                candidate_rows[sample_id] = candidates
+                sets = {"empty": []}
+                for expert_id in candidates:
+                    sets["single_{}".format(expert_id)] = [expert_id]
+                for left, right in itertools.combinations(candidates, 2):
+                    sets["pair_{}_{}".format(left, right)] = [left, right]
+                selections[sample_id] = sets
+            selection_path = root / "data" / "{}_contribution_selections.json".format(tag)
+            nll_path = root / "contribution" / "{}_nll.json".format(tag)
+            _write_json(str(selection_path), selections)
+            command = [
+                PYTHON, "-m", "compose.eval.nll_eval",
+                "--model-path", BASE_MODEL,
+                "--vision-tower", VISION_TOWER,
+                "--projector-path", PROJECTOR_PATH,
+                "--checkpoint-dir", str(final_pool_dir),
+                "--question-file", str(root / "data" / "teacher_{}.json".format(tag)),
+                "--image-folder", IMAGE_FOLDER,
+                "--selections", str(selection_path),
+                "--output", str(nll_path),
+                "--device", "cuda:0",
+            ]
+            if plan["mode"] == "4gpu":
+                _run_sharded_nll(command, subset, root, "s7_contribution_{}".format(tag), plan)
+            else:
+                _run(command, env, root, "s7_contribution_{}".format(tag))
+            values_by_sample = json.loads(nll_path.read_text(encoding="utf-8"))
+            records = []
+            cluster_by_sample = sample_to_expert
+            searcher = ComposeTeacherSearcher(
+                config=OracleConfig(
+                    oracle_name="compose_contribution_teacher",
+                    composition_mode="rms_calibrated",
+                    lambda_expert=float(config["teacher"]["lambda_expert"]),
+                    delta_pair_raw=float(config["teacher"]["delta_pair_raw"]),
+                    top_k_for_pair=int(config["teacher"]["top_k_for_pair"]),
+                    max_pairs=int(config["teacher"]["max_pairs"]),
+                ),
+                router_version=ROUTER_VERSION,
+                pool_version=registry.pool_version,
+                top_m=int(config["router"]["top_m"]),
+            )
+            for sample_id in tag_sample_ids:
+                values = values_by_sample[sample_id]
+                nll_by_set = {(): float(values["empty"])}
+                for name, loss in values.items():
+                    parts = name.split("_")
+                    if parts[0] == "single":
+                        nll_by_set[(int(parts[1]),)] = float(loss)
+                    elif parts[0] == "pair":
+                        nll_by_set[tuple(sorted((int(parts[1]), int(parts[2]))))] = float(loss)
+                teacher = searcher.search_from_nll(
+                    sample_id, task_id, candidate_rows[sample_id], nll_by_set,
+                    len(router.expert_ids), {"split": tag, "config_hash": config_hash},
+                )
+                cluster_label = int(cluster_by_sample.get(sample_id, -1))
+                record = contribution_record(
+                    cluster_label, teacher.teacher_set, cluster_expert_ids,
+                    teacher.empty_loss, teacher.single_losses, teacher.pair_losses,
+                )
+                record.update({"sample_id": sample_id, "candidate_experts": candidate_rows[sample_id]})
+                records.append(record)
+            contribution_records_by_split[tag] = records
+            _write_json(
+                str(root / "contribution" / "{}_records.json".format(tag)), records
+            )
         key_config = ComposeKeyLearningConfig(
             **config["key_learning"], key_mode=str(config["router"]["key_mode"])
         )
@@ -1749,6 +1847,52 @@ def run_task(
             cluster_expert_ids,
             key_config,
             device="cpu",
+        )
+        contribution_by_id = {
+            record["sample_id"]: record
+            for record in contribution_records_by_split["train"]
+        }
+        contribution_records = [
+            contribution_by_id[sample_id] for sample_id in sample_ids
+        ]
+        refinement = refine_new_keys_from_contribution(
+            queries, contribution_records, router.key_store.keys, cluster_expert_ids
+        )
+        anchor_queries = None
+        anchor_targets = []
+        if router.route_anchors:
+            anchor_queries = torch.tensor(
+                [value["query"] for value in router.route_anchors], dtype=torch.float32
+            )
+            anchor_targets = [value["target"] for value in router.route_anchors]
+        router_metrics = train_contribution_set_router(
+            router.set_router,
+            contribution_queries_by_split["train"],
+            router.key_store.normalized(router.expert_ids),
+            router.expert_ids,
+            [record["teacher_set"] for record in contribution_records_by_split["train"]],
+            epochs=int(config.get("set_router", {}).get("epochs", 40)),
+            learning_rate=float(config.get("set_router", {}).get("learning_rate", 1.0e-3)),
+            anchor_queries=anchor_queries,
+            anchor_targets=anchor_targets,
+        )
+        router.set_router_enabled = True
+        router.pair_threshold = float(config.get("set_router", {}).get("pair_threshold", 0.65))
+        router.route_anchors = list(update_route_anchors(
+            router.route_anchors,
+            contribution_queries_by_split["train"],
+            [record["teacher_set"] for record in contribution_records_by_split["train"]],
+            [_record_id(record) for record in teacher_train],
+            max_per_cardinality=int(config.get("set_router", {}).get("anchors_per_cardinality", 32)),
+        ))
+        _write_json(
+            str(root / "contribution" / "summary.json"),
+            {
+                "cluster_label_count": len(contribution_records),
+                "agreement": sum(record["agreement"] for record in contribution_records) / max(1, len(contribution_records)),
+                **refinement,
+                **router_metrics,
+            },
         )
         _write_json(
             str(root / "keys" / "key_learning_results.json"),
