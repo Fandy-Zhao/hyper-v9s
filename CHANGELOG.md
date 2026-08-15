@@ -1,4 +1,7 @@
 # Changelog
+## 2026-08-15
+- Added a resumable, four-GPU no-router oracle evaluator for the frozen V6.2 Formal UCIT seed42 run: exhaustive empty/single/pair fixed selections, original UCIT scoring, target-answer sample oracle, exact stage-snapshot reuse proofs, cross-task and pair-synergy analysis, frozen-RMS audit, formal-artifact fingerprints, and a fail-closed completeness report.
+
 ## 2026-08-05
 - Completed the V6 UCIT engineering closure batch (Stage E0-E12, 13 commits, HEAD 41e70bd): unified empty/single/pair ComposeSelection, expert lifecycle registry with two-phase commit transactions, 16-stage task state machine, dual-mode Query-Key Router, answer-supervised teacher with Top-M retrieval, answer-teacher-driven residual buffers, 1/2-slot candidate pools, validation + transactional commits (0/1/2), Router calibration, RMS statistics, independent-load snapshots, acceptance tests (339 passed + 14 subtests) and a real two-task UCIT dry run (ImageNet-R -> ArxivQA, seed 42): Task 1 committed expert 10 (validation gain +0.136, 500-sample accuracy 27.4%); Task 2 all-empty teachers (no residual) with commit 0 by design (50.6% backbone-only). 18/18 acceptance criteria PASS.
 - Produced the handoff package (`artifacts/v6_ucit_handoff/`, 14 files) with locked config, exact/resume commands, schemas and known issues; `ready_for_six_task_run = true`. Batch stops here per the task book: no third task, no six-task run, no push.
