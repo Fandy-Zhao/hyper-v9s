@@ -21,6 +21,7 @@ import itertools
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -62,6 +63,21 @@ CONFIGS = {
 
 def read_json(path: Path) -> object:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def parse_json_object_from_stdout(stdout: str) -> dict:
+    """Decode the final JSON object even when dependencies log to stdout."""
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"(?m)^\s*\{", stdout):
+        try:
+            value, end = decoder.raw_decode(stdout[match.start():])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and not stdout[match.start() + end:].strip():
+            return value
+    raise json.JSONDecodeError(
+        "no standalone JSON object found in subprocess stdout", stdout, 0
+    )
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -265,7 +281,7 @@ def assemble(root_arg: str) -> None:
             if result.returncode != 0:
                 raise RuntimeError("assemble failed for {} expert {}: {}".format(
                     config, expert_id, result.stderr[-4000:]))
-            assembly_meta.append(json.loads(result.stdout))
+            assembly_meta.append(parse_json_object_from_stdout(result.stdout))
         bin_path = pool_dir / "compose_experts.bin"
         write_json(root / "pools" / "{}_assembly.json".format(config), {
             "config": config,
