@@ -502,8 +502,21 @@ def _score(annotation: Path, answers: Path, score_dir: Path) -> dict:
             break
     if value is None or not math.isfinite(value):
         raise RuntimeError("no finite score in {}".format(result_text))
+    annotations = json.loads(annotation.read_text(encoding="utf-8"))
+    answer_rows = read_jsonl(answers)
+    answers_by_id = {
+        record_id(record, index): str(record["answer"])
+        for index, record in enumerate(annotations)
+    }
+    correct = sum(
+        str(row["text"]).upper() == answers_by_id[str(row["question_id"])].upper()
+        for row in answer_rows
+    )
+    samples = len(answer_rows)
     metric = {
         "metric": "Accuracy", "value": value, "score_unit": "percentage_points",
+        "samples": samples, "correct": correct,
+        "correct_total": "{}/{}".format(correct, samples),
         "scorer": "llava.eval.eval_deepseek_r1",
         "annotation_file": str(annotation), "answers_file": str(answers),
         "answers_sha256": sha256_file(answers),
