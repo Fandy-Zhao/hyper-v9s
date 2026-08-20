@@ -16,7 +16,7 @@ set -euo pipefail
 PY=/home/zhaozhuofan/miniconda3/envs/hyper/bin/python
 REPO=/home/zhaozhuofan/Hyper-LlaVA
 ROOT="$REPO/experiments/runs/task0_multi_r8_seed42"
-DRIVER="$REPO/scripts/Compose/run_task0_multi_r8.sh"
+DRIVER="bash $REPO/scripts/Compose/run_task0_multi_r8.sh"
 WATCH_LOG="$REPO/experiments/runs/task0_multi_r8_seed42/logs/watch.log"
 SUSTAINED_MIN="${SUSTAINED_MIN:-6}"
 cd "$REPO"
@@ -100,7 +100,7 @@ wait_training() {
       if [[ "$stuck" -ge 3 ]]; then
         say "training stalled; reclaiming GPUs and relaunching"
         claim
-        run_stage "train-relaunch" "$DRIVER" train
+        run_stage "train-relaunch" $DRIVER train
         stuck=0
       fi
     fi
@@ -115,13 +115,13 @@ claim
 # 1. smoke on GPU 7 (tiny subset; other GPUs stay idle while we validate)
 say "smoke: train (GPU 7)"
 while :; do
-  if gpu_free 7 && "$DRIVER" smoke-train; then break; fi
+  if gpu_free 7 && $DRIVER smoke-train; then break; fi
   say "smoke-train failed or GPU 7 busy; backing off"
   claim
 done
 say "smoke: eval (GPU 7)"
 while :; do
-  if gpu_free 7 && "$DRIVER" smoke-eval; then break; fi
+  if gpu_free 7 && $DRIVER smoke-eval; then break; fi
   say "smoke-eval failed or GPU 7 busy; backing off"
   claim
 done
@@ -129,19 +129,19 @@ say "SMOKE COMPLETE"
 
 # 2. formal training on all four GPUs (driver's train phase re-checks GPU
 # freeness itself before launching; completed jobs are skipped)
-run_stage "train-launch" "$DRIVER" train
+run_stage "train-launch" $DRIVER train
 wait_training
 say "TRAINING COMPLETE"
 
 # 3. evaluation chain (resumable)
 run_stage "assign" "$PY" -m compose.experiments.task0_multi_r8_eval assign --root "$ROOT"
 run_stage "assemble" "$PY" -m compose.experiments.task0_multi_r8_eval assemble --root "$ROOT"
-run_stage "rms" "$DRIVER" rms
-run_stage "gen" "$DRIVER" gen
-run_stage "gen-base" "$DRIVER" gen-base
-run_stage "nll" "$DRIVER" nll
-run_stage "delta-stats" "$DRIVER" delta-stats
-run_stage "summary" "$DRIVER" summary
+run_stage "rms" $DRIVER rms
+run_stage "gen" $DRIVER gen
+run_stage "gen-base" $DRIVER gen-base
+run_stage "nll" $DRIVER nll
+run_stage "delta-stats" $DRIVER delta-stats
+run_stage "summary" $DRIVER summary
 run_stage "report" "$PY" -m compose.experiments.task0_multi_r8_report --root "$ROOT"
 
 say "=== watcher complete: report at $ROOT/reports/task0_multi_r8_report.md ==="
