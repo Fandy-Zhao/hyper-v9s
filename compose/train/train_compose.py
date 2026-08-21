@@ -2,7 +2,7 @@
 
 ``--compose-mode`` selects the routing strategy:
 
-- ``fixed``: one or two fixed experts compose the forward for every sample
+- ``fixed``: zero through four fixed experts compose the forward for every sample
   (foundation / baseline training);
 - ``cluster_expert``: per-sample cluster-wise conditional-residual training.
   Each sample routes to ``old_teacher_set + cluster_expert`` via the
@@ -58,6 +58,19 @@ def _csv_ints(value: str) -> List[int]:
 def _csv_floats(value: str) -> Optional[List[float]]:
     values = [item.strip() for item in value.split(",") if item.strip()]
     return [float(item) for item in values] if values else None
+
+
+def _csv_seed_map(value: str):
+    mapping = {}
+    for item in (entry.strip() for entry in value.split(",") if entry.strip()):
+        expert_id, separator, seed = item.partition("=")
+        if not separator or not seed.strip():
+            raise ValueError("compose_expert_seeds entries must use EXPERT_ID=SEED")
+        expert_id = int(expert_id.strip())
+        if expert_id < 0:
+            raise ValueError("expert ids in compose_expert_seeds must be non-negative")
+        mapping[expert_id] = int(seed.strip())
+    return mapping
 
 
 def _expert_origin_mapping(value: str):
@@ -221,19 +234,45 @@ def _load_old_checkpoint(pool, model_args, training_args):
 
 
 def _register_new_experts(pool, expert_ids, model_args):
+    seed_map = _csv_seed_map(model_args.compose_expert_seeds)
+    unknown_seed_ids = sorted(set(seed_map) - set(int(value) for value in expert_ids))
+    if unknown_seed_ids:
+        raise ValueError(
+            "compose_expert_seeds contains ids not being registered: {}".format(
+                unknown_seed_ids
+            )
+        )
     for expert_id in expert_ids:
         if expert_id not in pool.expert_ids():
-            pool.register(
-                expert_id,
-                name=(model_args.compose_expert_name or "expert-{:04d}".format(expert_id)),
-                origin_task_id=model_args.compose_origin_task_id,
-                source_checkpoint=model_args.compose_checkpoint,
-                tags=[
-                    value.strip()
-                    for value in model_args.compose_expert_tags.split(",")
-                    if value.strip()
-                ],
+            def register():
+                pool.register(
+                    expert_id,
+                    name=(model_args.compose_expert_name or "expert-{:04d}".format(expert_id)),
+                    origin_task_id=model_args.compose_origin_task_id,
+                    source_checkpoint=model_args.compose_checkpoint,
+                    tags=[
+                        value.strip()
+                        for value in model_args.compose_expert_tags.split(",")
+                        if value.strip()
+                    ],
+                )
+
+            if expert_id not in seed_map:
+                register()
+                continue
+            # Expert construction consumes both CPU and (depending on when
+            # adapters are injected) CUDA RNG.  Restore the caller's RNG state
+            # after each expert so the only initialization difference is the
+            # explicitly recorded expert seed.
+            cpu_state = torch.random.get_rng_state()
+            cuda_states = (
+                torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
             )
+            torch.manual_seed(seed_map[expert_id])
+            register()
+            torch.random.set_rng_state(cpu_state)
+            if cuda_states is not None:
+                torch.cuda.set_rng_state_all(cuda_states)
 
 
 def _check_expected_parameters(model, model_args):
@@ -275,6 +314,7 @@ def train() -> None:
     mode = model_args.compose_mode
     if mode not in ("fixed", "cluster_expert"):
         raise ValueError("--compose-mode must be one of fixed, cluster_expert")
+    saved_expert_ids = []
     if mode == "cluster_expert":
         if not model_args.compose_selection_manifest:
             raise ValueError(
@@ -296,6 +336,7 @@ def train() -> None:
         _load_old_checkpoint(pool, model_args, training_args)
         cluster_expert_ids = _csv_ints(model_args.compose_cluster_expert_ids)
         _register_new_experts(pool, cluster_expert_ids, model_args)
+        saved_expert_ids = list(cluster_expert_ids)
         pool.train_only(cluster_expert_ids)
         # Reentrant activation checkpointing (torch default) re-runs each
         # layer under torch.no_grad() in backward and only connects the graph
@@ -317,9 +358,10 @@ def train() -> None:
             model_args.compose_trainable_expert_ids,
         )
         gates = _csv_floats(model_args.compose_gates)
-        if len(selected_experts) not in (1, 2):
-            raise ValueError("Compose fixed mode trains one or two experts")
+        if len(selected_experts) > 4:
+            raise ValueError("Compose fixed mode trains at most four experts")
         _register_new_experts(pool, selected_experts, model_args)
+        saved_expert_ids = list(selected_experts)
         pool.train_only(trainable_experts)
         manager.set_default_selection(
             selected_experts,
@@ -413,18 +455,19 @@ def train() -> None:
         pool.train_only([])
         model.config.save_pretrained(training_args.output_dir)
         save_expert_checkpoint(pool, training_args.output_dir)
-        if mode == "cluster_expert":
-            # Standalone per-expert state dicts for the commit transaction.
-            for expert_id in cluster_expert_ids:
-                payload = {}
-                for layer_name, layer in manager.layers.items():
-                    expert = layer.experts[str(expert_id)]
-                    payload["{}.lora_A.weight".format(layer_name)] = expert.lora_A.weight
-                    payload["{}.lora_B.weight".format(layer_name)] = expert.lora_B.weight
-                torch.save(
-                    {"expert_id": expert_id, "state_dict": payload},
-                    os.path.join(training_args.output_dir, "expert_{:04d}.pt".format(expert_id)),
-                )
+        # Standalone per-expert state dicts are written for both fixed and
+        # cluster modes so every capacity-chain point can be assembled and
+        # evaluated through the same loader.
+        for expert_id in saved_expert_ids:
+            payload = {}
+            for layer_name, layer in manager.layers.items():
+                expert = layer.experts[str(expert_id)]
+                payload["{}.lora_A.weight".format(layer_name)] = expert.lora_A.weight
+                payload["{}.lora_B.weight".format(layer_name)] = expert.lora_B.weight
+            torch.save(
+                {"expert_id": expert_id, "state_dict": payload},
+                os.path.join(training_args.output_dir, "expert_{:04d}.pt".format(expert_id)),
+            )
     if training_args.local_rank in (-1, 0):
         supervision_summary = data_module["data_collator"].supervision_summary()
         if training_args.dataloader_num_workers:

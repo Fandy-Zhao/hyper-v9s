@@ -1,7 +1,7 @@
 """Unified per-sample expert selection (empty / single / pair).
 
-Inference selections are ``[batch_size, 2]``: the two expert slots are the
-maximum active experts (``max_active_experts = 2``). Empty slots are marked
+Inference selections are ``[batch_size, 4]``: four expert slots are the
+maximum active experts (``max_active_experts = 4``). Empty slots are marked
 with the pad id ``-1`` and a zero gate:
 
   empty  -> expert_ids row [-1, -1], gates row [0.0, 0.0]   (backbone-only)
@@ -24,7 +24,7 @@ from typing import Dict, List, Tuple
 import torch
 
 PAD_EXPERT_ID = -1
-MAX_ACTIVE_EXPERTS = 3
+MAX_ACTIVE_EXPERTS = 4
 MAX_INFERENCE_EXPERTS = 2
 
 
@@ -71,11 +71,13 @@ class ComposeSelection:
             raise ValueError("padded slots must have zero gates")
         if torch.any(active & (self.gates <= 0)):
             raise ValueError("active slots must have positive gates")
-        if torch.any(
-            (self.expert_ids[:, 0] == self.expert_ids[:, 1])
-            & (self.expert_ids[:, 0] != PAD_EXPERT_ID)
-        ):
-            raise ValueError("duplicate expert IDs per sample are not allowed")
+        for left in range(MAX_ACTIVE_EXPERTS):
+            for right in range(left + 1, MAX_ACTIVE_EXPERTS):
+                if torch.any(
+                    (self.expert_ids[:, left] == self.expert_ids[:, right])
+                    & (self.expert_ids[:, left] != PAD_EXPERT_ID)
+                ):
+                    raise ValueError("duplicate expert IDs per sample are not allowed")
         if self.normalization == "l1":
             denominator = self.gates.sum(dim=1, keepdim=True)
             denominator = denominator.clamp_min(torch.finfo(self.gates.dtype).tiny)

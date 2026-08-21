@@ -126,8 +126,8 @@ def main() -> None:
                 if args.gates is not None
                 else [1.0] * len(expert_ids)
             )
-            if len(expert_ids) not in (0, 1, 2) or len(gates) != len(expert_ids):
-                raise ValueError("explicit selection requires zero, one, or two experts")
+            if len(expert_ids) > 4 or len(gates) != len(expert_ids):
+                raise ValueError("explicit selection requires zero through four experts")
             if expert_ids:
                 bundle.expert_pool.manager.set_default_selection(
                     expert_ids, gates, normalization=args.normalization

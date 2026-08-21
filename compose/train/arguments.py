@@ -29,6 +29,7 @@ class ModelArguments:
     compose_origin_task_id: Optional[str] = field(default=None)
     compose_expert_tags: str = field(default="")
     compose_existing_expert_origins: str = field(default="")
+    compose_expert_seeds: str = field(default="")
     compose_gates: str = field(default="")
     compose_gate_normalization: str = field(default="none")
     compose_checkpoint: Optional[str] = field(default=None)
@@ -42,6 +43,7 @@ class ModelArguments:
 @dataclass
 class DataArguments:
     data_path: str = field(default=None)
+    eval_data_path: Optional[str] = field(default=None)
     memory_data_path: Optional[str] = field(default=None)
     lazy_preprocess: bool = field(default=True)
     is_multimodal: bool = field(default=False)

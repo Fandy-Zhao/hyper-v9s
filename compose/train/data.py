@@ -299,8 +299,8 @@ class ComposeSelectionDataset(LazySupervisedDataset):
 class ComposeSelectionCollator:
     """Formal padding plus per-sample unified Compose selections.
 
-    Every sample routes to ``old_teacher_set + cluster_expert`` (1-3
-    experts; a pair teacher plus the new expert is the widest legal
+    Every sample routes to ``old_teacher_set + cluster_expert`` (1-4
+    experts; four slots are the widest legal
     selection). Selections are padded to ``MAX_ACTIVE_EXPERTS`` slots
     with ``PAD_EXPERT_ID`` / zero gates and stored under the
     ``compose_selections`` batch key consumed by ``ComposeTrainer``.
@@ -341,6 +341,10 @@ class ComposeSelectionCollator:
 def make_supervised_data_module(tokenizer, data_args: DataArguments) -> Dict:
     return {
         "train_dataset": LazySupervisedDataset(data_args.data_path, tokenizer, data_args),
-        "eval_dataset": None,
+        "eval_dataset": (
+            LazySupervisedDataset(data_args.eval_data_path, tokenizer, data_args)
+            if data_args.eval_data_path
+            else None
+        ),
         "data_collator": DataCollatorForSupervisedDataset(tokenizer),
     }

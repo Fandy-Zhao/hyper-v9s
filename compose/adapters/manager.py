@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from .lora import ComposeLinear
 from .runtime import use_selection
-from .types import PAD_EXPERT_ID, ComposeSelection, pad_selection
+from .types import MAX_ACTIVE_EXPERTS, PAD_EXPERT_ID, ComposeSelection, pad_selection
 
 
 class ExpertManager:
@@ -60,8 +60,12 @@ class ExpertManager:
         use the same padded ``[batch, 2]`` slot structure.
         """
         self._require_experts(expert_ids)
-        if len(expert_ids) > 2:
-            raise ValueError("fixed selection supports zero, one, or two experts")
+        if len(expert_ids) > MAX_ACTIVE_EXPERTS:
+            raise ValueError(
+                "fixed selection supports zero through {} experts".format(
+                    MAX_ACTIVE_EXPERTS
+                )
+            )
         if gates is None:
             gates = [1.0] * len(expert_ids)
         if len(gates) != len(expert_ids):

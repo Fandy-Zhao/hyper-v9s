@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from .runtime import get_current_selection
-from .types import PAD_EXPERT_ID, ComposeSelection, pad_selection
+from .types import MAX_ACTIVE_EXPERTS, PAD_EXPERT_ID, ComposeSelection, pad_selection
 
 
 class LoRAExpert(nn.Module):
@@ -105,8 +105,12 @@ class ComposeLinear(nn.Module):
         gates: Optional[Sequence[float]] = None,
         normalization: str = "none",
     ) -> None:
-        if len(expert_ids) not in (0, 1, 2):
-            raise ValueError("default selection supports zero, one, or two experts")
+        if len(expert_ids) > MAX_ACTIVE_EXPERTS:
+            raise ValueError(
+                "default selection supports zero through {} experts".format(
+                    MAX_ACTIVE_EXPERTS
+                )
+            )
         if gates is None:
             gates = [1.0] * len(expert_ids)
         if len(gates) != len(expert_ids):
@@ -194,20 +198,16 @@ class ComposeLinear(nn.Module):
         # shared by teacher scoring, cluster training and test inference:
         #   single -> 1.0
         #   pair   -> pair_scale (default 1/sqrt(2))
-        #   three-expert cluster-training selection -> 1/sqrt(3)
+        #   N experts -> 1/sqrt(N)
         # 1/sqrt(count) keeps activation variance constant.
         active_mask = selection.expert_ids.ne(PAD_EXPERT_ID) & selection.gates.gt(0)
         per_sample_active_count = active_mask.sum(dim=1)  # [batch]
         active_counts = per_sample_active_count.to(result.dtype)
-        triple_scale = float(1.0 / 3.0 ** 0.5)
+        cardinality_scale = torch.rsqrt(active_counts.clamp_min(1.0))
         per_sample_scale = torch.where(
             active_counts.eq(2),
             torch.full_like(active_counts, self._pair_scale),
-            torch.where(
-                active_counts.ge(3),
-                torch.full_like(active_counts, triple_scale),
-                torch.ones_like(active_counts),
-            ),
+            cardinality_scale,
         )
 
         delta = torch.zeros_like(result)
