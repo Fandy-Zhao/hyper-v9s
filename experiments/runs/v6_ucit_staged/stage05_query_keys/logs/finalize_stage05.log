@@ -1,5 +1,0 @@
-[2026-08-02 17:27:04,216] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
-[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
-[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
-[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
-{"checks": {"checkpoint_metadata": true, "key_tensors_finite_and_distinct": true, "metrics_complete": true, "oracle_expansion": true, "temporal_mask": true, "test_data_used": true}, "report": "/home/zhaozhuofan/Hyper-LlaVA/docs/reports/v6_ucit_stage05_query_keys.md", "status": "PASSED"}

@@ -1,9 +1,0 @@
-{
-  "stage": "stage00_audit",
-  "files": {
-    "docs/reports/v6_ucit_stage00_audit.md": "065d7c66c34360dcb28a570eb06d31b1b0e560d5506c9b31f0622c83fcdddc50",
-    "experiments/runs/v6_ucit_staged/stage00_audit/stage_report.md": "49afdbe801fc94ea510de6e0265c0e647787d58156efe1abcd99f4ac1fa84616",
-    "experiments/runs/v6_ucit_staged/stage00_audit/run_manifest.json": "e72e34cad209c6d4100f5b2905cde21c7fc4d54f55454f3ffc395c61568aff5c"
-  },
-  "note": "SHA-256 recorded at stage end; large artifacts tracked by path only"
-}

@@ -1,7 +1,0 @@
-{
-  "change": "Reject archived experts on RMS load and all-reduce DDP sample_count.",
-  "effect_on_formula_or_statistics": "none",
-  "final_statistics_implementation_sha256": "9525c8c98eb2c52053dfb1066094aa94a4db79de5bbb74f9d98923d1f2312618",
-  "formal_statistics_implementation_sha256": "539fdf8cd7bb96e8871a64b5e77e6fde433d427dad62932dee967d77d99fa71d",
-  "validation": "83/83 Compose unittest PASS after the hardening change"
-}

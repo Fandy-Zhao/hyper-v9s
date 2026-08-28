@@ -42,6 +42,7 @@ ucit_instructions/
 artifacts/
 experiments/data/
 experiments/runs/
+experiments/runs
 outputs/
 wandb/
 sample_instructions/

@@ -1,9 +1,0 @@
-{
-  "evaluation_samples": 128,
-  "image_net_r_accuracy": 53.91,
-  "is_formal_metric": false,
-  "oom": false,
-  "optimizer_steps": 30,
-  "status": "PASSED",
-  "train_loss": 0.7668777043620746
-}

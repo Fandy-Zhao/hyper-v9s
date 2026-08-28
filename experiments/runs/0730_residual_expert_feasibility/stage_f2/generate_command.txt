@@ -1,1 +1,0 @@
-/home/zhaozhuofan/miniconda3/envs/hyper/bin/python -m compose.data.controlled_functional --output-root /data/dataset/zhaozhuofan/Hyper-LLaVA/controlled_functional_v1 --seed 730 --train-size 1600 --val-size 200 --test-size 400

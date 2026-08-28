@@ -1,3 +1,0 @@
-exit_code=127
-finished_utc=2026-07-30T15:27:34Z
-checkpoint=/data/ckpt/zhaozhuofan/compose/residual_feasibility_v1/smoke/seed42/expert_a

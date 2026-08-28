@@ -1,10 +1,0 @@
-/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
-  torch.utils._pytree._register_pytree_node(
-[2026-08-02 05:05:39,102] [INFO] [real_accelerator.py:203:get_accelerator] Setting ds_accelerator to cuda (auto detect)
-/home/zhaozhuofan/miniconda3/envs/hyper/lib/python3.10/site-packages/transformers/utils/generic.py:311: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
-  torch.utils._pytree._register_pytree_node(
-[93m [WARNING] [0m async_io requires the dev libaio .so object and headers but these were not found.
-[93m [WARNING] [0m async_io: please install the libaio-dev package with apt
-[93m [WARNING] [0m If libaio is already installed (perhaps from source), try setting the CFLAGS and LDFLAGS environment variables to where it can be found.
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:08<00:08,  8.18s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:12<00:00,  6.04s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:12<00:00,  6.36s/it]
-{"coefficient_distribution": {"epsilon_fallback_layers": 0, "max": 3.256865752006074, "mean": 1.0944847702513996, "min": 0.30704366594909466}, "direct": {"accuracy": 1.0, "mean_nll": 0.00020643234252929688, "mean_synergy": 0.7587260293960572, "median_synergy": 0.7878408432006836, "pair_harmful_rate": 0.0, "positive_synergy_rate": 1.0, "worst_10_percent_synergy": 0.5105412006378174}, "pair": [0, 1], "rms": {"accuracy": 1.0, "mean_nll": 0.03473583221435547, "mean_synergy": 0.7241966295242309, "median_synergy": 0.7809066772460938, "pair_harmful_rate": 0.0, "positive_synergy_rate": 1.0, "worst_10_percent_synergy": 0.35306558609008787}, "status": "COMPLETED"}
