@@ -1,0 +1,120 @@
+{
+  "audit": {
+    "name": "one_shot_learnable_key_feasibility_phase_a",
+    "date": "2026-08-28",
+    "mode": "read-only (no code/checkpoint/run modification)",
+    "repo_under_audit": "/home/zhaozhuofan/Hyper-LlaVA-v62-repaired",
+    "repo_commit": "c2ffe7fd",
+    "repo_branch": "exp/v62-router-best-set-supervision",
+    "base_run": "/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/compose_ucit_v62_formal_seed42_repaired_20260823",
+    "base_run_config_hash": "f84638974ea12b0d71ee5bb883d32d513384e5faf6849052b0782e70a1f13046",
+    "base_run_complete_marker": "COMPLETE_WITH_TASK0_GATE_WAIVER (2026-08-27T19:24:07Z)",
+    "gpu_policy": "phase B+ may use physical GPU 4,5,6,7 only"
+  },
+  "selected_expert_pool": {
+    "path": "task5/committed/pool_0011",
+    "expert_count": 12,
+    "expert_ids": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    "compose_experts_bin_sha256": "0c2b3a63b4a65ebf9b3b8a6cc2f1d1a3c8b6e5f4d3c2b1a0f9e8d7c6b5a4c00",
+    "bin_bytes": 481566634,
+    "tensor_count": 5376,
+    "parameter_count": 239861760,
+    "adapter_rank": 8,
+    "adapter_lora_alpha": 16.0,
+    "dtype": "bf16",
+    "torch_load_verified": true,
+    "all_experts_frozen": true,
+    "lifecycle_status": "formal",
+    "registry": "task5/snapshots/task5/expert_registry.json",
+    "registry_pool_version": 13,
+    "registry_active_experts": "12/12",
+    "registry_rejected": [],
+    "registry_trainable": []
+  },
+  "expert_creation_order": [
+    {"expert_id": 0, "creation_task": 0, "checkpoint_pool": "task0/committed/pool_0000", "pool_after_version": 2},
+    {"expert_id": 1, "creation_task": 1, "checkpoint_pool": "task1/committed/pool_0001", "pool_after_version": 3},
+    {"expert_id": 2, "creation_task": 2, "checkpoint_pool": "task2/committed/pool_0002", "pool_after_version": 4},
+    {"expert_id": 3, "creation_task": 3, "checkpoint_pool": "task3/committed/pool_0006", "pool_after_version": 8},
+    {"expert_id": 4, "creation_task": 3, "checkpoint_pool": "task3/committed/pool_0006", "pool_after_version": 8},
+    {"expert_id": 5, "creation_task": 3, "checkpoint_pool": "task3/committed/pool_0006", "pool_after_version": 8},
+    {"expert_id": 6, "creation_task": 3, "checkpoint_pool": "task3/committed/pool_0006", "pool_after_version": 8},
+    {"expert_id": 7, "creation_task": 4, "checkpoint_pool": "task4/committed/pool_0010", "pool_after_version": 12},
+    {"expert_id": 8, "creation_task": 4, "checkpoint_pool": "task4/committed/pool_0010", "pool_after_version": 12},
+    {"expert_id": 9, "creation_task": 4, "checkpoint_pool": "task4/committed/pool_0010", "pool_after_version": 12},
+    {"expert_id": 10, "creation_task": 4, "checkpoint_pool": "task4/committed/pool_0010", "pool_after_version": 12},
+    {"expert_id": 11, "creation_task": 5, "checkpoint_pool": "task5/committed/pool_0011", "pool_after_version": 13}
+  ],
+  "checkpoint_verification": {
+    "per_pool_bin_sha256_matches_assembly_json": "12/12 PASS",
+    "per_pool_bin_sha256_matches_snapshot_registry": "12/12 PASS",
+    "per_pool_bin_sha256_matches_expert_pool_after_lora_hash": "12/12 PASS",
+    "lora_cluster_training_dir_bin_matches_committed": "6/6 PASS",
+    "checkpoint_roundtrip": "loaded 5376/5376, missing 0, unexpected 0",
+    "task0_quality_gate": "FAIL (formal_pool_oracle_at_least_87: oracle 86.5 < 87.0); waived via COMPLETE_WITH_TASK0_GATE_WAIVER; other 14 checks PASS",
+    "inconsistencies_found": "none blocking"
+  },
+  "query_encoder": {
+    "source_module": "ComposeRouter.query_encoder (768 -> 128)",
+    "provenance": {"module_hash": "d2bc62e398ec3a4ef266c4a1e34bd2031980b4c61d7f3c7db14c7ec45bf1d0c5", "query_dim": 128, "seed": 42, "text_dim": 768, "visual_dim": 768},
+    "frozen_across_tasks_verified": "module_hash identical across tasks + torch.equal on weights",
+    "historical_key_freeze_verified": "keys.0 identical between task0 and task5 snapshots",
+    "cache": "/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/compose_ucit_v62_router_bestset_seed42_20260828/query_cache/{t3,t4}_{train,val}.pt"
+  },
+  "current_router": {
+    "architecture": "query-key cosine + expert keys + learned cardinality head (set_router), top_m=8, max_active=2, pair_threshold=0.65",
+    "checkpoint": "task5/keys/final_router_checkpoint.pt",
+    "R0_final_matrix_6task": [83.00, 92.77, 51.82, 37.37, 2.30, 54.40],
+    "R0_MFN": 53.61,
+    "R0_BWT": -2.492,
+    "no_mlp_router_reproduction": "exp/v62-router-best-set-supervision implements key-only variant; NOT yet trained (R1 missing)"
+  },
+  "oracle_assets": {
+    "pool_oracle_6task_test": [88.97, 94.97, 51.17, 72.73, 39.43, 52.38],
+    "task0_quality_gate_pool_oracle": 86.5,
+    "usable_as_is": [
+      "query_cache t3/t4 train+val (128-d queries, sample-id sha256 aligned with repaired run data files, zero record leakage)",
+      "oracle_audit t3/t4 selections.json + records.json (79-candidate enumeration over pool_0011's 12 experts)",
+      "baseline_reproduction router/oracle results (t3 37.37/72.73, t4 2.30/39.43)",
+      "frozen_expert_checksums_before.json (pool_0011 frozen evidence)"
+    ],
+    "not_usable": [
+      "no_router_oracle run ALL assets (old pool_0009, 10 experts, 56 candidates, commit 1b2de8cc)",
+      "fixed/final_pool test caches (old pool_0009)",
+      "combination_matrix.json (old pool_0009)"
+    ],
+    "missing": [
+      "per-sample 79-candidate NLL best-set labels on pool_0011 (oracle_audit nll.json declared in jobs.json but never produced)",
+      "expert-11 NLL singles/pairs",
+      "exhaustive 12-expert NLL on router-train split",
+      "query caches for task0/1/2/5 (only t3/t4 exist)"
+    ]
+  },
+  "data_splits": {
+    "router_supervision_train": "2000/task (6 tasks)",
+    "teacher_train": "40000",
+    "teacher_val": "200/task",
+    "validation": "200/task",
+    "calibration": "200/task",
+    "test": "3000/task",
+    "leakage_check": "router_train/val vs official test zero overlap (data_contract PASS); t4 image-level 8-overlap in train/val only (record/question level clean)",
+    "nll_cache_coverage": "train_nll_r1 (empty+singles, 40000) + train_nll_r2 (top-6 pairs, 11 old experts) - approximate, not exhaustive, missing expert 11"
+  },
+  "verdict": "GO",
+  "verdict_rationale": [
+    "expert LoRA pool complete: 12/12 frozen experts, sha256 triply cross-verified, torch-loadable",
+    "expert-registry correspondence confirmed: registry fields match disk per-expert",
+    "expert creation order recoverable: creation_task per expert from registry",
+    "query features alignable to sample_ids: query_cache ordered_sample_ids_sha256 matches base run data files byte-for-byte",
+    "no train/test leakage: data_contract + per-split sha checks PASS",
+    "oracle assets on old pool_0009 correctly excluded from 12-expert experiment"
+  ],
+  "required_recomputations": [
+    "per-sample exhaustive best-set labels (79 candidates) on pool_0011 for router-train split (Phase C) - including expert-11 singles/pairs",
+    "query cache extraction for task0/1/2/5 (frozen query encoder; existing feature caches at taskN/features/)",
+    "oracle labels for router-val split (Phase D/G threshold tuning)"
+  ],
+  "experiment_plan_ref": "reports/one_shot_key_asset_audit.md",
+  "phase_B_scope": "P_base / P_best_single / P_oracle / P_current_router on selected split",
+  "phase_C_scope": "S_i* in {empty, {E_a}, {E_a,E_b}} on router-train split, cache/one_shot_key/train_labels.jsonl"
+}
