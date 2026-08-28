@@ -71,3 +71,25 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
 - `compute_routing_weights.py` in root — runtime dependency of `train_MOE.py`, cannot move
 - `nohup.out` (23MB) in root — should be `.gitignore`'d
 - `flash_attn-*.whl` (~1GB) in root — should be moved to external storage
+# 2026-08-11 Compose seed42 rank study
+
+- Status: in progress on branch `exp/0811-rank-study-seed42`.
+- Scope: controlled rank, task0 bootstrap, oracle, frozen-RMS, clustering,
+  and specialization experiments under
+  `experiments/runs/compose_ucit_rank_study_seed42/`.
+- Training boundary: formal seed42 residual IDs, Query features, cluster
+  assignments, historical snapshots, generation settings, and evaluators
+  remain frozen.
+- Runner change: S6 now forwards resolved `lora.rank` and `lora.alpha` to
+  `train_compose` and prints the required preflight contract before launch.
+- GPU policy update: after the user restriction issued on 2026-08-11, all
+  remaining A/B/C/D/F GPU work is serialized or batched exclusively on
+  physical GPUs 4-7. The prior 0-3 scheduler and transition watchers were
+  stopped; the interrupted task1-rank16 S6 has no completion marker and will
+  restart through the idempotent four-GPU path on 4-7.
+- RMS recovery: task1-rank32 exhausted 24 GiB during S9 hook recomputation.
+  RMS now uses micro-batch 1 and releases unused CUDA cache before its exact
+  fp64 all-reduce; the validation boundary, moments, reduction, and kappa
+  protocol are unchanged. The repaired S9 completed with 896 finite entries
+  and roughly 16.0 GiB observed peak before the pipeline resumed at S11.
+- Safety: no seed43/44 experiment, no formal seed42 overwrite, no commit.

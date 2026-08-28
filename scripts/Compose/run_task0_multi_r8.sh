@@ -81,8 +81,10 @@ case "$phase" in
       --config single_r8 --label single:0 --max-samples 24
     "$PY" -m compose.experiments.task0_multi_r8_eval nll --root "$SMOKE" --gpus 7 \
       --config single_r8 --max-samples 12 --batch-size 4
-    "$PY" -m compose.experiments.task0_multi_r8_eval delta-stats --root "$SMOKE"
-    "$PY" -m compose.experiments.task0_multi_r8_eval summary --root "$SMOKE" --max-samples 24
+    if [[ ! -f "$SMOKE/diagnostics/delta_stats.json" ]]; then
+      "$PY" -m compose.experiments.task0_multi_r8_eval delta-stats --root "$SMOKE"
+    fi
+    "$PY" -m compose.experiments.task0_multi_r8_eval summary --root "$SMOKE" --max-samples 12
     ;;
   *)
     echo "unknown phase: $phase" >&2; exit 2

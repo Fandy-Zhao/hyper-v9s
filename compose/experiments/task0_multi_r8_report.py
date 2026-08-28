@@ -28,7 +28,7 @@ def read_json(path: Path) -> object:
 def parse_train_loss(log_path: Path) -> Dict[str, Optional[float]]:
     """Initial/best/final training loss from the HF Trainer stdout log."""
     values = []
-    pattern = re.compile(r"loss\s*=\s*([0-9]+(?:\.[0-9]+)?)")
+    pattern = re.compile(r"['\"]loss['\"]\s*:\s*([0-9]+(?:\.[0-9]+)?)")
     if log_path.is_file():
         for line in log_path.read_text(encoding="utf-8", errors="ignore").splitlines():
             match = pattern.search(line)
@@ -129,7 +129,9 @@ def build(root: Path) -> str:
     add("## 3. Cluster Analysis (frozen functional queries, spherical K-means)")
     add("")
     for k in (2, 4):
-        stats = manifest["clustering"]["k{}".format(k)]
+        cluster_keys = manifest["clustering"]
+        # prep.py historically writes bare "2"/"4" keys; newer code uses "k2"/"k4".
+        stats = cluster_keys.get("k{}".format(k)) or cluster_keys.get(str(k))
         sizes = stats["sizes"]
         sim = stats["centroid_cosine_similarity"]
         rows = []
@@ -222,11 +224,11 @@ def build(root: Path) -> str:
         for expert_id in range(k):
             row = ["expert {}".format(expert_id)]
             for c in range(k):
-                row.append(fmt(entry["matrix"][expert_id][c]))
-            row.append(fmt(entry["per_expert_overall"][expert_id]))
+                row.append(fmt(entry["matrix"][str(expert_id)][str(c)]))
+            row.append(fmt(entry["per_expert_overall"][str(expert_id)]))
             rows.append(row)
         sizes = entry["cluster_sizes"]
-        rows.append(["test cluster size"] + [str(sizes[c]) for c in range(k)] + [""])
+        rows.append(["test cluster size"] + [str(sizes[str(c)]) for c in range(k)] + [""])
         add("**K={}** (rows = expert, columns = test cluster by nearest centroid)".format(k))
         add("")
         add(markdown_table(header, rows))

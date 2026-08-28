@@ -418,7 +418,21 @@ def generate_with_inputs(bundle, input_ids, image_tensor, max_new_tokens: int) -
 def gen_worker(args) -> None:
     torch.manual_seed(SEED)
     torch.cuda.manual_seed_all(SEED)
-    candidate = read_json(Path(args.candidate_file))
+    candidate_doc = read_json(Path(args.candidate_file))
+    if "candidates" in candidate_doc:
+        matches = [
+            item for item in candidate_doc["candidates"]
+            if str(item.get("label")) == str(args.label)
+        ]
+        if len(matches) != 1:
+            raise RuntimeError(
+                "candidate label {!r} is not unique in {}".format(
+                    args.label, args.candidate_file
+                )
+            )
+        candidate = matches[0]
+    else:
+        candidate = candidate_doc
     bundle = load_bundle(args.checkpoint, args.device, bool(candidate["apply_rms"]))
     records_all = json.loads(Path(args.question_file).read_text(encoding="utf-8"))
     if args.max_samples:
@@ -600,6 +614,7 @@ def gen(args) -> None:
                 "--question-file", str(question_file),
                 "--output-root", str(root),
                 "--config", config,
+                "--label", label,
                 "--num-chunks", str(num_chunks),
                 "--chunk-idx", str(index),
                 "--device", "cuda:0",
@@ -644,7 +659,8 @@ def nll_worker(args) -> None:
     # excluded here.  Singles are unaffected by kappa (calibrates to 1.0).
     candidates = [_candidate_set(candidate) for candidate in candidate_defs]
     labels = [str(candidate["label"]) for candidate in candidate_defs]
-    bundle = load_bundle(args.checkpoint, args.device, apply_rms=True)
+    apply_rms = any(bool(candidate.get("apply_rms")) for candidate in candidate_defs)
+    bundle = load_bundle(args.checkpoint, args.device, apply_rms=apply_rms)
     records_all = json.loads(Path(args.question_file).read_text(encoding="utf-8"))
     if args.max_samples:
         records_all = records_all[: args.max_samples]
@@ -698,7 +714,7 @@ def nll_worker(args) -> None:
                     "checkpoint_ids": bundle.expert_pool.expert_ids(),
                     "model_commit": commit,
                     "router_called": False,
-                    "rms_calibration_applied": True,
+                    "rms_calibration_applied": apply_rms,
                 }
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
                 handle.flush()
@@ -1012,6 +1028,7 @@ def main() -> None:
     p.add_argument("--question-file", required=True)
     p.add_argument("--output-root", required=True)
     p.add_argument("--config", required=True)
+    p.add_argument("--label", required=True)
     p.add_argument("--num-chunks", type=int, required=True)
     p.add_argument("--chunk-idx", type=int, required=True)
     p.add_argument("--device", default="cuda:0")
