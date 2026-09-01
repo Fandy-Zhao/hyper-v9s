@@ -84,11 +84,17 @@ def main() -> None:
              "ComposeRouter.select() (frozen query encoder + expert keys) "
              "instead of a fixed --expert-ids/--gates",
     )
+    parser.add_argument(
+        "--v7-key-state", default=None,
+        help="committed v7_keys.pt; fixed 1536-D query + global Top-2",
+    )
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--model-max-length", type=int, default=2048)
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
+    if args.router_checkpoint and args.v7_key_state:
+        raise ValueError("legacy router and V7 key state are mutually exclusive")
 
     torch.manual_seed(42)
     if torch.cuda.is_available():
@@ -105,7 +111,7 @@ def main() -> None:
         model_max_length=args.model_max_length,
     )
     if args.adapter_kind == "compose":
-        if args.expert_ids is None and args.router_checkpoint is None:
+        if args.expert_ids is None and args.router_checkpoint is None and args.v7_key_state is None:
             bundle = load_compose_model(
                 expert_id=args.expert_id,
                 gate=args.gate,
@@ -154,6 +160,7 @@ def main() -> None:
     # frozen query encoder and the expert keys; no answers, no oracle,
     # no task-id lookup, no clustering at test time (spec §22).
     router = None
+    v7_router = None
     clip = None
     clip_processor = None
     if args.router_checkpoint:
@@ -189,6 +196,32 @@ def main() -> None:
             "visible_expert_ids": list(router.expert_ids),
             "router_pool_version": router_extra.get("pool_version"),
         }
+    elif args.v7_key_state:
+        if args.expert_ids is not None:
+            raise ValueError("--v7-key-state cannot be combined with fixed --expert-ids")
+        from transformers import CLIPModel, CLIPProcessor
+
+        from compose.v7.inference import V7InferenceRouter
+        from compose.v7.pool import V7ExpertKeyPool
+
+        state = torch.load(args.v7_key_state, map_location="cpu", weights_only=False)
+        v7_pool = V7ExpertKeyPool.from_state(state)
+        v7_router = V7InferenceRouter(v7_pool).to(torch.device(args.device)).eval()
+        clip = CLIPModel.from_pretrained(
+            "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336",
+            torch_dtype=torch.float16,
+        ).to(torch.device(args.device)).eval()
+        clip_processor = CLIPProcessor.from_pretrained(
+            "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336"
+        )
+        bundle.expert_pool.manager.clear_default_selection()
+        bundle.load_summary["evaluation_selection"] = {
+            "mode": "v7_global_coevolution",
+            "v7_key_state": args.v7_key_state,
+            "visible_expert_ids": list(v7_pool.selectable_ids()),
+            "pool_version": v7_pool.pool_version,
+            "task_id_used": False,
+        }
 
     with open(args.question_file, "r", encoding="utf-8") as handle:
         all_records = json.load(handle)
@@ -198,6 +231,7 @@ def main() -> None:
     os.makedirs(os.path.dirname(os.path.abspath(args.answers_file)), exist_ok=True)
     with open(args.answers_file, "w", encoding="utf-8") as output:
         selection_histogram = {0: 0, 1: 0, 2: 0}
+        cross_task_pair_frequency = {}
         for record in tqdm(records):
             prompt = _prompt(record, bundle.model.config, args.conv_mode)
             input_ids = tokenizer_image_token(
@@ -210,7 +244,7 @@ def main() -> None:
                 [image], bundle.image_processor, bundle.model.config
             )[0].unsqueeze(0).to(device=args.device, dtype=torch.bfloat16)
             selection_meta = None
-            if router is not None:
+            if router is not None or v7_router is not None:
                 clip_inputs = clip_processor(
                     text=[question_text(record)],
                     images=[image],
@@ -226,9 +260,13 @@ def main() -> None:
                     z_s = torch.nn.functional.normalize(
                         clip_outputs.text_embeds.float(), dim=-1
                     )
-                    query = router.query_encoder(z_v, z_s)
-                    selection = router.select(query, router.expert_ids)
-                ids = list(selection.sets[0])
+                    if v7_router is not None:
+                        selection = v7_router(z_v, z_s)
+                        ids = [int(value) for value in selection.expert_ids[0].tolist()]
+                    else:
+                        query = router.query_encoder(z_v, z_s)
+                        selection = router.select(query, router.expert_ids)
+                        ids = list(selection.sets[0])
                 if ids:
                     bundle.expert_pool.manager.set_default_selection(
                         ids, [1.0] * len(ids)
@@ -236,14 +274,33 @@ def main() -> None:
                 else:
                     bundle.expert_pool.manager.clear_default_selection()
                 selection_histogram[len(ids)] = selection_histogram.get(len(ids), 0) + 1
-                selection_meta = {
-                    "expert_ids": ids,
-                    "selection_source": "compose_router",
-                    "answer_features_used": bool(selection.answer_features_used),
-                    "oracle_used": bool(selection.oracle_used),
-                    "task_id_lookup_used": bool(selection.task_id_lookup_used),
-                    "clustering_used_at_test": bool(selection.clustering_used_at_test),
-                }
+                if v7_router is not None:
+                    origin_tasks = tuple(
+                        int(v7_pool.metadata[value]["origin_task"]) for value in ids
+                    )
+                    if origin_tasks[0] != origin_tasks[1]:
+                        pair_key = "{},{}".format(*sorted(ids))
+                        cross_task_pair_frequency[pair_key] = (
+                            cross_task_pair_frequency.get(pair_key, 0) + 1
+                        )
+                    selection_meta = {
+                        "expert_ids": ids,
+                        "origin_tasks": origin_tasks,
+                        "selection_source": "v7_global_top2",
+                        "answer_features_used": False,
+                        "oracle_used": False,
+                        "task_id_lookup_used": False,
+                        "clustering_used_at_test": False,
+                    }
+                else:
+                    selection_meta = {
+                        "expert_ids": ids,
+                        "selection_source": "compose_router",
+                        "answer_features_used": bool(selection.answer_features_used),
+                        "oracle_used": bool(selection.oracle_used),
+                        "task_id_lookup_used": bool(selection.task_id_lookup_used),
+                        "clustering_used_at_test": bool(selection.clustering_used_at_test),
+                    }
             with torch.inference_mode():
                 output_ids = bundle.model.generate(
                     input_ids=input_ids,
@@ -295,11 +352,13 @@ def main() -> None:
         "peak_memory_bytes": peak_memory,
         "load_summary": bundle.load_summary,
         "selection_mode": (
-            "compose_router" if router is not None else "fixed"
+            "v7_global_coevolution" if v7_router is not None
+            else "compose_router" if router is not None else "fixed"
         ),
         "router_selection_histogram": (
-            selection_histogram if router is not None else None
+            selection_histogram if (router is not None or v7_router is not None) else None
         ),
+        "cross_task_expert_pair_frequency": cross_task_pair_frequency,
     }
     os.makedirs(os.path.dirname(os.path.abspath(args.run_summary_file)), exist_ok=True)
     with open(args.run_summary_file, "w", encoding="utf-8") as handle:
