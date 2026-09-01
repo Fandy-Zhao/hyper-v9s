@@ -90,19 +90,6 @@ def main() -> None:
         from compose.v7.query import FixedMultimodalQuery
 
         encoder = FixedMultimodalQuery()
-        provenance = type(
-            "FixedQueryProvenance", (),
-            {
-                "module_hash": "v7_fixed_layernorm_concat_l2_v1",
-                "to_dict": lambda self: {
-                    "kind": "v7_fixed_multimodal_query",
-                    "visual_dim": 768,
-                    "text_dim": 768,
-                    "query_dim": 1536,
-                    "trainable_parameter_count": 0,
-                },
-            },
-        )()
     elif args.query_encoder and Path(args.query_encoder).is_file():
         info = load_query_encoder_checkpoint(args.query_encoder)
         encoder = ComposeQueryEncoder(

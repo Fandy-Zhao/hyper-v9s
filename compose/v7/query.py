@@ -1,10 +1,26 @@
 """The V7 query coordinate system has no parameters and never changes."""
 
+from dataclasses import dataclass
 from typing import Tuple
 
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
+
+
+@dataclass(frozen=True)
+class FixedQueryProvenance:
+    module_hash: str = "v7_fixed_layernorm_concat_l2_v1"
+
+    def to_dict(self):
+        return {
+            "kind": "v7_fixed_multimodal_query",
+            "visual_dim": 768,
+            "text_dim": 768,
+            "query_dim": 1536,
+            "trainable_parameter_count": 0,
+            "module_hash": self.module_hash,
+        }
 
 
 class FixedMultimodalQuery(nn.Module):
@@ -21,6 +37,9 @@ class FixedMultimodalQuery(nn.Module):
     @staticmethod
     def _fixed_layer_norm(value: Tensor) -> Tensor:
         return F.layer_norm(value, (value.shape[-1],), weight=None, bias=None)
+
+    def provenance(self) -> FixedQueryProvenance:
+        return FixedQueryProvenance()
 
     def forward(self, z_visual: Tensor, z_text: Tensor) -> Tensor:
         if z_visual.ndim != 2 or z_text.ndim != 2:
@@ -55,4 +74,3 @@ def full_train_task_center(
         "num_train_samples": int(num_train_samples),
         "num_queries_used_for_center": int(queries.shape[0]),
     }
-
