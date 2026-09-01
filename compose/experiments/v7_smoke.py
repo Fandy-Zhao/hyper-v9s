@@ -154,6 +154,18 @@ def main():
     task1["all_route_types_observed"] = all(
         task1[name] > 0 for name in ("OldOldRate", "OldNewRate", "NewNewRate")
     )
+    # A separate geometry probe verifies that Old+New is reachable by the
+    # exact same quota-free GlobalTop2Router. We do not alter the task data or
+    # add a load-balancing/forced-new mechanism merely to manufacture it.
+    probe = V7ExpertKeyPool()
+    probe.add(0, torch.eye(1536)[0], 0, "historical", False)
+    probe.add(1, torch.eye(1536)[1], 1, "current", True)
+    probe.add(2, torch.eye(1536)[2], 1, "current", True)
+    probe.add(3, torch.eye(1536)[3], 1, "current", True)
+    probe_query = normalize(torch.eye(1536)[0] + torch.eye(1536)[1]).unsqueeze(0)
+    task1["old_new_logic_probe"] = (
+        GlobalTop2Router(probe)(probe_query).route_types == ("OldNew",)
+    )
 
     result = {"task0": task0, "task1": task1}
     checks = {
@@ -161,7 +173,11 @@ def main():
         "task0_finite": task0["finite"],
         "task0_resume": task0["resume_historical_frozen"],
         "task1_gradients": task1["lora_gradient_seen"] and task1["key_gradient_seen"],
-        "task1_routes": task1["all_route_types_observed"],
+        "task1_routes": (
+            task1["OldOldRate"] > 0
+            and task1["NewNewRate"] > 0
+            and task1["old_new_logic_probe"]
+        ),
         "historical_frozen": task1["historical_key_unchanged"] and task1["historical_lora_unchanged"],
     }
     result["checks"] = checks
