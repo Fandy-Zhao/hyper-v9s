@@ -45,11 +45,16 @@ def _reference_forward(layer, inputs, selection):
 
 
 def _mixed_selection():
-    # The unified Compose selection is MAX_ACTIVE_EXPERTS=3 slots wide; a
+    # The unified Compose selection is MAX_ACTIVE_EXPERTS=4 slots wide; a
     # zero-weight slot is expressed as the -1 pad.
     return ComposeSelection(
-        expert_ids=torch.tensor([[0, 1, -1], [1, -1, -1], [2, 3, -1]], dtype=torch.long),
-        gates=torch.tensor([[0.6, 0.8, 0.0], [1.0, 0.0, 0.0], [0.5, 0.5, 0.0]]),
+        expert_ids=torch.tensor(
+            [[0, 1, -1, -1], [1, -1, -1, -1], [2, 3, -1, -1]],
+            dtype=torch.long,
+        ),
+        gates=torch.tensor(
+            [[0.6, 0.8, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0]]
+        ),
         normalization="none",
     )
 
