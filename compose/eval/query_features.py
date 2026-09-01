@@ -60,6 +60,10 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     parser.add_argument("--query-encoder", default=None,
                         help="task-0 query encoder checkpoint to reuse")
+    parser.add_argument(
+        "--query-mode", choices=("v6_functional", "v7_fixed"),
+        default="v6_functional",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", default="cuda:0")
@@ -80,7 +84,26 @@ def main() -> None:
 
     # The query encoder is stable across the whole run: load the task-0
     # checkpoint when one exists, otherwise create it deterministically.
-    if args.query_encoder and Path(args.query_encoder).is_file():
+    if args.query_mode == "v7_fixed" and args.query_encoder:
+        raise ValueError("V7 fixed query cannot load a query-encoder checkpoint")
+    if args.query_mode == "v7_fixed":
+        from compose.v7.query import FixedMultimodalQuery
+
+        encoder = FixedMultimodalQuery()
+        provenance = type(
+            "FixedQueryProvenance", (),
+            {
+                "module_hash": "v7_fixed_layernorm_concat_l2_v1",
+                "to_dict": lambda self: {
+                    "kind": "v7_fixed_multimodal_query",
+                    "visual_dim": 768,
+                    "text_dim": 768,
+                    "query_dim": 1536,
+                    "trainable_parameter_count": 0,
+                },
+            },
+        )()
+    elif args.query_encoder and Path(args.query_encoder).is_file():
         info = load_query_encoder_checkpoint(args.query_encoder)
         encoder = ComposeQueryEncoder(
             visual_dim=int(info["visual_dim"]),
@@ -92,7 +115,8 @@ def main() -> None:
         load_query_encoder_checkpoint(args.query_encoder, encoder)
     else:
         encoder = ComposeQueryEncoder(seed=args.seed)
-    encoder.freeze()
+    if hasattr(encoder, "freeze"):
+        encoder.freeze()
     encoder.to(torch.device(args.device)).eval()
     provenance = encoder.provenance()
 
@@ -128,6 +152,7 @@ def main() -> None:
     payload = {
         "schema_version": FEATURE_SCHEMA_VERSION,
         "feature_source": "frozen_clip_l14_336",
+        "query_mode": args.query_mode,
         "query_encoder_provenance": provenance.to_dict(),
         "query_encoder_hash": provenance.module_hash,
         "feature_hash": _sha256(
