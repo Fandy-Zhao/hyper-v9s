@@ -114,10 +114,12 @@ class V7ExpertKeyPool(nn.Module):
     def freeze_historical(self) -> None:
         for expert_id in self.historical_ids:
             self.keys[str(expert_id)].requires_grad_(False)
+            self.keys[str(expert_id)].grad = None
 
     def freeze_all(self) -> None:
         for key in self.keys.values():
             key.requires_grad_(False)
+            key.grad = None
 
     def historical_checksums(self) -> Dict[int, str]:
         return {
@@ -135,9 +137,11 @@ class V7ExpertKeyPool(nn.Module):
                     F.normalize(self.keys[str(expert_id)].detach(), dim=0)
                 )
                 self.keys[str(expert_id)].requires_grad_(False)
+                self.keys[str(expert_id)].grad = None
             else:
                 self.metadata[expert_id]["lifecycle"] = "pruned"
                 self.keys[str(expert_id)].requires_grad_(False)
+                self.keys[str(expert_id)].grad = None
         self.pool_version += len(retained)
 
     def selectable_ids(self, excluded: Iterable[int] = ()) -> Tuple[int, ...]:
@@ -172,4 +176,3 @@ class V7ExpertKeyPool(nn.Module):
             pool.metadata[int(raw_id)].update(entry)
         pool.freeze_historical()
         return pool
-

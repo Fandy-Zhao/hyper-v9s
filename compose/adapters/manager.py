@@ -101,7 +101,11 @@ class ExpertManager:
         self.freeze_base()
         for layer in self.layers.values():
             for key, expert in layer.experts.items():
-                expert.requires_grad_(int(key) in selected)
+                is_selected = int(key) in selected
+                expert.requires_grad_(is_selected)
+                if not is_selected:
+                    for parameter in expert.parameters():
+                        parameter.grad = None
 
     def _require_experts(self, expert_ids: Iterable[int]) -> None:
         available = set(self.expert_ids())

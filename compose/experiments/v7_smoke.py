@@ -109,6 +109,8 @@ def main():
     pool.commit(pool.current_ids, {value: {"smoke_keep": True} for value in pool.current_ids})
     for value in pool.historical_ids:
         layer.experts[str(value)].requires_grad_(False)
+        for parameter in layer.experts[str(value)].parameters():
+            parameter.grad = None
     task0["candidate_initialization"] = init0
     task0["retained_candidate_count"] = 4
     task0["pool_size_after_task"] = 4
