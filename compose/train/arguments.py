@@ -36,6 +36,11 @@ class ModelArguments:
     compose_mode: str = field(default="fixed")
     compose_selection_manifest: Optional[str] = field(default=None)
     compose_cluster_expert_ids: str = field(default="")
+    compose_v7_key_state: Optional[str] = field(default=None)
+    compose_v7_query_cache: Optional[str] = field(default=None)
+    compose_v7_config: Optional[str] = field(default=None)
+    compose_v7_metrics_path: Optional[str] = field(default=None)
+    compose_v7_task_index: int = field(default=0)
     max_samples: Optional[int] = field(default=None)
     expected_adapter_parameters: Optional[int] = field(default=None)
 

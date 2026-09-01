@@ -338,6 +338,58 @@ class ComposeSelectionCollator:
         return batch
 
 
+class V7QueryDataset(LazySupervisedDataset):
+    """Full train split joined one-to-one with fixed 1536-D query cache."""
+
+    def __init__(self, data_path, tokenizer, data_args, query_cache) -> None:
+        super().__init__(data_path, tokenizer, data_args)
+        records = query_cache.get("records", query_cache)
+        self.fixed_queries = {}
+        for sample_id, value in records.items():
+            query = value.get("query", value) if isinstance(value, dict) else value
+            tensor = torch.tensor(query, dtype=torch.float32)
+            if tensor.shape != (1536,):
+                raise ValueError("V7 cached query {} is not 1536-D".format(sample_id))
+            self.fixed_queries[str(sample_id)] = tensor
+        dataset_ids = [str(record.get("id", index)) for index, record in enumerate(self.records)]
+        missing = [sample_id for sample_id in dataset_ids if sample_id not in self.fixed_queries]
+        if missing:
+            raise ValueError("V7 query cache misses {} train samples".format(len(missing)))
+        if len(dataset_ids) != len(self.fixed_queries):
+            raise ValueError(
+                "V7 full-data query coverage mismatch: train={}, cache={}".format(
+                    len(dataset_ids), len(self.fixed_queries)
+                )
+            )
+
+    def __getitem__(self, index):
+        item = super().__getitem__(index)
+        sample_id = str(self.records[index].get("id", index))
+        item["sample_id"] = sample_id
+        item["fixed_query"] = self.fixed_queries[sample_id]
+        return item
+
+
+class V7QueryCollator:
+    def __init__(self, tokenizer) -> None:
+        self._shim = DataCollatorForSupervisedDataset(tokenizer)
+
+    def supervision_summary(self):
+        return self._shim.supervision_summary()
+
+    def __call__(self, instances):
+        fixed_queries = torch.stack([value["fixed_query"] for value in instances])
+        sample_ids = [str(value["sample_id"]) for value in instances]
+        stripped = [
+            {key: value for key, value in instance.items() if key not in ("fixed_query", "sample_id")}
+            for instance in instances
+        ]
+        batch = self._shim(stripped)
+        batch["fixed_queries"] = fixed_queries
+        batch["sample_ids"] = sample_ids
+        return batch
+
+
 def make_supervised_data_module(tokenizer, data_args: DataArguments) -> Dict:
     return {
         "train_dataset": LazySupervisedDataset(data_args.data_path, tokenizer, data_args),

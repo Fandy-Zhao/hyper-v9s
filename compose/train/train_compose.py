@@ -43,6 +43,8 @@ from .data import (
     ComposeSelectionDataset,
     DataCollatorForSupervisedDataset,
     LazySupervisedDataset,
+    V7QueryCollator,
+    V7QueryDataset,
     make_supervised_data_module,
 )
 from .trainer import ComposeTrainer
@@ -312,8 +314,10 @@ def train() -> None:
         raise ValueError("Compose training requires --vision_tower")
 
     mode = model_args.compose_mode
-    if mode not in ("fixed", "cluster_expert"):
-        raise ValueError("--compose-mode must be one of fixed, cluster_expert")
+    if mode not in ("fixed", "cluster_expert", "v7_global_coevolution"):
+        raise ValueError(
+            "--compose-mode must be fixed, cluster_expert, or v7_global_coevolution"
+        )
     saved_expert_ids = []
     if mode == "cluster_expert":
         if not model_args.compose_selection_manifest:
@@ -324,6 +328,20 @@ def train() -> None:
             raise ValueError(
                 "cluster_expert mode requires --compose-cluster-expert-ids"
             )
+    elif mode == "v7_global_coevolution":
+        required = {
+            "compose_v7_key_state": model_args.compose_v7_key_state,
+            "compose_v7_query_cache": model_args.compose_v7_query_cache,
+            "compose_v7_config": model_args.compose_v7_config,
+            "compose_v7_metrics_path": model_args.compose_v7_metrics_path,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError("V7 mode requires {}".format(", ".join(missing)))
+        if not model_args.compose_cluster_expert_ids.strip():
+            raise ValueError("V7 mode requires four --compose-cluster-expert-ids")
+        if model_args.max_samples is not None:
+            raise ValueError("V7 training forbids max_samples; provide an explicit smoke split")
     else:
         if not model_args.compose_expert_ids.strip():
             raise ValueError("fixed mode requires --compose-expert-ids")
@@ -331,10 +349,12 @@ def train() -> None:
     model, vision_tower = _build_model(model_args, training_args)
     injected, injection_summary, manager, pool = _inject_and_pool(model, model_args)
 
-    if mode == "cluster_expert":
+    if mode in ("cluster_expert", "v7_global_coevolution"):
         _prepare_cluster_expert_backward()
         _load_old_checkpoint(pool, model_args, training_args)
         cluster_expert_ids = _csv_ints(model_args.compose_cluster_expert_ids)
+        if mode == "v7_global_coevolution" and len(cluster_expert_ids) != 4:
+            raise ValueError("V7 requires exactly four current candidate IDs")
         _register_new_experts(pool, cluster_expert_ids, model_args)
         saved_expert_ids = list(cluster_expert_ids)
         pool.train_only(cluster_expert_ids)
@@ -427,30 +447,91 @@ def train() -> None:
             "eval_dataset": None,
             "data_collator": data_collator,
         }
+    elif mode == "v7_global_coevolution":
+        from compose.v7.config import V7Config
+        from compose.v7.pool import V7ExpertKeyPool
+
+        import yaml
+
+        with open(model_args.compose_v7_config, "r", encoding="utf-8") as handle:
+            v7_config = V7Config.from_dict(yaml.safe_load(handle))
+        key_state = torch.load(
+            model_args.compose_v7_key_state, map_location="cpu", weights_only=False
+        )
+        v7_key_pool = V7ExpertKeyPool.from_state(key_state)
+        if set(v7_key_pool.current_ids) != set(cluster_expert_ids):
+            raise ValueError("V7 current candidate IDs do not match key state")
+        if set(v7_key_pool.historical_ids) != (
+            set(pool.expert_ids()) - set(cluster_expert_ids)
+        ):
+            raise ValueError("V7 historical key and LoRA registries do not match")
+        # Registering this module on the model makes current keys optimizer
+        # parameters and moves/checkpoints them with the training model.
+        model.v7_key_pool = v7_key_pool
+        with open(model_args.compose_v7_query_cache, "r", encoding="utf-8") as handle:
+            query_cache = json.load(handle)
+        dataset = V7QueryDataset(data_args.data_path, tokenizer, data_args, query_cache)
+        data_collator = V7QueryCollator(tokenizer)
+        data_module = {
+            "train_dataset": dataset,
+            "eval_dataset": None,
+            "data_collator": data_collator,
+        }
     else:
         data_module = make_supervised_data_module(tokenizer, data_args)
 
-    trainer = ComposeTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        args=training_args,
-        expert_pool=pool,
-        **data_module
-    )
+    if mode == "v7_global_coevolution":
+        from compose.v7.hf_trainer import V7ComposeTrainer
+
+        trainer = V7ComposeTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            args=training_args,
+            expert_pool=pool,
+            v7_key_pool=v7_key_pool,
+            v7_config=v7_config,
+            v7_task_index=model_args.compose_v7_task_index,
+            v7_metrics_path=model_args.compose_v7_metrics_path,
+            **data_module
+        )
+    else:
+        trainer = ComposeTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            args=training_args,
+            expert_pool=pool,
+            **data_module
+        )
     checkpoints = [
         name
         for name in os.listdir(training_args.output_dir)
         if name.startswith("checkpoint-")
     ] if os.path.isdir(training_args.output_dir) else []
-    if checkpoints:
+    if checkpoints and mode != "v7_global_coevolution":
         raise ValueError(
             "output_dir contains checkpoint-* entries; automatic resume is disabled "
             "because Compose checkpoints are adapter-only: {}".format(sorted(checkpoints))
         )
-    trainer.train()
+    trainer.train(
+        resume_from_checkpoint=True
+        if mode == "v7_global_coevolution" and checkpoints
+        else None
+    )
     trainer.save_state()
     model.config.use_cache = True
     if training_args.should_save:
+        if mode == "v7_global_coevolution":
+            freeze_audit = trainer.assert_task_freeze_integrity()
+            with open(
+                os.path.join(training_args.output_dir, "v7_freeze_audit.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(freeze_audit, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            torch.save(
+                v7_key_pool.export_state(),
+                os.path.join(training_args.output_dir, "v7_key_pool.pt"),
+            )
         pool.sync_training_step(trainer.state.global_step)
         pool.train_only([])
         model.config.save_pretrained(training_args.output_dir)
