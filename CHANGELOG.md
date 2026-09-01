@@ -1,4 +1,17 @@
 # Changelog
+
+## 2026-09-01
+
+- Added Hyper-LLaVA V7 full-data global Key–Expert co-evolution as explicit
+  `v7_global_coevolution` training/inference mode.
+- Added fixed parameter-free 1536-D multimodal Query, four rank-8 current
+  Candidates, per-sample historical+current Global Top-2, selected-current
+  Key/LoRA training and frozen-history audits.
+- Added validation remove-and-reroute pruning, RMS-bound retained commit,
+  atomic resume state, committed-only inference and machine-readable route,
+  loss, gradient, usage, pair and cross-task diagnostics.
+- Added 17 acceptance tests, a 30+30 step two-task CPU smoke and bounded real
+  ImageNet-R fixed-query preparation smoke.
 ## 2026-08-15
 - Added a resumable, four-GPU no-router oracle evaluator for the frozen V6.2 Formal UCIT seed42 run: exhaustive empty/single/pair fixed selections, original UCIT scoring, target-answer sample oracle, exact stage-snapshot reuse proofs, cross-task and pair-synergy analysis, frozen-RMS audit, formal-artifact fingerprints, and a fail-closed completeness report.
 
