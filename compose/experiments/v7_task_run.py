@@ -80,6 +80,12 @@ def main():
     parser.add_argument("--max-steps", type=int, default=30)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--skip-eval", action="store_true")
+    parser.add_argument(
+        "--stop-after",
+        choices=("full_data", "fixed_queries", "candidates", "training", "rms", "commit"),
+        default="commit",
+        help="bounded smoke/debug stop; completed stages remain resume-safe",
+    )
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -114,6 +120,8 @@ def main():
         })
         mark(root, "s0_full_data")
     coverage = json.loads((root / "data" / "coverage.json").read_text())
+    if args.stop_after == "full_data":
+        return
 
     if not marker(root, "s1_fixed_queries").is_file():
         for split, path in (("train", train_json), ("val", val_json)):
@@ -124,6 +132,8 @@ def main():
                 "--query-mode", "v7_fixed", "--device", worker_device,
             ], env, root / "logs" / ("features_" + split + ".log"))
         mark(root, "s1_fixed_queries")
+    if args.stop_after == "fixed_queries":
+        return
 
     if not marker(root, "s2_candidates").is_file():
         pool, center, audit = prepare_candidate_pool(
@@ -134,6 +144,8 @@ def main():
         torch.save(pool.export_state(), root / "state" / "candidate_keys.pt")
         write_json(root / "metrics" / "candidate_initialization.json", audit)
         mark(root, "s2_candidates")
+    if args.stop_after == "candidates":
+        return
     pool = V7ExpertKeyPool.from_state(
         torch.load(root / "state" / "candidate_keys.pt", weights_only=False)
     )
@@ -175,6 +187,8 @@ def main():
             command += ["--compose_existing_expert_origins", ",".join(origins)]
         run(command, env, root / "logs" / "training.log")
         mark(root, "s3_training")
+    if args.stop_after == "training":
+        return
 
     trained_pool = V7ExpertKeyPool.from_state(
         torch.load(output / "v7_key_pool.pt", weights_only=False)
@@ -202,6 +216,8 @@ def main():
             rms_command += ["--frozen-calibration", str(previous_calibration)]
         run(rms_command, env, root / "logs" / "rms.log")
         mark(root, "s4_rms")
+    if args.stop_after == "rms":
+        return
 
     if not marker(root, "s5_pruning_commit").is_file():
         train_queries, train_ids = queries_from_cache(
@@ -274,4 +290,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
