@@ -74,6 +74,15 @@ def commit_retained_candidates(
             }
             for layer, values in calibration.items()
         }
+        for expert_id in retained:
+            key_pool.metadata[expert_id]["rms_state"] = {
+                "mode": "commit_frozen",
+                "per_layer_kappa": {
+                    layer: float(values[str(expert_id)])
+                    for layer, values in calibration.items()
+                    if str(expert_id) in values
+                },
+            }
     torch.save(filtered, target / WEIGHTS_NAME)
     manifest["metrics"]["checkpoint_bytes"] = os.path.getsize(target / WEIGHTS_NAME)
     with (target / MANIFEST_NAME).open("w", encoding="utf-8") as handle:
@@ -83,4 +92,3 @@ def commit_retained_candidates(
     # Pruned keys remain in the audit state but are lifecycle=pruned and hence
     # unselectable. The inference loader additionally rejects current keys.
     torch.save(key_pool.export_state(), target / "v7_keys.pt")
-
