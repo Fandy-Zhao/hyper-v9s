@@ -142,6 +142,7 @@ def main():
             coverage["num_train_samples"], args.task_index, config.seed,
             config.candidates.key_perturbation, previous_keys,
         )
+        (root / "state").mkdir(parents=True, exist_ok=True)
         torch.save(pool.export_state(), root / "state" / "candidate_keys.pt")
         write_json(root / "metrics" / "candidate_initialization.json", audit)
         mark(root, "s2_candidates")
