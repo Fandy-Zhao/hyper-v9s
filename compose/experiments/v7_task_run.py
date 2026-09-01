@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import torch
@@ -71,7 +72,7 @@ def main():
     parser.add_argument("--val-file", required=True)
     parser.add_argument("--test-file")
     parser.add_argument("--previous-checkpoint")
-    parser.add_argument("--python", default=os.environ.get("PYTHON", "python"))
+    parser.add_argument("--python", default=os.environ.get("PYTHON", sys.executable))
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--vision-tower", required=True)
     parser.add_argument("--projector-path", required=True)
