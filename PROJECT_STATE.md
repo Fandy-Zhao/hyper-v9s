@@ -1,5 +1,15 @@
 # Project State
 
+## 2026-09-01 — V7 full-data global key–expert co-evolution
+
+- Baseline: `a8f3a7860631aec8e2ea0d65ad9794838ffaffc7`.
+- Active branch: `exp/v7-full-data-global-key-expert-coevolution`.
+- Audit: `CURRENT_CODE_AUDIT.md`.
+- Status: implementation in progress; V6/V6.1/V6.2 paths remain intact.
+- Plan: fixed 1536-D query, four full-data candidates, global Top-2 from step
+  one, selected-current Key/LoRA updates, validation removal-reroute pruning,
+  frozen commit, resume-safe inference, then unit and two-task smoke tests.
+
 ## Snapshot
 - Date: 2026-07-30
 - Branch: `exp/0730-compose-task1-oracle`
