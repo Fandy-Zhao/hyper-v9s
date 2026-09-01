@@ -1,6 +1,8 @@
 """Transformers integration for V7 dynamic global Top-2 training."""
 
 import os
+import json
+from collections import Counter
 from pathlib import Path
 
 import torch
@@ -75,13 +77,26 @@ class V7ComposeTrainer(ComposeTrainer):
     def create_optimizer(self):
         if self.optimizer is not None:
             return self.optimizer
-        key_ids = {id(value) for value in self.v7_key_pool.keys.values() if value.requires_grad}
-        key_parameters = []
-        lora_parameters = []
-        for parameter in self.model.parameters():
-            if not parameter.requires_grad:
-                continue
-            (key_parameters if id(parameter) in key_ids else lora_parameters).append(parameter)
+        key_parameters = [
+            self.v7_key_pool.keys[str(value)] for value in self.v7_key_pool.current_ids
+        ]
+        lora_parameters = [
+            parameter
+            for expert_id in self.v7_key_pool.current_ids
+            for layer in self.expert_pool.manager.layers.values()
+            for parameter in layer.experts[str(expert_id)].parameters()
+        ]
+        allowed = {id(value) for value in key_parameters + lora_parameters}
+        unexpected = [
+            name for name, value in self.model.named_parameters()
+            if value.requires_grad and id(value) not in allowed
+        ]
+        if unexpected:
+            raise AssertionError(
+                "V7 optimizer refuses non-current-Key/LoRA parameters: {}".format(
+                    unexpected[:10]
+                )
+            )
         self.optimizer = torch.optim.AdamW(
             [
                 {
@@ -97,6 +112,22 @@ class V7ComposeTrainer(ComposeTrainer):
             ]
         )
         return self.optimizer
+
+    def trainable_parameter_audit(self):
+        return {
+            "current_key_parameters": sum(value.numel() for value in self.v7_key_pool.parameters() if value.requires_grad),
+            "current_lora_parameters": sum(
+                parameter.numel()
+                for expert_id in self.v7_key_pool.current_ids
+                for layer in self.expert_pool.manager.layers.values()
+                for parameter in layer.experts[str(expert_id)].parameters()
+                if parameter.requires_grad
+            ),
+            "historical_key_parameters": sum(
+                self.v7_key_pool.keys[str(value)].numel() for value in self.v7_key_pool.historical_ids
+            ),
+            "query_parameters": 0,
+        }
 
     def training_step(self, model, inputs):
         queries = inputs.get("fixed_queries")
@@ -156,6 +187,18 @@ class V7ComposeTrainer(ComposeTrainer):
     def _write_step_metrics(self):
         answer, key, total, per_sample = self._v7_losses
         _, routed, current_selected = self._v7_active
+        selected_key_grad = sum(
+            float(self.v7_key_pool.keys[str(value)].grad.detach().float().square().sum())
+            for value in current_selected
+            if self.v7_key_pool.keys[str(value)].grad is not None
+        ) ** 0.5
+        selected_lora_grad = sum(
+            float(parameter.grad.detach().float().square().sum())
+            for value in current_selected
+            for layer in self.expert_pool.manager.layers.values()
+            for parameter in layer.experts[str(value)].parameters()
+            if parameter.grad is not None
+        ) ** 0.5
         self.v7_logger.write(
             {
                 "step": int(self.state.global_step),
@@ -167,8 +210,65 @@ class V7ComposeTrainer(ComposeTrainer):
                 "route_types": list(routed.route_types),
                 "selected_current_ids": sorted(int(value) for value in current_selected),
                 "old_old_noop": not bool(current_selected),
+                "selected_current_key_grad_norm": selected_key_grad,
+                "selected_current_lora_grad_norm": selected_lora_grad,
             }
         )
+
+    def final_diagnostics(self, num_train_samples):
+        route_counts = Counter()
+        selection_counts = Counter()
+        pair_counts = Counter()
+        cross_task_pairs = Counter()
+        losses = Counter()
+        rows = 0
+        with self.v7_logger.path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                record = json.loads(line)
+                rows += 1
+                route_counts.update(record["route_types"])
+                losses["answer_loss"] += float(record["answer_loss"])
+                losses["key_loss"] += float(record["key_loss"])
+                losses["total_loss"] += float(record["total_loss"])
+                for pair in record["selected_expert_ids"]:
+                    pair = tuple(sorted(int(value) for value in pair))
+                    pair_counts[pair] += 1
+                    selection_counts.update(pair)
+                    origins = tuple(
+                        int(self.v7_key_pool.metadata[value]["origin_task"])
+                        for value in pair
+                    )
+                    if origins[0] != origins[1]:
+                        cross_task_pairs[pair] += 1
+        routed_samples = sum(route_counts.values())
+        historical = set(self.v7_key_pool.historical_ids)
+        historical_selected = sum(
+            count for expert_id, count in selection_counts.items() if expert_id in historical
+        )
+        return {
+            "num_train_samples": int(num_train_samples),
+            "logged_micro_steps": rows,
+            "routed_samples": routed_samples,
+            "OldOldRate": route_counts["OldOld"] / routed_samples if routed_samples else 0.0,
+            "OldNewRate": route_counts["OldNew"] / routed_samples if routed_samples else 0.0,
+            "NewNewRate": route_counts["NewNew"] / routed_samples if routed_samples else 0.0,
+            "candidate_selection_count": {
+                str(value): selection_counts[value] for value in self.v7_key_pool.current_ids
+            },
+            "historical_expert_usage": {
+                str(value): selection_counts[value] for value in self.v7_key_pool.historical_ids
+            },
+            "CrossTaskReuseRate": historical_selected / max(1, 2 * routed_samples),
+            "expert_pair_frequency": {
+                "{},{}".format(*pair): count for pair, count in pair_counts.items()
+            },
+            "cross_task_expert_pair_frequency": {
+                "{},{}".format(*pair): count for pair, count in cross_task_pairs.items()
+            },
+            "mean_losses": {
+                key: value / rows if rows else 0.0 for key, value in losses.items()
+            },
+        }
 
     def _save_checkpoint(self, model, trial, metrics=None):
         super()._save_checkpoint(model, trial, metrics)
@@ -220,4 +320,3 @@ class V7ComposeTrainer(ComposeTrainer):
         if after_lora != self._historical_lora_before:
             raise AssertionError("historical LoRA checksum changed during task")
         return {"historical_key_unchanged": True, "historical_lora_unchanged": True}
-

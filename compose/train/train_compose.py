@@ -342,6 +342,8 @@ def train() -> None:
             raise ValueError("V7 mode requires four --compose-cluster-expert-ids")
         if model_args.max_samples is not None:
             raise ValueError("V7 training forbids max_samples; provide an explicit smoke split")
+        if model_args.tune_mm_mlp_adapter:
+            raise ValueError("V7 trains only current Candidate LoRA and Key parameters")
     else:
         if not model_args.compose_expert_ids.strip():
             raise ValueError("fixed mode requires --compose-expert-ids")
@@ -371,6 +373,11 @@ def train() -> None:
             # DDP + find_unused_parameters=True (see S6 4-GPU launch)
             # requires non-reentrant checkpointing.
             _enable_non_reentrant_checkpointing()
+        if mode == "v7_global_coevolution":
+            # Keep frozen embeddings out of the optimizer while still making
+            # checkpointed layer inputs require grad.
+            model.model.embed_tokens.weight.requires_grad_(False)
+            model.enable_input_require_grads()
     else:
         _load_old_checkpoint(pool, model_args, training_args)
         selected_experts, trainable_experts = _resolve_expert_roles(
@@ -527,6 +534,21 @@ def train() -> None:
                 "w", encoding="utf-8"
             ) as handle:
                 json.dump(freeze_audit, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            with open(
+                os.path.join(training_args.output_dir, "v7_trainable_parameter_audit.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(trainer.trainable_parameter_audit(), handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            with open(
+                os.path.join(training_args.output_dir, "v7_training_diagnostics.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(
+                    trainer.final_diagnostics(len(data_module["train_dataset"])),
+                    handle, indent=2, sort_keys=True,
+                )
                 handle.write("\n")
             torch.save(
                 v7_key_pool.export_state(),
