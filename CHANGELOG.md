@@ -2,6 +2,13 @@
 
 ## 2026-09-02
 
+- Hardened the final V7 pre-training gate: split isolation now distinguishes
+  harmless reused source IDs from real image+question/normalized-record
+  leakage, and every resumable stage is bound to Git/config/data/annotation/
+  previous-checkpoint hashes. Formal runs now persist and print the
+  single-process effective global batch and final artifact provenance, while
+  rejecting unsupported implicit DDP execution.
+
 - Completed the V7 formal implementation repair: uncapped full-data formal
   mode with observed-sample coverage, answer-only NLL mask parity, unified RMS
   and preprocessing contracts, iterative remove-and-reroute pruning, strict

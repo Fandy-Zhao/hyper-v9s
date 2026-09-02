@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import torch
@@ -42,6 +43,27 @@ def write_json(path, payload):
     target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def write_json_atomic(path, payload):
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=target.name + ".", suffix=".tmp", dir=str(target.parent)
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def run(command, env, log_path):
     target = Path(log_path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -55,10 +77,22 @@ def marker(root, name):
     return Path(root) / "stages" / (name + ".done")
 
 
-def mark(root, name):
+def stage_done(root, name, run_contract_hash):
     target = marker(root, name)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("done\n", encoding="utf-8")
+    if not target.is_file():
+        return False
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as error:
+        raise ValueError("unbound or invalid V7 stage marker: {}".format(target)) from error
+    if payload.get("run_contract_hash") != run_contract_hash:
+        raise ValueError("stale V7 stage marker contract: {}".format(target))
+    return True
+
+
+def mark(root, name, run_contract_hash):
+    target = marker(root, name)
+    write_json_atomic(target, {"stage": name, "run_contract_hash": run_contract_hash})
 
 
 def sha256(path):
@@ -67,6 +101,120 @@ def sha256(path):
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_tree(path):
+    root = Path(path)
+    if not root.exists():
+        return None
+    if root.is_file():
+        return sha256(root)
+    digest = hashlib.sha256()
+    for candidate in sorted(value for value in root.rglob("*") if value.is_file()):
+        relative = candidate.relative_to(root).as_posix().encode("utf-8")
+        digest.update(len(relative).to_bytes(8, "big"))
+        digest.update(relative)
+        with candidate.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def stable_hash(payload):
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def git_head():
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+    ).strip()
+
+
+def build_run_contract(args, config, formal_run, gradient_accumulation_steps):
+    paths = {
+        "method_config": args.config,
+        "train": args.train_file,
+        "validation": args.val_file,
+        "test": args.test_file,
+        "validation_annotation": args.validation_annotation_file,
+    }
+    files = {}
+    for name, value in paths.items():
+        if value:
+            resolved = Path(value).expanduser().resolve()
+            if not resolved.is_file():
+                raise FileNotFoundError(str(resolved))
+            files[name] = {"path": str(resolved), "sha256": sha256(resolved)}
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if world_size != 1:
+        raise ValueError(
+            "V7 formal task runner is single-process; WORLD_SIZE={} is unsupported. "
+            "Use GPUS as task-to-device round-robin, not torchrun/DDP.".format(world_size)
+        )
+    recipe = {
+        "num_train_epochs": config.training.num_train_epochs,
+        "per_device_train_batch_size": config.training.per_device_train_batch_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "world_size": world_size,
+        "effective_global_batch_size": (
+            config.training.per_device_train_batch_size
+            * gradient_accumulation_steps
+            * world_size
+        ),
+        "learning_rate": config.training.learning_rate,
+        "weight_decay": config.training.weight_decay,
+        "warmup_ratio": config.training.warmup_ratio,
+        "lr_scheduler_type": config.training.lr_scheduler_type,
+        "bf16": config.training.bf16,
+        "gradient_checkpointing": config.training.gradient_checkpointing,
+        "seed": config.training.seed,
+        "dataloader_num_workers": config.training.dataloader_num_workers,
+        "save_strategy": config.training.save_strategy,
+        "dataloader_drop_last": False,
+        "max_steps": -1 if formal_run else args.smoke_max_steps,
+        "max_samples": None,
+    }
+    contract = {
+        "schema_version": 1,
+        "git_sha": git_head(),
+        "task_index": args.task_index,
+        "task_name": args.task_name,
+        "formal_run": formal_run,
+        "validation_metric": args.validation_metric,
+        "files": files,
+        "previous_checkpoint": {
+            "path": str(Path(args.previous_checkpoint).resolve()),
+            "sha256": sha256_tree(args.previous_checkpoint),
+        } if args.previous_checkpoint else None,
+        "model_path": str(Path(args.model_path).resolve()),
+        "vision_tower": str(Path(args.vision_tower).resolve()),
+        "projector_path": str(Path(args.projector_path).resolve()),
+        "image_folder": str(Path(args.image_folder).resolve()),
+        "recipe": recipe,
+        "method": config.method,
+        "method_seed": config.seed,
+    }
+    contract["contract_hash"] = stable_hash(contract)
+    return contract
+
+
+def bind_run_contract(root, expected, resume, had_entries):
+    path = Path(root) / "data" / "run_contract.json"
+    if path.is_file():
+        observed = json.loads(path.read_text(encoding="utf-8"))
+        if observed != expected:
+            raise ValueError(
+                "V7 resume contract mismatch: expected {} but found {}".format(
+                    expected["contract_hash"], observed.get("contract_hash")
+                )
+            )
+    elif resume and had_entries:
+        raise ValueError("non-empty V7 resume root has no bound run contract")
+    else:
+        write_json_atomic(path, expected)
+    return expected["contract_hash"]
 
 
 def main():
@@ -111,7 +259,8 @@ def main():
     args = parser.parse_args()
 
     root = Path(args.root)
-    if root.exists() and any(root.iterdir()) and not args.resume:
+    had_entries = root.exists() and any(root.iterdir())
+    if had_entries and not args.resume:
         raise FileExistsError("non-empty V7 task root requires --resume")
     root.mkdir(parents=True, exist_ok=True)
     config = V7Config.from_dict(yaml.safe_load(Path(args.config).read_text()))
@@ -133,6 +282,18 @@ def main():
         config.training.gradient_accumulation_steps
         if formal_run else args.smoke_gradient_accumulation_steps
     )
+    run_contract = build_run_contract(
+        args, config, formal_run, gradient_accumulation_steps
+    )
+    run_contract_hash = bind_run_contract(root, run_contract, args.resume, had_entries)
+    write_json_atomic(root / "data" / "formal_recipe.json", run_contract["recipe"])
+    print(
+        "V7 recipe: world_size={world_size} per_device_batch={per_device_train_batch_size} "
+        "gradient_accumulation={gradient_accumulation_steps} "
+        "effective_global_batch={effective_global_batch_size} max_steps={max_steps}".format(
+            **run_contract["recipe"]
+        )
+    )
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = args.device.split(":")[-1]
     worker_device = "cuda:0" if args.device.startswith("cuda") else args.device
@@ -143,7 +304,7 @@ def main():
     train_json = root / "data" / "train_full.json"
     val_json = root / "data" / "val_full.json"
     runtime_contract_path = root / "data" / "runtime_contract.json"
-    if not marker(root, "s0_full_data").is_file():
+    if not stage_done(root, "s0_full_data", run_contract_hash):
         split_audit = bind_pipeline_data_usage(
             audit_split_isolation(args.train_file, args.val_file, args.test_file),
             training_sources=(args.train_file,),
@@ -188,12 +349,12 @@ def main():
                 projector_path=args.projector_path,
             ),
         )
-        mark(root, "s0_full_data")
+        mark(root, "s0_full_data", run_contract_hash)
     coverage = json.loads((root / "data" / "coverage.json").read_text())
     if args.stop_after == "full_data":
         return
 
-    if not marker(root, "s1_fixed_queries").is_file():
+    if not stage_done(root, "s1_fixed_queries", run_contract_hash):
         for split, path in (("train", train_json), ("val", val_json)):
             run([
                 args.python, "-m", "compose.eval.query_features",
@@ -202,7 +363,7 @@ def main():
                 "--query-vision-model", config.query.path,
                 "--query-mode", "v7_fixed", "--device", worker_device,
             ], env, root / "logs" / ("features_" + split + ".log"))
-        mark(root, "s1_fixed_queries")
+        mark(root, "s1_fixed_queries", run_contract_hash)
     query_contract_path = root / "data" / "query_contract.json"
     query_contract = validate_query_cache_contract(
         (root / "features" / "train.json", root / "features" / "val.json"),
@@ -213,7 +374,7 @@ def main():
     if args.stop_after == "fixed_queries":
         return
 
-    if not marker(root, "s2_candidates").is_file():
+    if not stage_done(root, "s2_candidates", run_contract_hash):
         pool, center, audit = prepare_candidate_pool(
             str(root / "features" / "train.json"),
             coverage["num_train_samples"], args.task_index, config.seed,
@@ -222,7 +383,7 @@ def main():
         (root / "state").mkdir(parents=True, exist_ok=True)
         torch.save(pool.export_state(), root / "state" / "candidate_keys.pt")
         write_json(root / "metrics" / "candidate_initialization.json", audit)
-        mark(root, "s2_candidates")
+        mark(root, "s2_candidates", run_contract_hash)
     if args.stop_after == "candidates":
         return
     pool = V7ExpertKeyPool.from_state(
@@ -231,7 +392,7 @@ def main():
     candidate_ids = pool.current_ids
 
     output = root / "training"
-    if not marker(root, "s3_training").is_file():
+    if not stage_done(root, "s3_training", run_contract_hash):
         command = [
             args.python, "-m", "compose.train.train_compose",
             "--model_name_or_path", args.model_path,
@@ -285,14 +446,14 @@ def main():
             ]
             command += ["--compose_existing_expert_origins", ",".join(origins)]
         run(command, env, root / "logs" / "training.log")
-        mark(root, "s3_training")
+        mark(root, "s3_training", run_contract_hash)
     if args.stop_after == "training":
         return
 
     trained_pool = V7ExpertKeyPool.from_state(
         torch.load(output / "v7_key_pool.pt", weights_only=False)
     )
-    if not marker(root, "s4_rms").is_file():
+    if not stage_done(root, "s4_rms", run_contract_hash):
         bin_path = output / "compose_experts.bin"
         rms_command = [
             args.python, "-m", "compose.eval.rms_stats",
@@ -315,11 +476,11 @@ def main():
             write_json(previous_calibration, previous_manifest.get("rms_calibration", {}))
             rms_command += ["--frozen-calibration", str(previous_calibration)]
         run(rms_command, env, root / "logs" / "rms.log")
-        mark(root, "s4_rms")
+        mark(root, "s4_rms", run_contract_hash)
     if args.stop_after == "rms":
         return
 
-    if not marker(root, "s5_pruning_commit").is_file():
+    if not stage_done(root, "s5_pruning_commit", run_contract_hash):
         train_queries, train_ids = queries_from_cache(
             str(root / "features" / "train.json"), coverage["num_train_samples"]
         )
@@ -414,9 +575,11 @@ def main():
         commit_retained_candidates(
             str(output), str(root / "committed"), trained_pool, retained, metrics
         )
-        mark(root, "s5_pruning_commit")
+        mark(root, "s5_pruning_commit", run_contract_hash)
 
-    if args.test_file and not args.skip_eval and not marker(root, "s6_inference").is_file():
+    if args.test_file and not args.skip_eval and not stage_done(
+        root, "s6_inference", run_contract_hash
+    ):
         run([
             args.python, "-m", "compose.eval.eval_task", "--adapter-kind", "compose",
             "--model-path", args.model_path, "--checkpoint-dir", str(root / "committed"),
@@ -430,13 +593,38 @@ def main():
             "--device", worker_device,
             "--runtime-contract", str(runtime_contract_path),
         ], env, root / "logs" / "inference.log")
-        mark(root, "s6_inference")
+        mark(root, "s6_inference", run_contract_hash)
+    artifact_provenance = {
+        "git_sha": run_contract["git_sha"],
+        "run_contract_hash": run_contract_hash,
+        "config_hash": run_contract["files"]["method_config"]["sha256"],
+        "train_sha256": run_contract["files"]["train"]["sha256"],
+        "validation_sha256": run_contract["files"]["validation"]["sha256"],
+        "test_sha256": run_contract["files"].get("test", {}).get("sha256"),
+        "validation_annotation_sha256": run_contract["files"].get(
+            "validation_annotation", {}
+        ).get("sha256"),
+        "query_backbone_hash": query_contract["backbone_hash"],
+        "projector_sha256": json.loads(runtime_contract_path.read_text())["projector_sha256"],
+        "previous_checkpoint_hash": (
+            run_contract["previous_checkpoint"]["sha256"]
+            if run_contract["previous_checkpoint"] else None
+        ),
+        "current_checkpoint_hash": sha256_tree(root / "committed"),
+        "rms_artifact_hash": sha256_tree(root / "rms"),
+        "pruning_artifact_hash": sha256_tree(root / "pruning"),
+        "validation_metric": validation_metric,
+        "seed": config.seed,
+    }
+    write_json_atomic(root / "artifact_provenance.json", artifact_provenance)
     write_json(root / "task_complete.json", {
         "method": config.method,
         "task_index": args.task_index,
         "num_train_samples": coverage["num_train_samples"],
         "num_queries_used_for_center": coverage["num_train_samples"],
         "checkpoint": str(root / "committed"),
+        "checkpoint_hash": artifact_provenance["current_checkpoint_hash"],
+        "run_contract_hash": run_contract_hash,
     })
 
 

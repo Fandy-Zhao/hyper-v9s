@@ -32,6 +32,14 @@ def _record_identity(record: Mapping[str, object]) -> str:
     ).hexdigest()
 
 
+def _normalized_record_hash(record: Mapping[str, object]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            record, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _split_details(path: str) -> Dict[str, object]:
     normalized = str(Path(path).expanduser().resolve())
     records = json.loads(Path(normalized).read_text(encoding="utf-8"))
@@ -42,6 +50,7 @@ def _split_details(path: str) -> Dict[str, object]:
         for index, record in enumerate(records)
     ]
     identities = [_record_identity(record) for record in records]
+    record_hashes = [_normalized_record_hash(record) for record in records]
     images = [str(record.get("image", "")) for record in records]
     questions = [question_text(record).strip() for record in records]
     answers = [answer_text(record).strip() for record in records]
@@ -51,11 +60,13 @@ def _split_details(path: str) -> Dict[str, object]:
         "sample_count": len(records),
         "sample_id_hash": _stable_hash(sample_ids),
         "source_record_identity_hash": _stable_hash(identities),
+        "normalized_record_hash": _stable_hash(record_hashes),
         "image_hash": _stable_hash(images),
         "question_hash": _stable_hash(questions),
         "answer_hash": _stable_hash(answers),
         "_sample_ids": set(sample_ids),
         "_identities": set(identities),
+        "_record_hashes": set(record_hashes),
         "_images": set(images),
         "_questions": set(questions),
     }
@@ -78,17 +89,26 @@ def audit_split_isolation(
                 raise ValueError("split leakage: {} use the same normalized path".format(pair))
             if a["file_sha256"] == b["file_sha256"]:
                 raise ValueError("split leakage: {} have identical file hashes".format(pair))
-            record_overlap = a["_identities"] & b["_identities"]
+            image_question_overlap = a["_identities"] & b["_identities"]
+            record_overlap = a["_record_hashes"] & b["_record_hashes"]
             id_overlap = a["_sample_ids"] & b["_sample_ids"]
             overlaps[pair] = {
-                "sample_id_overlap": len(id_overlap),
-                "source_record_overlap": len(record_overlap),
+                "source_id_overlap": len(id_overlap),
+                "image_question_overlap": len(image_question_overlap),
+                "normalized_record_overlap": len(record_overlap),
+                # Backward-compatible key: this has always represented the
+                # image+question identity used by the training pipeline.
+                "source_record_overlap": len(image_question_overlap),
                 "image_overlap": len(a["_images"] & b["_images"]),
                 "question_overlap": len(a["_questions"] & b["_questions"]),
             }
-            if id_overlap or record_overlap:
+            # UCIT task files reuse numeric IDs across independently sourced
+            # train/test rows.  An ID collision is evidence to report, not
+            # leakage by itself.  Identical image+question or complete source
+            # records are material leakage and remain hard failures.
+            if image_question_overlap or record_overlap:
                 raise ValueError(
-                    "split leakage: {} sample-id/record overlap {}".format(
+                    "split leakage: {} image-question/record overlap {}".format(
                         pair, overlaps[pair]
                     )
                 )

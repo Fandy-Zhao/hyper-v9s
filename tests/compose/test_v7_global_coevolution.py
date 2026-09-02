@@ -453,6 +453,18 @@ def test_26_split_leakage_and_runtime_preprocessing_parity(tmp_path):
     with pytest.raises(ValueError, match="record overlap"):
         audit_split_isolation(train, val, overlap)
 
+    # UCIT files can reuse local numeric IDs across independent source rows.
+    # This must be reported without rejecting otherwise disjoint splits.
+    id_collision = write(
+        "id_collision.json",
+        [{"id": "a", "image": "other.jpg", "text": "other", "answer": "x"}],
+    )
+    collision_audit = audit_split_isolation(train, val, id_collision)
+    collision = collision_audit["overlap_checks"]["train_vs_test"]
+    assert collision["source_id_overlap"] == 1
+    assert collision["image_question_overlap"] == 0
+    assert collision["normalized_record_overlap"] == 0
+
     projector = tmp_path / "projector.bin"
     projector.write_bytes(b"projector")
     contract = build_runtime_contract(
@@ -589,6 +601,62 @@ def test_31_checkpoint_continuous_and_resume_states_are_equivalent(tmp_path):
     assert torch.allclose(resumed_state["exp_avg"], continuous_state["exp_avg"])
     assert torch.equal(payload["candidate_lora_state"][next(iter(lora_state))], torch.tensor([1.25]))
     assert payload["candidate_usage_counters"] == counters
+
+
+def test_33_v7_stage_markers_are_bound_to_the_run_contract(tmp_path):
+    from compose.experiments.v7_task_run import (
+        bind_run_contract,
+        mark,
+        stage_done,
+    )
+
+    contract = {"schema_version": 1, "contract_hash": "contract-a"}
+    assert bind_run_contract(tmp_path, contract, resume=False, had_entries=False) == "contract-a"
+    mark(tmp_path, "s0_full_data", "contract-a")
+    assert stage_done(tmp_path, "s0_full_data", "contract-a") is True
+    with pytest.raises(ValueError, match="stale V7 stage marker"):
+        stage_done(tmp_path, "s0_full_data", "contract-b")
+    with pytest.raises(ValueError, match="resume contract mismatch"):
+        bind_run_contract(
+            tmp_path,
+            {"schema_version": 1, "contract_hash": "contract-b"},
+            resume=True,
+            had_entries=True,
+        )
+
+
+def test_34_formal_recipe_records_single_process_effective_global_batch(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from compose.experiments.v7_task_run import build_run_contract
+
+    files = {}
+    for name in ("config", "train", "validation", "test", "annotation"):
+        path = tmp_path / (name + ".json")
+        path.write_text("{}", encoding="utf-8")
+        files[name] = str(path)
+    args = SimpleNamespace(
+        config=files["config"], train_file=files["train"],
+        val_file=files["validation"], test_file=files["test"],
+        validation_annotation_file=files["annotation"], task_index=0,
+        task_name="ImageNet-R", validation_metric="official_ucit",
+        previous_checkpoint=None, model_path=str(tmp_path / "model"),
+        vision_tower=str(tmp_path / "vision"),
+        projector_path=str(tmp_path / "projector.bin"),
+        image_folder=str(tmp_path / "images"), smoke_max_steps=None,
+    )
+    monkeypatch.setenv("WORLD_SIZE", "1")
+    contract = build_run_contract(args, V7Config(), True, 64)
+    assert contract["recipe"]["effective_global_batch_size"] == 64
+    assert contract["recipe"]["world_size"] == 1
+    assert contract["recipe"]["max_steps"] == -1
+    assert contract["recipe"]["max_samples"] is None
+
+    monkeypatch.setenv("WORLD_SIZE", "4")
+    with pytest.raises(ValueError, match="single-process"):
+        build_run_contract(args, V7Config(), True, 64)
 
 
 def test_32_nll_eval_reuses_training_preprocessing_mask():
