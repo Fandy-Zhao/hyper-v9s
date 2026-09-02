@@ -4,7 +4,7 @@
 
 - Branch: `exp/v7-full-data-global-key-expert-coevolution`
 - Audit baseline: `ee971f75a69c2945a85d380620476d57084b0e3d`
-- Validated implementation SHA: `ac7fb8dbaf7631ed5bc017475efea8b112c7e864`
+- Validated implementation SHA: `55f7b86e090ad2486363513c6c96bedf033cde7a`
 - Worktree at validation: clean
 - GitHub push: blocked. Server HTTPS remote has no credential; the local host
   cannot reach `github.com:443`, and server SSH has no authorized GitHub key.
@@ -12,7 +12,8 @@
   local `v7-final-delivery.bundle`.
 - Commits after baseline:
   `1ea87e8`, `78feddf`, `0fa30a0`, `6e7c16d`, `f082390`,
-  `0a8f76a`, `10242fb`, `7ea3b26`, `d4c3270`, `ac7fb8d`.
+  `0a8f76a`, `10242fb`, `7ea3b26`, `d4c3270`, `ac7fb8d`, `31d1583`,
+  `55f7b86` (followed only by report-delivery commits).
 
 ## 2. Executive Verdict
 
@@ -156,6 +157,7 @@ The final runner writes `candidate_pruning_trajectory.json` separately.
 | `pytest tests/compose -q` | 396 passed, 8 subtests passed | 67.69 s | none |
 | `python -m py_compile ...` + launcher `bash -n` + runner `--help` | PASS | bounded | none |
 | `python -m compose.experiments.v7_smoke --steps 30` | all six checks true | 5.77 s | none |
+| Post-`55f7b86` launcher `bash -n` + focused V7 tests | 33 passed | 5.94 s | none |
 
 Warnings: three upstream deprecation warnings (Transformers pytree and
 DeepSpeed `find_executable`); no `NEW_REGRESSION`, `PRE_EXISTING_STALE_TEST`,
