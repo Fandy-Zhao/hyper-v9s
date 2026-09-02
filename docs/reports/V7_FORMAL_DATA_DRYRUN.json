@@ -1,0 +1,424 @@
+{
+  "head": "5e634c988db9f8b04773bf167d6b51aca891903c",
+  "config": "/home/zhaozhuofan/Hyper-LlaVA/configs/v7_ucit_formal.yaml",
+  "method_config": "/home/zhaozhuofan/Hyper-LlaVA/configs/v7_global_coevolution.yaml",
+  "recipe": {
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 64,
+    "effective_global_batch": 64,
+    "max_steps": -1,
+    "max_samples": null,
+    "learning_rate": 0.0002,
+    "key_lr": null,
+    "weight_decay": 0.0,
+    "warmup_ratio": 0.03,
+    "lr_schedule": null,
+    "seed": 42,
+    "num_train_epochs": 1
+  },
+  "meta_paths": {
+    "method_config": {
+      "path": "/home/zhaozhuofan/Hyper-LlaVA/configs/v7_global_coevolution.yaml",
+      "exists": true
+    },
+    "model_path": {
+      "path": "/data/ckpt/zhaozhuofan/models/llava-v1.5-7b",
+      "exists": true
+    },
+    "vision_tower": {
+      "path": "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336",
+      "exists": true
+    },
+    "projector_path": {
+      "path": "/data/ckpt/zhaozhuofan/models/llava-v1.5-7b/mm_projector.bin",
+      "exists": true
+    },
+    "image_folder": {
+      "path": "/data/dataset/zhaozhuofan/UCIT/datasets",
+      "exists": true
+    }
+  },
+  "tasks": {
+    "ImageNet-R": {
+      "status": "PASS",
+      "checks": {
+        "launcher_declared_files": {
+          "ok": true,
+          "detail": "train/val/test/annotation all present"
+        },
+        "validation_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "9d8f2943cc4161d0 == provenance"
+        },
+        "train_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "a66f3e874d7039b9 == provenance"
+        },
+        "validation_count_256": {
+          "ok": true,
+          "detail": "256 records"
+        },
+        "train_count_matches_removal": {
+          "ok": true,
+          "detail": "23742 == 23998 - 256"
+        },
+        "isolation_train_vs_validation": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_train_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_validation_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "test_data_unused": {
+          "ok": true,
+          "detail": "audit flags false"
+        },
+        "val_query_text_canonical": {
+          "ok": true,
+          "detail": "placeholder/text-key issues=0 answer_mismatch=0"
+        },
+        "val_images_exist": {
+          "ok": true,
+          "detail": "missing=0 of 256"
+        },
+        "metric_resolution": {
+          "ok": true,
+          "detail": "official_ucit -> v7_validation_metric; annotation present; java=yes"
+        }
+      },
+      "stats": {
+        "num_train": 23742,
+        "num_validation": 256,
+        "removed": 256,
+        "validation_images": null,
+        "validation_questions": null,
+        "reference_captions": null,
+        "task_root": "/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_ucit_formal_seed42/task0",
+        "previous_checkpoint": "-"
+      }
+    },
+    "ArxivQA": {
+      "status": "PASS",
+      "checks": {
+        "launcher_declared_files": {
+          "ok": true,
+          "detail": "train/val/test/annotation all present"
+        },
+        "validation_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "c5bd8ec44f996285 == provenance"
+        },
+        "train_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "31c135938a7286bc == provenance"
+        },
+        "validation_count_256": {
+          "ok": true,
+          "detail": "256 records"
+        },
+        "train_count_matches_removal": {
+          "ok": true,
+          "detail": "39720 == 40000 - 280"
+        },
+        "isolation_train_vs_validation": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=92 source_id=0"
+        },
+        "isolation_train_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=1255 source_id=0"
+        },
+        "isolation_validation_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=6 source_id=0"
+        },
+        "test_data_unused": {
+          "ok": true,
+          "detail": "audit flags false"
+        },
+        "val_query_text_canonical": {
+          "ok": true,
+          "detail": "placeholder/text-key issues=0 answer_mismatch=0"
+        },
+        "val_images_exist": {
+          "ok": true,
+          "detail": "missing=0 of 256"
+        },
+        "metric_resolution": {
+          "ok": true,
+          "detail": "official_ucit -> v7_validation_metric; annotation present; java=yes"
+        }
+      },
+      "stats": {
+        "num_train": 39720,
+        "num_validation": 256,
+        "removed": 280,
+        "validation_images": null,
+        "validation_questions": null,
+        "reference_captions": null,
+        "task_root": "/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_ucit_formal_seed42/task1",
+        "previous_checkpoint": "committed"
+      }
+    },
+    "VizWiz": {
+      "status": "PASS",
+      "checks": {
+        "launcher_declared_files": {
+          "ok": true,
+          "detail": "train/val/test/annotation all present"
+        },
+        "validation_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "b46ab838d7aa0968 == provenance"
+        },
+        "train_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "62c9ac1803619660 == provenance"
+        },
+        "validation_count_256": {
+          "ok": true,
+          "detail": "256 records"
+        },
+        "train_count_matches_removal": {
+          "ok": true,
+          "detail": "39520 == 40000 - 480"
+        },
+        "isolation_train_vs_validation": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_train_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_validation_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "test_data_unused": {
+          "ok": true,
+          "detail": "audit flags false"
+        },
+        "val_query_text_canonical": {
+          "ok": true,
+          "detail": "placeholder/text-key issues=0 answer_mismatch=0"
+        },
+        "val_images_exist": {
+          "ok": true,
+          "detail": "missing=0 of 256"
+        },
+        "metric_resolution": {
+          "ok": true,
+          "detail": "official_ucit -> v7_validation_metric; annotation present; java=yes"
+        }
+      },
+      "stats": {
+        "num_train": 39520,
+        "num_validation": 256,
+        "removed": 480,
+        "validation_images": 256,
+        "validation_questions": 256,
+        "reference_captions": 460,
+        "task_root": "/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_ucit_formal_seed42/task2",
+        "previous_checkpoint": "committed"
+      }
+    },
+    "IconQA": {
+      "status": "PASS",
+      "checks": {
+        "launcher_declared_files": {
+          "ok": true,
+          "detail": "train/val/test/annotation all present"
+        },
+        "validation_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "af656a4fc4ba0985 == provenance"
+        },
+        "train_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "cfad5d1c0b3122de == provenance"
+        },
+        "validation_count_256": {
+          "ok": true,
+          "detail": "256 records"
+        },
+        "train_count_matches_removal": {
+          "ok": true,
+          "detail": "29603 == 29859 - 256"
+        },
+        "isolation_train_vs_validation": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_train_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_validation_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "test_data_unused": {
+          "ok": true,
+          "detail": "audit flags false"
+        },
+        "val_query_text_canonical": {
+          "ok": true,
+          "detail": "placeholder/text-key issues=0 answer_mismatch=0"
+        },
+        "val_images_exist": {
+          "ok": true,
+          "detail": "missing=0 of 256"
+        },
+        "metric_resolution": {
+          "ok": true,
+          "detail": "official_ucit -> v7_validation_metric; annotation present; java=yes"
+        }
+      },
+      "stats": {
+        "num_train": 29603,
+        "num_validation": 256,
+        "removed": 256,
+        "validation_images": null,
+        "validation_questions": null,
+        "reference_captions": null,
+        "task_root": "/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_ucit_formal_seed42/task3",
+        "previous_checkpoint": "committed"
+      }
+    },
+    "CLEVR": {
+      "status": "PASS",
+      "checks": {
+        "launcher_declared_files": {
+          "ok": true,
+          "detail": "train/val/test/annotation all present"
+        },
+        "validation_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "71f4ba9080702e65 == provenance"
+        },
+        "train_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "8fc38683df67acd9 == provenance"
+        },
+        "validation_count_256": {
+          "ok": true,
+          "detail": "256 records"
+        },
+        "train_count_matches_removal": {
+          "ok": true,
+          "detail": "39743 == 40000 - 257"
+        },
+        "isolation_train_vs_validation": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=97 source_id=0"
+        },
+        "isolation_train_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_validation_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "test_data_unused": {
+          "ok": true,
+          "detail": "audit flags false"
+        },
+        "val_query_text_canonical": {
+          "ok": true,
+          "detail": "placeholder/text-key issues=0 answer_mismatch=0"
+        },
+        "val_images_exist": {
+          "ok": true,
+          "detail": "missing=0 of 256"
+        },
+        "metric_resolution": {
+          "ok": true,
+          "detail": "official_ucit -> v7_validation_metric; annotation present; java=yes"
+        }
+      },
+      "stats": {
+        "num_train": 39743,
+        "num_validation": 256,
+        "removed": 257,
+        "validation_images": null,
+        "validation_questions": null,
+        "reference_captions": null,
+        "task_root": "/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_ucit_formal_seed42/task4",
+        "previous_checkpoint": "committed"
+      }
+    },
+    "Flickr30k": {
+      "status": "PASS",
+      "checks": {
+        "launcher_declared_files": {
+          "ok": true,
+          "detail": "train/val/test/annotation all present"
+        },
+        "validation_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "c5faa66f6da0570f == provenance"
+        },
+        "train_sha256_matches_provenance": {
+          "ok": true,
+          "detail": "6d4924b751a25827 == provenance"
+        },
+        "validation_count_256": {
+          "ok": true,
+          "detail": "256 records"
+        },
+        "train_count_matches_removal": {
+          "ok": true,
+          "detail": "38916 == 40000 - 1084"
+        },
+        "isolation_train_vs_validation": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_train_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "isolation_validation_vs_test": {
+          "ok": true,
+          "detail": "image_question=0 record=0 image_only=0 source_id=0"
+        },
+        "test_data_unused": {
+          "ok": true,
+          "detail": "audit flags false"
+        },
+        "val_query_text_canonical": {
+          "ok": true,
+          "detail": "placeholder/text-key issues=0 answer_mismatch=0"
+        },
+        "val_images_exist": {
+          "ok": true,
+          "detail": "missing=0 of 256"
+        },
+        "metric_resolution": {
+          "ok": true,
+          "detail": "official_ucit -> v7_validation_metric; annotation present; java=yes"
+        }
+      },
+      "stats": {
+        "num_train": 38916,
+        "num_validation": 256,
+        "removed": 1084,
+        "validation_images": 256,
+        "validation_questions": 256,
+        "reference_captions": 1084,
+        "task_root": "/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_ucit_formal_seed42/task5",
+        "previous_checkpoint": "committed"
+      }
+    }
+  },
+  "java": "/home/zhaozhuofan/miniconda3/envs/hyper/bin/java",
+  "seconds": 9.1,
+  "overall": "PASS"
+}
