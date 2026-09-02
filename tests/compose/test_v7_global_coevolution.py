@@ -1,5 +1,6 @@
 import inspect
 import json
+from pathlib import Path
 
 import pytest
 import torch
@@ -22,6 +23,21 @@ from compose.v7.pruning import CandidatePruner
 from compose.v7.query import FixedMultimodalQuery, full_train_task_center
 from compose.v7.routing import GlobalTop2Router, route_signature_groups
 from compose.v7.training import adapter_checksums, selected_current_key_loss
+from compose.v7.training import (
+    full_data_coverage_audit,
+    supervised_token_mask,
+    teacher_forcing_token_nll,
+)
+from compose.v7.provenance import (
+    audit_split_isolation,
+    build_runtime_contract,
+    validate_runtime_contract,
+)
+from compose.lora.rms import (
+    apply_kappa_calibration,
+    merge_commit_frozen_calibration,
+    runtime_kappa_calibration,
+)
 
 
 def basis(index):
@@ -295,3 +311,155 @@ def test_19_historical_adapter_checksum_supports_bfloat16_exactly():
             1.0, dtype=torch.bfloat16
         )
     assert adapter_checksums(manager, (2,)) != before
+
+
+def test_20_formal_recipe_has_no_implicit_30_step_cap_and_smoke_is_explicit():
+    import yaml
+    import compose.experiments.v7_task_run as runner
+
+    config = yaml.safe_load(
+        (Path(__file__).parents[2] / "configs" / "v7_global_coevolution.yaml").read_text()
+    )
+    assert config["training"]["num_train_epochs"] == 1
+    assert (
+        config["training"]["per_device_train_batch_size"]
+        * config["training"]["gradient_accumulation_steps"]
+    ) == 64
+    source = inspect.getsource(runner)
+    assert '"--smoke-max-steps"' in source
+    assert '"--max-steps", type=int, default=30' not in source
+
+
+def test_21_formal_full_data_coverage_fails_but_explicit_smoke_can_be_partial():
+    complete = full_data_coverage_audit(2001, map(str, range(2001)), 2001, 32, 2001, True)
+    assert complete["unique_train_sample_ids_seen"] == 2001
+    assert complete["train_sample_coverage"] == 1.0
+    with pytest.raises(RuntimeError, match="did not cover"):
+        full_data_coverage_audit(2001, map(str, range(2000)), 30, 30, 30, True)
+    smoke = full_data_coverage_audit(2001, map(str, range(30)), 30, 30, 30, False)
+    assert smoke["train_sample_coverage"] < 1.0
+
+
+def test_22_answer_nll_uses_only_shifted_supervised_positions():
+    labels = torch.tensor([[-100, -100, 2, 3]])
+    logits = torch.zeros(1, 4, 5)
+    baseline = teacher_forcing_token_nll(logits, labels)
+    prompt_changed = logits.clone()
+    prompt_changed[:, 0, :] = torch.tensor([100.0, -100.0, -100.0, -100.0, -100.0])
+    assert torch.equal(supervised_token_mask(labels), labels[:, 1:].ne(-100))
+    assert torch.allclose(teacher_forcing_token_nll(prompt_changed, labels), baseline)
+    answer_changed = logits.clone()
+    answer_changed[:, 1, 2] = 20.0
+    assert teacher_forcing_token_nll(answer_changed, labels) < baseline
+    with pytest.raises(ValueError, match="supervised token"):
+        teacher_forcing_token_nll(logits, torch.full_like(labels, -100))
+
+
+def test_23_historical_rms_is_one_persisted_runtime_contract():
+    model = nn.Module()
+    model.layer = make_linear((1, 7))
+    historical = {"layer": {"1": 1.75}}
+    apply_kappa_calibration(model, historical)
+    before = runtime_kappa_calibration(model, (1,))
+    assert before == historical
+    merged = merge_commit_frozen_calibration(
+        historical, {"layer": {"1": 0.5, "7": 1.25}}, (7,)
+    )
+    apply_kappa_calibration(model, merged)
+    assert runtime_kappa_calibration(model, (1,)) == before
+    assert runtime_kappa_calibration(model, (7,)) == {"layer": {"7": 1.25}}
+
+
+def test_24_iterative_pruning_recomputes_substitute_contribution():
+    pool = pool_with(
+        hist=((1, 4), (2, 5)), current=((7, 0), (8, 1), (9, 2), (10, 3))
+    )
+    queries = torch.nn.functional.normalize((basis(0) + basis(1)).unsqueeze(0), dim=-1)
+
+    def scorer(routes):
+        useful = routes.eq(7).any(dim=1) | routes.eq(8).any(dim=1)
+        metric = float(useful.float().mean())
+        return {"metric": metric, "loss": 1.0 - metric}
+
+    retained, metrics, audit = CandidatePruner(pool, V7PruningConfig()).evaluate(
+        queries, queries, basis(0), scorer
+    )
+    assert len(set(retained) & {7, 8}) == 1
+    assert not ({7, 8} <= set(metrics) - set(retained))
+    assert sum(row["decision"] == "remove" for row in audit["pruning_trajectory"]) == 3
+
+
+def test_25_global_top2_minimum_pool_and_task1_zero_current_retention():
+    task0 = pool_with(current=((0, 0), (1, 1), (2, 2), (3, 3)))
+    queries = torch.stack([basis(0), basis(1), basis(2), basis(3)])
+    constant = lambda routes: {"metric": 1.0, "loss": 1.0}
+    retained0, metrics0, _ = CandidatePruner(task0, V7PruningConfig()).evaluate(
+        queries, queries, basis(0), constant
+    )
+    assert len(retained0) == 2
+    assert all(
+        "retained_for_global_top2_minimum_pool" in metrics0[value]["reason"]
+        for value in retained0
+    )
+
+    task1 = pool_with(
+        hist=((0, 4), (1, 5)), current=((4, 0), (5, 1), (6, 2), (7, 3))
+    )
+    retained1, _, audit1 = CandidatePruner(task1, V7PruningConfig()).evaluate(
+        queries, queries, basis(0), constant
+    )
+    assert retained1 == ()
+    assert audit1["final_selectable_pool"] == [0, 1]
+
+
+def test_26_split_leakage_and_runtime_preprocessing_parity(tmp_path):
+    def write(name, rows):
+        path = tmp_path / name
+        path.write_text(json.dumps(rows), encoding="utf-8")
+        return str(path)
+
+    train = write("train.json", [{"id": "a", "image": "a.jpg", "text": "qa", "answer": "a"}])
+    val = write("val.json", [{"id": "b", "image": "b.jpg", "text": "qb", "answer": "b"}])
+    test = write("test.json", [{"id": "c", "image": "c.jpg", "text": "qc", "answer": "c"}])
+    audit = audit_split_isolation(train, val, test)
+    assert audit["test_data_used_for_pruning"] is False
+    with pytest.raises(ValueError, match="same normalized path"):
+        audit_split_isolation(train, val, val)
+    duplicate = write("duplicate.json", json.loads(Path(val).read_text()))
+    with pytest.raises(ValueError, match="identical file hashes"):
+        audit_split_isolation(train, val, duplicate)
+    overlap = write("overlap.json", [{"id": "z", "image": "a.jpg", "text": "qa", "answer": "x"}])
+    with pytest.raises(ValueError, match="record overlap"):
+        audit_split_isolation(train, val, overlap)
+
+    projector = tmp_path / "projector.bin"
+    projector.write_bytes(b"projector")
+    contract = build_runtime_contract(
+        image_aspect_ratio="pad", vision_tower=str(tmp_path / "clip"),
+        mm_vision_select_layer=-2, mm_vision_select_feature="patch",
+        mm_projector_type="mlp2x_gelu", projector_path=str(projector),
+    )
+    validate_runtime_contract(contract, dict(contract), "test")
+    mismatched = dict(contract, image_aspect_ratio="square")
+    with pytest.raises(ValueError, match="preprocessing mismatch"):
+        validate_runtime_contract(contract, mismatched, "pruning")
+
+
+def test_27_gradient_accumulation_audit_tracks_new_microbatch_contributions_only():
+    from compose.v7.hf_trainer import V7ComposeTrainer
+
+    trainer = object.__new__(V7ComposeTrainer)
+    trainer._v7_key_gradient_ids = set()
+    trainer._v7_lora_gradient_ids = set()
+    trainer._v7_key_gradient_sq = 0.0
+    trainer._v7_lora_gradient_sq = 0.0
+    r1, r2 = nn.Parameter(torch.tensor(1.0)), nn.Parameter(torch.tensor(1.0))
+    r1.register_hook(lambda grad: trainer._record_v7_gradient("key", 1, grad))
+    r2.register_hook(lambda grad: trainer._record_v7_gradient("key", 2, grad))
+    (r1 * 2).backward()
+    assert trainer._v7_key_gradient_ids == {1}
+    trainer._v7_key_gradient_ids.clear()
+    trainer._v7_key_gradient_sq = 0.0
+    (r2 * 3).backward()
+    assert r1.grad is not None and r2.grad is not None
+    assert trainer._v7_key_gradient_ids == {2}
