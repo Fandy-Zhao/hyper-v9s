@@ -19,7 +19,11 @@ import yaml
 from compose.v7.commit import commit_retained_candidates
 from compose.v7.config import V7Config
 from compose.v7.pool import V7ExpertKeyPool
-from compose.v7.provenance import audit_split_isolation, build_runtime_contract
+from compose.v7.provenance import (
+    audit_split_isolation,
+    bind_pipeline_data_usage,
+    build_runtime_contract,
+)
 from compose.v7.pruning import CandidatePruner
 from compose.v7.routing import GlobalTop2Router
 from compose.v7.workflow import (
@@ -27,6 +31,7 @@ from compose.v7.workflow import (
     prepare_candidate_pool,
     queries_from_cache,
     route_manifest,
+    validate_query_cache_contract,
     write_full_split_with_unique_ids,
 )
 
@@ -139,8 +144,12 @@ def main():
     val_json = root / "data" / "val_full.json"
     runtime_contract_path = root / "data" / "runtime_contract.json"
     if not marker(root, "s0_full_data").is_file():
-        split_audit = audit_split_isolation(
-            args.train_file, args.val_file, args.test_file
+        split_audit = bind_pipeline_data_usage(
+            audit_split_isolation(args.train_file, args.val_file, args.test_file),
+            training_sources=(args.train_file,),
+            key_learning_sources=(args.train_file,),
+            rms_sources=(args.val_file,),
+            pruning_sources=(args.val_file,),
         )
         train_count = write_full_split_with_unique_ids(
             args.train_file, str(train_json), args.task_index, "train"
@@ -148,12 +157,23 @@ def main():
         val_count = write_full_split_with_unique_ids(
             args.val_file, str(val_json), args.task_index, "val"
         )
+        splits = split_audit["splits"]
+        overlap = split_audit["overlap_checks"]
         write_json(root / "data" / "coverage.json", {
             "num_train_samples": train_count,
             "num_validation_samples": val_count,
             "train_source": args.train_file,
             "validation_source": args.val_file,
-            "test_data_used": False,
+            "train_sha256": splits["train"]["file_sha256"],
+            "val_sha256": splits["validation"]["file_sha256"],
+            "test_sha256": splits.get("test", {}).get("file_sha256"),
+            "train_val_overlap_count": overlap["train_vs_validation"]["source_record_overlap"],
+            "train_test_overlap_count": overlap.get("train_vs_test", {}).get("source_record_overlap", 0),
+            "val_test_overlap_count": overlap.get("validation_vs_test", {}).get("source_record_overlap", 0),
+            "test_data_used_for_training": split_audit["test_data_used_for_training"],
+            "test_data_used_for_key_learning": split_audit["test_data_used_for_key_learning"],
+            "test_data_used_for_rms": split_audit["test_data_used_for_rms"],
+            "test_data_used_for_pruning": split_audit["test_data_used_for_pruning"],
             "formal_run": formal_run,
         })
         write_json(root / "data" / "split_provenance.json", split_audit)
@@ -179,9 +199,17 @@ def main():
                 args.python, "-m", "compose.eval.query_features",
                 "--questions", str(path), "--images", args.image_folder,
                 "--output", str(root / "features" / (split + ".json")),
+                "--query-vision-model", config.query.path,
                 "--query-mode", "v7_fixed", "--device", worker_device,
             ], env, root / "logs" / ("features_" + split + ".log"))
         mark(root, "s1_fixed_queries")
+    query_contract_path = root / "data" / "query_contract.json"
+    query_contract = validate_query_cache_contract(
+        (root / "features" / "train.json", root / "features" / "val.json"),
+        config.query.backbone,
+        config.query.path,
+    )
+    write_json(query_contract_path, query_contract)
     if args.stop_after == "fixed_queries":
         return
 
@@ -379,6 +407,10 @@ def main():
             "candidates": {str(key): value for key, value in metrics.items()},
             "audit": audit,
         })
+        write_json(
+            root / "metrics" / "candidate_pruning_trajectory.json",
+            audit["pruning_trajectory"],
+        )
         commit_retained_candidates(
             str(output), str(root / "committed"), trained_pool, retained, metrics
         )
@@ -393,6 +425,8 @@ def main():
             "--answers-file", str(root / "eval" / "answers.jsonl"),
             "--run-summary-file", str(root / "eval" / "summary.json"),
             "--v7-key-state", str(root / "committed" / "v7_keys.pt"),
+            "--query-vision-model", config.query.path,
+            "--query-backbone-hash", str(query_contract["backbone_hash"]),
             "--device", worker_device,
             "--runtime-contract", str(runtime_contract_path),
         ], env, root / "logs" / "inference.log")

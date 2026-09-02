@@ -1,14 +1,19 @@
+import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Optional
 
 
 @dataclass(frozen=True)
 class V7QueryConfig:
+    backbone: str = "clip-vit-large-patch14-336"
+    path: str = "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336"
     visual_dim: int = 768
     text_dim: int = 768
     query_dim: int = 1536
 
     def __post_init__(self) -> None:
+        if self.backbone != "clip-vit-large-patch14-336" or not self.path:
+            raise ValueError("V7 fixed query requires an explicit CLIP-L/14-336 path")
         if self.visual_dim != 768 or self.text_dim != 768 or self.query_dim != 1536:
             raise ValueError("V7 fixed query dimensions must be 768 + 768 = 1536")
 
@@ -35,8 +40,8 @@ class V7RoutingConfig:
     def __post_init__(self) -> None:
         if self.top_k != 2:
             raise ValueError("V7 routing is fixed to global Top-2")
-        if self.pair_scale <= 0:
-            raise ValueError("pair_scale must be positive")
+        if not math.isclose(self.pair_scale, 2.0 ** -0.5, rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError("V7 pair_scale is fixed to 1/sqrt(2)")
 
 
 @dataclass(frozen=True)

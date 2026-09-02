@@ -240,6 +240,7 @@ def prepare(root_arg: str, test_device: str = "cuda:7") -> None:
             PYTHON, "-m", "compose.eval.query_features",
             "--questions", TEST_FILE,
             "--images", IMAGE_FOLDER,
+            "--query-vision-model", VISION_TOWER,
             "--output", str(test_features_path),
             "--query-encoder", str(root / "boundary" / "query_encoder.pt"),
             "--seed", str(SEED),

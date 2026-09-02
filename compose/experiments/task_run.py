@@ -990,6 +990,7 @@ def run_task(
                 PYTHON, "-m", "compose.eval.query_features",
                 "--questions", str(root / "data" / "teacher_{}.json".format(tag)),
                 "--images", IMAGE_FOLDER,
+                "--query-vision-model", VISION_TOWER,
                 "--output", str(root / "features" / "{}_features.json".format(tag)),
                 "--seed", str(seed),
                 "--device", "cuda:0",

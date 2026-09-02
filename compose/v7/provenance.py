@@ -99,9 +99,39 @@ def audit_split_isolation(
     return {
         "splits": public,
         "overlap_checks": overlaps,
-        "test_data_used_for_training": False,
-        "test_data_used_for_pruning": False,
     }
+
+
+def bind_pipeline_data_usage(
+    split_audit: Mapping[str, object], *, training_sources: Sequence[str],
+    key_learning_sources: Sequence[str], rms_sources: Sequence[str],
+    pruning_sources: Sequence[str],
+) -> Dict[str, object]:
+    audit = dict(split_audit)
+    splits = audit["splits"]
+    test = splits.get("test")
+    test_path = test and test["normalized_source_path"]
+
+    def uses_test(paths):
+        normalized = {str(Path(path).expanduser().resolve()) for path in paths}
+        return bool(test_path and test_path in normalized)
+
+    audit["pipeline_stage_sources"] = {
+        "training": [str(Path(value).expanduser().resolve()) for value in training_sources],
+        "key_learning": [str(Path(value).expanduser().resolve()) for value in key_learning_sources],
+        "rms": [str(Path(value).expanduser().resolve()) for value in rms_sources],
+        "pruning": [str(Path(value).expanduser().resolve()) for value in pruning_sources],
+    }
+    audit["test_data_used_for_training"] = uses_test(training_sources)
+    audit["test_data_used_for_key_learning"] = uses_test(key_learning_sources)
+    audit["test_data_used_for_rms"] = uses_test(rms_sources)
+    audit["test_data_used_for_pruning"] = uses_test(pruning_sources)
+    if any(audit[key] for key in (
+        "test_data_used_for_training", "test_data_used_for_key_learning",
+        "test_data_used_for_rms", "test_data_used_for_pruning",
+    )):
+        raise ValueError("test split is bound to a pre-commit V7 pipeline stage")
+    return audit
 
 
 def build_runtime_contract(

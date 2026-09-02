@@ -97,6 +97,11 @@ def main() -> None:
     parser.add_argument("--model-max-length", type=int, default=2048)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--runtime-contract")
+    parser.add_argument(
+        "--query-vision-model",
+        help="explicit frozen CLIP model for router/V7 fixed-query inference",
+    )
+    parser.add_argument("--query-backbone-hash")
     args = parser.parse_args()
     routing_modes = sum(
         value is not None
@@ -208,13 +213,12 @@ def main() -> None:
         # device: load_state_dict_extra rebuilds the key ParameterDict on CPU
         # (map_location="cpu"), and select() matmuls query @ keys.T.
         router.to(torch.device(args.device)).eval()
+        query_vision_model = args.query_vision_model or args.vision_tower
         clip = CLIPModel.from_pretrained(
-            "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336",
+            query_vision_model,
             torch_dtype=torch.float16,
         ).to(torch.device(args.device)).eval()
-        clip_processor = CLIPProcessor.from_pretrained(
-            "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336"
-        )
+        clip_processor = CLIPProcessor.from_pretrained(query_vision_model)
         bundle.expert_pool.manager.clear_default_selection()
         bundle.load_summary["evaluation_selection"] = {
             "mode": "compose_router",
@@ -233,13 +237,21 @@ def main() -> None:
         state = torch.load(args.v7_key_state, map_location="cpu", weights_only=False)
         v7_pool = V7ExpertKeyPool.from_state(state)
         v7_router = V7InferenceRouter(v7_pool).to(torch.device(args.device)).eval()
+        if not args.query_vision_model:
+            raise ValueError("V7 inference requires --query-vision-model")
+        from compose.eval.query_features import query_backbone_provenance
+
+        query_provenance = query_backbone_provenance(args.query_vision_model)
+        if (
+            args.query_backbone_hash
+            and query_provenance["backbone_hash"] != args.query_backbone_hash
+        ):
+            raise ValueError("V7 inference query backbone hash mismatch")
         clip = CLIPModel.from_pretrained(
-            "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336",
+            args.query_vision_model,
             torch_dtype=torch.float16,
         ).to(torch.device(args.device)).eval()
-        clip_processor = CLIPProcessor.from_pretrained(
-            "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336"
-        )
+        clip_processor = CLIPProcessor.from_pretrained(args.query_vision_model)
         bundle.expert_pool.manager.clear_default_selection()
         bundle.load_summary["evaluation_selection"] = {
             "mode": "v7_global_coevolution",
@@ -247,6 +259,8 @@ def main() -> None:
             "visible_expert_ids": list(v7_pool.selectable_ids()),
             "pool_version": v7_pool.pool_version,
             "task_id_used": False,
+            "query_vision_model": args.query_vision_model,
+            "query_backbone_hash": query_provenance["backbone_hash"],
         }
     elif args.selection_manifest:
         with open(args.selection_manifest, "r", encoding="utf-8") as handle:

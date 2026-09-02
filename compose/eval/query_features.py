@@ -35,8 +35,27 @@ from compose.router.functional_query import (
     load_query_encoder_checkpoint,
 )
 
-CLIP_PATH = "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336"
 FEATURE_SCHEMA_VERSION = 1
+
+
+def query_backbone_provenance(path):
+    source = Path(path).expanduser().resolve()
+    if not source.exists():
+        raise ValueError("missing query vision model: {}".format(source))
+    names = (
+        "config.json", "preprocessor_config.json", "tokenizer_config.json",
+        "special_tokens_map.json", "vocab.json", "merges.txt",
+    )
+    files = {}
+    for name in names:
+        candidate = source / name
+        if candidate.is_file():
+            files[name] = hashlib.sha256(candidate.read_bytes()).hexdigest()
+    if not files:
+        raise ValueError("query vision model has no hashable configuration files")
+    payload = {"resolved_path": str(source), "configuration_files": files}
+    payload["backbone_hash"] = _sha256(payload)
+    return payload
 
 
 def _sample_text(record):
@@ -60,6 +79,7 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     parser.add_argument("--query-encoder", default=None,
                         help="task-0 query encoder checkpoint to reuse")
+    parser.add_argument("--query-vision-model", required=True)
     parser.add_argument(
         "--query-mode", choices=("v6_functional", "v7_fixed"),
         default="v6_functional",
@@ -77,10 +97,13 @@ def main() -> None:
     # the eos position and the visual embedding is per-image), so the
     # merged shards reproduce the single-GPU payload exactly.
     records = shard_records(records, args.num_shards, args.shard_index)
-    clip = CLIPModel.from_pretrained(CLIP_PATH, torch_dtype=torch.float16).to(
+    backbone = query_backbone_provenance(args.query_vision_model)
+    clip = CLIPModel.from_pretrained(
+        args.query_vision_model, torch_dtype=torch.float16
+    ).to(
         torch.device(args.device)
     ).eval()
-    processor = CLIPProcessor.from_pretrained(CLIP_PATH)
+    processor = CLIPProcessor.from_pretrained(args.query_vision_model)
 
     # The query encoder is stable across the whole run: load the task-0
     # checkpoint when one exists, otherwise create it deterministically.
@@ -139,6 +162,7 @@ def main() -> None:
     payload = {
         "schema_version": FEATURE_SCHEMA_VERSION,
         "feature_source": "frozen_clip_l14_336",
+        "query_backbone_provenance": backbone,
         "query_mode": args.query_mode,
         "query_encoder_provenance": provenance.to_dict(),
         "query_encoder_hash": provenance.module_hash,

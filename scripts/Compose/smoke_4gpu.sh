@@ -133,6 +133,7 @@ FEAT_A="$SCRATCH/features_single.json"
 if CUDA_VISIBLE_DEVICES=$SINGLE_GPU $PY -m compose.eval.query_features \
     --questions "$SMOKE_ROOT/task0/data/teacher_train.json" \
     --images "$IMAGES" \
+    --query-vision-model "$VISION" \
     --output "$FEAT_A" \
     --seed 42 --device cuda:0 \
     > "$SCRATCH/feat_single.log" 2>&1; then

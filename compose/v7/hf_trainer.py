@@ -166,7 +166,19 @@ class V7ComposeTrainer(ComposeTrainer):
                 },
             ]
         )
+        pending = getattr(self, "_v7_pending_optimizer_state", None)
+        if pending is not None:
+            self.optimizer.load_state_dict(pending)
+            self._v7_pending_optimizer_state = None
         return self.optimizer
+
+    def create_scheduler(self, num_training_steps, optimizer=None):
+        scheduler = super().create_scheduler(num_training_steps, optimizer=optimizer)
+        pending = getattr(self, "_v7_pending_scheduler_state", None)
+        if pending is not None:
+            scheduler.load_state_dict(pending)
+            self._v7_pending_scheduler_state = None
+        return scheduler
 
     def trainable_parameter_audit(self):
         return {
@@ -355,7 +367,12 @@ class V7ComposeTrainer(ComposeTrainer):
             ),
             optimizer=self.optimizer,
             scheduler=self.lr_scheduler,
-            usage_counters=self.v7_usage,
+            usage_counters={
+                "candidate_usage": dict(self.v7_usage),
+                "noop_micro_steps": int(self.v7_noop_steps),
+                "micro_steps": int(self.v7_micro_steps),
+                "unique_sample_ids": sorted(self.v7_unique_sample_ids),
+            },
             config=self.v7_config,
             rms_state={},
         )
@@ -377,7 +394,25 @@ class V7ComposeTrainer(ComposeTrainer):
         load_candidate_lora_state(
             self.expert_pool.manager, payload["candidate_lora_state"]
         )
-        self.v7_usage = dict(payload["candidate_usage_counters"])
+        counters = dict(payload["candidate_usage_counters"])
+        if "candidate_usage" in counters:
+            self.v7_usage = dict(counters["candidate_usage"])
+            self.v7_noop_steps = int(counters.get("noop_micro_steps", 0))
+            self.v7_micro_steps = int(counters.get("micro_steps", 0))
+            self.v7_unique_sample_ids = set(counters.get("unique_sample_ids", ()))
+        else:
+            # Backward compatibility with initial V7 checkpoints.
+            self.v7_usage = counters
+        optimizer_state = payload.get("optimizer")
+        scheduler_state = payload.get("scheduler")
+        if self.optimizer is not None and optimizer_state is not None:
+            self.optimizer.load_state_dict(optimizer_state)
+        else:
+            self._v7_pending_optimizer_state = optimizer_state
+        if self.lr_scheduler is not None and scheduler_state is not None:
+            self.lr_scheduler.load_state_dict(scheduler_state)
+        else:
+            self._v7_pending_scheduler_state = scheduler_state
 
     def assert_task_freeze_integrity(self):
         after_keys = self.v7_key_pool.historical_checksums()

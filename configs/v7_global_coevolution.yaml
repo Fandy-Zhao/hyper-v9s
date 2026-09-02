@@ -3,6 +3,8 @@ method: v7_global_coevolution
 seed: 42
 
 query:
+  backbone: clip-vit-large-patch14-336
+  path: /data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336
   visual_dim: 768
   text_dim: 768
   query_dim: 1536

@@ -3,6 +3,8 @@
 import json
 import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -14,6 +16,27 @@ from .pool import V7ExpertKeyPool
 
 
 _EXPERT_KEY = re.compile(r"\.experts\.(\d+)\.")
+
+
+def _fsync_file(path):
+    with Path(path).open("rb") as handle:
+        os.fsync(handle.fileno())
+
+
+def _validate_commit_directory(path, selected):
+    root = Path(path)
+    required = (root / WEIGHTS_NAME, root / MANIFEST_NAME, root / "v7_keys.pt")
+    if not all(value.is_file() and value.stat().st_size > 0 for value in required):
+        raise RuntimeError("incomplete V7 commit transaction")
+    manifest = json.loads((root / MANIFEST_NAME).read_text(encoding="utf-8"))
+    manifest_ids = {int(value["expert_id"]) for value in manifest["experts"]}
+    if manifest_ids != set(selected):
+        raise RuntimeError("committed manifest expert set mismatch")
+    restored = V7ExpertKeyPool.from_state(
+        torch.load(root / "v7_keys.pt", map_location="cpu", weights_only=False)
+    )
+    if set(restored.selectable_ids()) != set(selected):
+        raise RuntimeError("committed key pool expert set mismatch")
 
 
 def commit_retained_candidates(
@@ -34,7 +57,10 @@ def commit_retained_candidates(
         )
     source = Path(source_checkpoint)
     target = Path(output_dir)
-    target.mkdir(parents=True, exist_ok=False)
+    if target.exists():
+        raise FileExistsError(str(target))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=".{}-".format(target.name), dir=target.parent))
     with (source / MANIFEST_NAME).open("r", encoding="utf-8") as handle:
         manifest = json.load(handle)
     state = torch.load(source / WEIGHTS_NAME, map_location="cpu", weights_only=False)
@@ -87,12 +113,35 @@ def commit_retained_candidates(
                     if str(expert_id) in values
                 },
             }
-    torch.save(filtered, target / WEIGHTS_NAME)
-    manifest["metrics"]["checkpoint_bytes"] = os.path.getsize(target / WEIGHTS_NAME)
-    with (target / MANIFEST_NAME).open("w", encoding="utf-8") as handle:
-        json.dump(manifest, handle, indent=2, sort_keys=True)
-        handle.write("\n")
+    committed_pool = V7ExpertKeyPool.from_state(key_pool.export_state())
+    committed_pool.commit(retained, candidate_metrics)
+    try:
+        torch.save(filtered, temporary / WEIGHTS_NAME)
+        manifest["metrics"]["checkpoint_bytes"] = os.path.getsize(
+            temporary / WEIGHTS_NAME
+        )
+        with (temporary / MANIFEST_NAME).open("w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Pruned keys remain in audit state but are unselectable.
+        torch.save(committed_pool.export_state(), temporary / "v7_keys.pt")
+        _fsync_file(temporary / WEIGHTS_NAME)
+        _fsync_file(temporary / "v7_keys.pt")
+        _validate_commit_directory(temporary, selected)
+        os.replace(temporary, target)
+        try:
+            descriptor = os.open(str(target.parent), os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        except OSError:
+            # Directory fsync is unavailable on some supported platforms;
+            # same-filesystem rename remains the atomic visibility boundary.
+            pass
+    except BaseException:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise
     key_pool.commit(retained, candidate_metrics)
-    # Pruned keys remain in the audit state but are lifecycle=pruned and hence
-    # unselectable. The inference loader additionally rejects current keys.
-    torch.save(key_pool.export_state(), target / "v7_keys.pt")

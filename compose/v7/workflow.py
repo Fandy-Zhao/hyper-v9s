@@ -12,6 +12,23 @@ from compose.data.records import question_text
 from .pool import V7ExpertKeyPool, initialize_candidate_keys
 
 
+def validate_query_cache_contract(paths, expected_backbone, expected_path):
+    contracts = []
+    for path in paths:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        provenance = payload.get("query_backbone_provenance") or {}
+        if payload.get("query_mode") != "v7_fixed":
+            raise ValueError("query cache is not V7 fixed-query data")
+        if Path(str(provenance.get("resolved_path", ""))).resolve() != Path(expected_path).resolve():
+            raise ValueError("V7 query backbone path mismatch")
+        if payload.get("feature_source") != "frozen_clip_l14_336" or expected_backbone != "clip-vit-large-patch14-336":
+            raise ValueError("V7 query backbone kind mismatch")
+        contracts.append(provenance)
+    if any(value != contracts[0] for value in contracts[1:]):
+        raise ValueError("V7 query backbone provenance differs across splits")
+    return contracts[0]
+
+
 def write_full_split_with_unique_ids(
     source: str, destination: str, task_index: int, split: str
 ) -> int:
@@ -22,12 +39,18 @@ def write_full_split_with_unique_ids(
         # A deterministic internal id prevents repeated UCIT question_ids from
         # overwriting feature-cache rows. It does not alter benchmark data.
         source_id = record.get("id", record.get("question_id"))
+        canonical_source_record = json.dumps(
+            record, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        )
         source_identity = {
             "source_index": index,
             "source_id": None if source_id is None else str(source_id),
             "image": str(record.get("image", "")),
             "question_sha256": hashlib.sha256(
                 question_text(record).strip().encode("utf-8")
+            ).hexdigest(),
+            "source_record_sha256": hashlib.sha256(
+                canonical_source_record.encode("utf-8")
             ).hexdigest(),
         }
         record["v7_source_identity"] = source_identity
