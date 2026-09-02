@@ -674,8 +674,11 @@ def cmd_scorer_preflight(args):
             raise ValueError("validation file missing: {}".format(val_path))
         records = json.loads(Path(val_path).read_text(encoding="utf-8"))
         pred_file = work / "{}_pred.jsonl".format(task)
+        # one dummy row per validation record: the caption scorers map
+        # prediction rows positionally onto COCO image ids 1..N and require
+        # res keys == annotation keys, so partial coverage would assert.
         with open(pred_file, "w", encoding="utf-8") as handle:
-            for record in records[:2]:
+            for record in records:
                 handle.write(json.dumps({
                     "question_id": record["question_id"],
                     "prompt": question_text(record),
