@@ -6,6 +6,8 @@
   route to the unified four-slot `ComposeSelection` contract without changing
   the active experts or gates.
 - Added a regression test reproducing the real 7B GPU2 first-step failure.
+- Made historical LoRA checksums dtype/shape-aware and byte-exact for BF16,
+  fixing Task1 frozen-history audit initialization on the real 7B checkpoint.
 
 ## 2026-09-01
 

@@ -9,6 +9,9 @@
   Global Top-2 route, active gates, Key loss and sparse LoRA semantics remain
   unchanged.
 - Validation resumes from S3 on GPU2, followed by dependent Task1 on GPU3.
+- GPU2 Task0 completed two finite 7B optimization steps plus RMS/pruning/commit;
+  GPU3 Task1 then exposed a BF16 NumPy checksum incompatibility before its
+  first optimizer update. The checksum now hashes raw tensor bytes.
 
 ## 2026-09-01 — V7 full-data global key–expert co-evolution
 

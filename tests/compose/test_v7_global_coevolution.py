@@ -21,7 +21,7 @@ from compose.v7.pool import (
 from compose.v7.pruning import CandidatePruner
 from compose.v7.query import FixedMultimodalQuery, full_train_task_center
 from compose.v7.routing import GlobalTop2Router, route_signature_groups
-from compose.v7.training import selected_current_key_loss
+from compose.v7.training import adapter_checksums, selected_current_key_loss
 
 
 def basis(index):
@@ -282,3 +282,16 @@ def test_18_v7_top2_rows_are_padded_to_unified_four_slot_contract():
         torch.tensor([gates for _, gates in rows], dtype=torch.float32),
     )
     assert [record["expert_ids"] for record in restored.per_sample_sets()] == routed.expert_ids.tolist()
+
+
+def test_19_historical_adapter_checksum_supports_bfloat16_exactly():
+    layer = make_linear((2,)).to(dtype=torch.bfloat16)
+    manager = type("Manager", (), {"layers": {"decoder.q_proj": layer}})()
+
+    before = adapter_checksums(manager, (2,))
+    assert before == adapter_checksums(manager, (2,))
+    with torch.no_grad():
+        layer.experts["2"].lora_A.weight.view(-1)[0] += torch.tensor(
+            1.0, dtype=torch.bfloat16
+        )
+    assert adapter_checksums(manager, (2,)) != before

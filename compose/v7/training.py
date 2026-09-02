@@ -85,9 +85,12 @@ def adapter_checksums(manager, expert_ids: Iterable[int]) -> Dict[int, str]:
         for layer_name, layer in sorted(manager.layers.items()):
             expert = layer.experts[str(int(expert_id))]
             for name, value in sorted(expert.state_dict().items()):
+                tensor = value.detach().cpu().contiguous()
                 digest.update(layer_name.encode("utf-8"))
                 digest.update(name.encode("utf-8"))
-                digest.update(value.detach().cpu().contiguous().numpy().tobytes())
+                digest.update(str(tensor.dtype).encode("utf-8"))
+                digest.update(str(tuple(tensor.shape)).encode("utf-8"))
+                digest.update(tensor.reshape(-1).view(torch.uint8).numpy().tobytes())
         result[int(expert_id)] = digest.hexdigest()
     return result
 
@@ -216,4 +219,3 @@ class V7StepEngine:
             "pair_frequency": {"{},{}".format(*k): v for k, v in self.pair_counts.items()},
             "old_old_noop_steps": self.old_old_noop_steps,
         }
-
