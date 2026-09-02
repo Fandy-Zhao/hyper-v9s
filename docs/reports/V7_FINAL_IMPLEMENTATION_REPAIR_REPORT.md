@@ -6,6 +6,10 @@
 - Audit baseline: `ee971f75a69c2945a85d380620476d57084b0e3d`
 - Validated implementation SHA: `ac7fb8dbaf7631ed5bc017475efea8b112c7e864`
 - Worktree at validation: clean
+- GitHub push: blocked. Server HTTPS remote has no credential; the local host
+  cannot reach `github.com:443`, and server SSH has no authorized GitHub key.
+  The complete final branch is preserved in the server repository and in the
+  local `v7-final-delivery.bundle`.
 - Commits after baseline:
   `1ea87e8`, `78feddf`, `0fa30a0`, `6e7c16d`, `f082390`,
   `0a8f76a`, `10242fb`, `7ea3b26`, `d4c3270`, `ac7fb8d`.
@@ -193,4 +197,6 @@ criterion. No process was killed, stopped, or interfered with.
    static and CPU lifecycle coverage, but their new GPU smoke was resource
    blocked.
 3. No six-task convergence, benchmark, ablation or multi-seed claim is made.
-
+4. GitHub synchronization remains pending until an authenticated/reachable
+   GitHub transport is available; no credential or remote configuration was
+   altered during this task.
