@@ -29,6 +29,7 @@ import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
+from compose.data.records import question_text
 from compose.eval.sharding import partial_path, shard_records
 from compose.router.functional_query import (
     ComposeQueryEncoder,
@@ -59,11 +60,17 @@ def query_backbone_provenance(path):
 
 
 def _sample_text(record):
-    if "conversations" in record:
-        for message in record["conversations"]:
-            if message["from"] == "human":
-                return message["value"]
-    return record.get("text", "")
+    """Canonical CLIP query text: the question only, placeholder-free.
+
+    Cached queries must be byte-identical to the live test-time routing text
+    (compose.data.records.question_text; used by compose.eval.eval_task).
+    The raw LLaVA human value embeds a literal <image> placeholder; CLIP
+    tokenizes that placeholder as ordinary text and shifts the text embedding
+    (measured cosine ~0.94 against the stripped form), putting train/val
+    keys, centers and pruning in a different coordinate space than final test
+    routing. Delegating to question_text keeps both modes on one contract.
+    """
+    return question_text(record)
 
 
 def _sha256(payload) -> str:

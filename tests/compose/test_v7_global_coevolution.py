@@ -535,6 +535,31 @@ def test_29_query_backbone_and_pair_scale_are_formal_fixed_contracts(tmp_path):
         V7Config.from_dict({"routing": {"pair_scale": 0.8}})
 
 
+def test_29b_cached_query_text_is_placeholder_free_question_text():
+    """Regression: the query-cache text extraction fed CLIP the raw LLaVA
+    human value, which embeds the literal <image> placeholder that live
+    test-time routing (records.question_text) strips. The embedding shift is
+    material (measured cosine ~0.94), so train/val cached queries must now be
+    byte-identical to the live test text."""
+    from compose.data.records import question_text
+    from compose.eval.query_features import _sample_text
+
+    conversation = {
+        "id": "x",
+        "image": "dir/x.jpg",
+        "conversations": [
+            {"from": "human", "value": "<image>\nWhat is shown?"},
+            {"from": "gpt", "value": "A dog"},
+        ],
+    }
+    extracted = _sample_text(conversation)
+    assert extracted == question_text(conversation) == "What is shown?"
+    assert "<image>" not in extracted and not extracted.startswith("\n")
+    flat = {"question_id": "7", "image": "dir/y.jpg", "text": "Describe it.",
+            "answer": "snow"}
+    assert _sample_text(flat) == question_text(flat) == "Describe it."
+
+
 def test_30_atomic_commit_failure_never_exposes_final_directory(tmp_path, monkeypatch):
     import compose.v7.commit as commit_module
 
