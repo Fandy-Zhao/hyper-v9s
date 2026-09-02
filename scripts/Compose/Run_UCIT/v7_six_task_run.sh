@@ -11,6 +11,10 @@ GPUS="${GPUS:-0,1,2,3}"
 
 export TOKENIZERS_PARALLELISM=false
 export WANDB_DISABLED=true
+# The hyper env installs the `java` runtime used by pycocoevalcap's PTB
+# tokenizer (VizWiz/Flickr30k caption scoring). Make this launcher
+# self-sufficient even from a shell whose PATH has no conda env.
+export PATH="$(dirname "${PY}"):${PATH}"
 
 cd "${REPO}"
 mapfile -t rows < <("${PY}" - "${FORMAL_CONFIG}" <<'PY'
