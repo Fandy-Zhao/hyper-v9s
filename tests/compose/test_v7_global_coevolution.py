@@ -30,9 +30,12 @@ from compose.v7.training import (
 )
 from compose.v7.provenance import (
     audit_split_isolation,
+    bind_pipeline_data_usage,
     build_runtime_contract,
     validate_runtime_contract,
 )
+from compose.v7.workflow import validate_query_cache_contract
+from compose.eval.query_features import query_backbone_provenance
 from compose.lora.rms import (
     apply_kappa_calibration,
     merge_commit_frozen_calibration,
@@ -72,6 +75,24 @@ def make_linear(expert_ids):
         nn.init.constant_(expert.lora_A.weight, 0.2 + expert_id * 0.01)
         nn.init.constant_(expert.lora_B.weight, 0.3 + expert_id * 0.01)
     return layer
+
+
+def write_commit_source(root, pool):
+    root.mkdir()
+    state = {
+        "model.layers.0.self_attn.q_proj.experts.{}.{}.weight".format(i, part): torch.ones(1, 1)
+        for i in pool.expert_ids for part in ("lora_A", "lora_B")
+    }
+    torch.save(state, root / "compose_experts.bin")
+    manifest = {
+        "format_version": 1,
+        "adapter": {"rank": 8, "alpha": 16.0, "dropout": 0.0, "layers": ["model.layers.0.self_attn.q_proj"]},
+        "experts": [
+            {"expert_id": i, "adapter_name": "e{}".format(i), "rank": 8, "alpha": 16.0, "status": "frozen"}
+            for i in pool.expert_ids
+        ],
+    }
+    (root / "compose_experts.json").write_text(json.dumps(manifest))
 
 
 def test_01_fixed_query_is_1536_normalized_parameter_free_and_stage_stable():
@@ -222,21 +243,7 @@ def test_13_remove_and_reroute_reexecutes_global_top2():
 def test_14_pruned_candidate_is_absent_from_committed_selectable_pool(tmp_path):
     pool = pool_with(hist=((1, 0), (2, 1)), current=((7, 2), (8, 3), (9, 4), (10, 5)))
     source = tmp_path / "source"
-    source.mkdir()
-    state = {
-        "model.layers.0.self_attn.q_proj.experts.{}.{}.weight".format(i, part): torch.ones(1, 1)
-        for i in pool.expert_ids for part in ("lora_A", "lora_B")
-    }
-    torch.save(state, source / "compose_experts.bin")
-    manifest = {
-        "format_version": 1,
-        "adapter": {"rank": 8, "alpha": 16.0, "dropout": 0.0, "layers": ["model.layers.0.self_attn.q_proj"]},
-        "experts": [
-            {"expert_id": i, "adapter_name": "e{}".format(i), "rank": 8, "alpha": 16.0, "status": "frozen"}
-            for i in pool.expert_ids
-        ],
-    }
-    (source / "compose_experts.json").write_text(json.dumps(manifest))
+    write_commit_source(source, pool)
     metrics = {i: {"keep": i in (7, 8)} for i in pool.current_ids}
     target = tmp_path / "committed"
     commit_retained_candidates(str(source), str(target), pool, (7, 8), metrics)
@@ -431,7 +438,11 @@ def test_26_split_leakage_and_runtime_preprocessing_parity(tmp_path):
     train = write("train.json", [{"id": "a", "image": "a.jpg", "text": "qa", "answer": "a"}])
     val = write("val.json", [{"id": "b", "image": "b.jpg", "text": "qb", "answer": "b"}])
     test = write("test.json", [{"id": "c", "image": "c.jpg", "text": "qc", "answer": "c"}])
-    audit = audit_split_isolation(train, val, test)
+    audit = bind_pipeline_data_usage(
+        audit_split_isolation(train, val, test),
+        training_sources=(train,), key_learning_sources=(train,),
+        rms_sources=(val,), pruning_sources=(val,),
+    )
     assert audit["test_data_used_for_pruning"] is False
     with pytest.raises(ValueError, match="same normalized path"):
         audit_split_isolation(train, val, val)
@@ -490,3 +501,100 @@ def test_28_nll_eval_output_writer_persists_json_and_honors_sharding(tmp_path):
     assert target == sharded + ".rank1"
     assert json.loads(Path(target).read_text()) == results
     assert not Path(sharded).exists()
+
+
+def test_29_query_backbone_and_pair_scale_are_formal_fixed_contracts(tmp_path):
+    model = tmp_path / "clip"
+    model.mkdir()
+    (model / "config.json").write_text('{"model_type":"clip"}')
+    (model / "preprocessor_config.json").write_text('{"size":336}')
+    first = query_backbone_provenance(model)
+    second = query_backbone_provenance(model)
+    assert first == second and len(first["backbone_hash"]) == 64
+    cache = tmp_path / "features.json"
+    cache.write_text(json.dumps({
+        "query_mode": "v7_fixed", "feature_source": "frozen_clip_l14_336",
+        "query_backbone_provenance": first,
+    }))
+    assert validate_query_cache_contract(
+        (cache,), "clip-vit-large-patch14-336", str(model)
+    ) == first
+    with pytest.raises(ValueError, match="pair_scale"):
+        V7Config.from_dict({"routing": {"pair_scale": 0.8}})
+
+
+def test_30_atomic_commit_failure_never_exposes_final_directory(tmp_path, monkeypatch):
+    import compose.v7.commit as commit_module
+
+    pool = pool_with(current=((7, 0), (8, 1), (9, 2), (10, 3)))
+    source = tmp_path / "source"
+    target = tmp_path / "committed"
+    write_commit_source(source, pool)
+    real_save = commit_module.torch.save
+    calls = {"count": 0}
+
+    def fail_second_save(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise OSError("simulated commit interruption")
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(commit_module.torch, "save", fail_second_save)
+    with pytest.raises(OSError, match="simulated"):
+        commit_retained_candidates(
+            str(source), str(target), pool, (7, 8), {7: {}, 8: {}, 9: {}, 10: {}}
+        )
+    assert not target.exists()
+    assert not list(tmp_path.glob(".committed-*"))
+    assert set(pool.current_ids) == {7, 8, 9, 10}
+
+
+def test_31_checkpoint_continuous_and_resume_states_are_equivalent(tmp_path):
+    pool = pool_with(current=((7, 0), (8, 1), (9, 2), (10, 3)))
+    optimizer = torch.optim.AdamW([pool.keys["7"]], lr=1e-3)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
+
+    def step(key, opt, sched, axis):
+        opt.zero_grad(set_to_none=True)
+        loss = (key[axis] - 0.25).square()
+        loss.backward()
+        opt.step()
+        sched.step()
+
+    step(pool.keys["7"], optimizer, scheduler, 4)
+    path = tmp_path / "resume.pt"
+    lora_state = {"layer.experts.7.lora_A.weight": torch.tensor([1.25])}
+    counters = {"candidate_usage": {"7": 3}, "micro_steps": 1}
+    save_v7_checkpoint(
+        str(path), task_index=0, training_step=1, key_pool=pool,
+        candidate_lora_state=lora_state, optimizer=optimizer, scheduler=scheduler,
+        usage_counters=counters, config=V7Config(),
+    )
+    step(pool.keys["7"], optimizer, scheduler, 5)
+    continuous_key = pool.keys["7"].detach().clone()
+    continuous_optimizer = optimizer.state_dict()
+
+    payload, resumed_pool, _ = load_v7_checkpoint(str(path), restore_rng=False)
+    resumed_optimizer = torch.optim.AdamW([resumed_pool.keys["7"]], lr=1e-3)
+    resumed_scheduler = torch.optim.lr_scheduler.StepLR(
+        resumed_optimizer, step_size=1, gamma=0.9
+    )
+    resumed_optimizer.load_state_dict(payload["optimizer"])
+    resumed_scheduler.load_state_dict(payload["scheduler"])
+    step(resumed_pool.keys["7"], resumed_optimizer, resumed_scheduler, 5)
+    assert torch.allclose(resumed_pool.keys["7"], continuous_key, atol=1e-8)
+    assert resumed_scheduler.state_dict() == scheduler.state_dict()
+    resumed_state = next(iter(resumed_optimizer.state_dict()["state"].values()))
+    continuous_state = next(iter(continuous_optimizer["state"].values()))
+    assert torch.allclose(resumed_state["exp_avg"], continuous_state["exp_avg"])
+    assert torch.equal(payload["candidate_lora_state"][next(iter(lora_state))], torch.tensor([1.25]))
+    assert payload["candidate_usage_counters"] == counters
+
+
+def test_32_nll_eval_reuses_training_preprocessing_mask():
+    import compose.eval.nll_eval as nll_eval
+
+    source = inspect.getsource(nll_eval)
+    assert "LazySupervisedDataset" in source
+    assert "DataCollatorForSupervisedDataset" in source
+    assert "raw_labels = input_ids.clone()" not in source

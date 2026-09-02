@@ -54,7 +54,7 @@ class ComposeSelectionTest(unittest.TestCase):
             selection.gates[:, :2],
             torch.full((2, 2), 1.0 / math.sqrt(2)),
         )
-        torch.testing.assert_close(selection.gates[:, 2], torch.zeros(2))
+        torch.testing.assert_close(selection.gates[:, 2:], torch.zeros(2, 2))
 
     def test_single_expert_default_is_one(self):
         selection = ComposeSelection(
