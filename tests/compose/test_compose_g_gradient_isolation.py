@@ -29,8 +29,8 @@ def _layer(rank=4, alpha=8.0):
 
 
 def _selection(batch_size, *rows):
-    ids = torch.full((batch_size, 3), PAD_EXPERT_ID, dtype=torch.long)
-    gates = torch.zeros(batch_size, 3)
+    ids = torch.full((batch_size, 4), PAD_EXPERT_ID, dtype=torch.long)
+    gates = torch.zeros(batch_size, 4)
     for index, (expert_ids, expert_gates) in enumerate(rows):
         for slot, (expert_id, gate) in enumerate(zip(expert_ids, expert_gates)):
             ids[index, slot] = expert_id
@@ -57,8 +57,8 @@ class GradientIsolationTest(unittest.TestCase):
         inputs = torch.randn(2, 16, requires_grad=False)
         selection = _selection(
             2,
-            ([2, -1, -1], [1.0, 0.0, 0.0]),
-            ([2, 1, -1], [1.0, 1.0, 0.0]),  # cluster expert + one historical
+            ([2, -1, -1, -1], [1.0, 0.0, 0.0, 0.0]),
+            ([2, 1, -1, -1], [1.0, 1.0, 0.0, 0.0]),  # cluster expert + one historical
         )
         with use_selection(selection):
             loss = layer(inputs).sum()
@@ -82,7 +82,7 @@ class GradientIsolationTest(unittest.TestCase):
         pool = ExpertPool(manager)
         pool.train_only([0, 1, 2])  # all trainable, but selection gates which run
         inputs = torch.randn(1, 16)
-        with use_selection(_selection(1, ([1, -1, -1], [1.0, 0.0, 0.0]))):
+        with use_selection(_selection(1, ([1, -1, -1, -1], [1.0, 0.0, 0.0, 0.0]))):
             loss = layer(inputs).sum()
         loss.backward()
         # Expert 2 is trainable but not selected: forward never touches it.

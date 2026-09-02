@@ -1,6 +1,8 @@
 """Test L (spec §27): the composition scale rule is actually applied in
 ``ComposeLinear.forward`` -- single = 1.0, pair = 1/sqrt(2), three-expert
-cluster-training selection = 1/sqrt(3)."""
+cluster-training selection = 1/sqrt(3). The unified ComposeSelection is
+MAX_ACTIVE_EXPERTS = 4 slots wide; unused slots are the -1 pad with zero
+gate, and the scale only counts non-pad active experts."""
 
 import unittest
 
@@ -26,8 +28,8 @@ def _layer():
 
 
 def _selection(batch_size, *rows):
-    ids = torch.full((batch_size, 3), PAD_EXPERT_ID, dtype=torch.long)
-    gates = torch.zeros(batch_size, 3)
+    ids = torch.full((batch_size, 4), PAD_EXPERT_ID, dtype=torch.long)
+    gates = torch.zeros(batch_size, 4)
     for sample_index, (expert_ids, expert_gates) in enumerate(rows):
         for slot, (expert_id, gate) in enumerate(zip(expert_ids, expert_gates)):
             ids[sample_index, slot] = expert_id
@@ -49,12 +51,12 @@ class PairScaleTest(unittest.TestCase):
         self.assertAlmostEqual(DEFAULT_PAIR_SCALE, 1.0 / (2.0 ** 0.5))
 
     def test_single_scale_is_one(self):
-        with use_selection(_selection(1, ([0, -1, -1], [1.0, 0.0, 0.0]))):
+        with use_selection(_selection(1, ([0, -1, -1, -1], [1.0, 0.0, 0.0, 0.0]))):
             output = self.layer(self.inputs).detach()
         self.assertTrue(torch.allclose(output, self.base + self.d0, atol=1e-5))
 
     def test_pair_scale_is_one_over_sqrt_two(self):
-        with use_selection(_selection(1, ([0, 1, -1], [1.0, 1.0, 0.0]))):
+        with use_selection(_selection(1, ([0, 1, -1, -1], [1.0, 1.0, 0.0, 0.0]))):
             output = self.layer(self.inputs).detach()
         expected = self.base + (self.d0 + self.d1) / (2.0 ** 0.5)
         self.assertTrue(
@@ -67,7 +69,7 @@ class PairScaleTest(unittest.TestCase):
         self.assertFalse(torch.allclose(output, self.base + self.d0 + self.d1))
 
     def test_triple_scale_is_one_over_sqrt_three(self):
-        with use_selection(_selection(1, ([0, 1, 2], [1.0, 1.0, 1.0]))):
+        with use_selection(_selection(1, ([0, 1, 2, -1], [1.0, 1.0, 1.0, 0.0]))):
             output = self.layer(self.inputs).detach()
         expected = self.base + (self.d0 + self.d1 + self.d2) / (3.0 ** 0.5)
         self.assertTrue(
@@ -77,9 +79,9 @@ class PairScaleTest(unittest.TestCase):
 
     def test_batched_rows_apply_per_sample_scale(self):
         rows = [
-            ([0, -1, -1], [1.0, 0.0, 0.0]),  # single
-            ([0, 1, -1], [1.0, 1.0, 0.0]),   # pair
-            ([0, 1, 2], [1.0, 1.0, 1.0]),    # triple
+            ([0, -1, -1, -1], [1.0, 0.0, 0.0, 0.0]),  # single
+            ([0, 1, -1, -1], [1.0, 1.0, 0.0, 0.0]),   # pair
+            ([0, 1, 2, -1], [1.0, 1.0, 1.0, 0.0]),    # triple
         ]
         inputs = self.inputs.repeat(3, 1)
         with use_selection(_selection(3, *rows)):

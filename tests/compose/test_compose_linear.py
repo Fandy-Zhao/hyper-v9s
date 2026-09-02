@@ -27,8 +27,8 @@ class ComposeLinearTest(unittest.TestCase):
         layer = _linear_with_experts()
         inputs = torch.tensor([[[3.0, 5.0]], [[7.0, 11.0]]])
         selection = ComposeSelection(
-            torch.tensor([[0, PAD_EXPERT_ID, PAD_EXPERT_ID], [1, PAD_EXPERT_ID, PAD_EXPERT_ID]], dtype=torch.long),
-            torch.tensor([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+            torch.tensor([[0, PAD_EXPERT_ID, PAD_EXPERT_ID, PAD_EXPERT_ID], [1, PAD_EXPERT_ID, PAD_EXPERT_ID, PAD_EXPERT_ID]], dtype=torch.long),
+            torch.tensor([[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]),
         )
         with use_selection(selection):
             output = layer(inputs)
@@ -38,8 +38,8 @@ class ComposeLinearTest(unittest.TestCase):
         layer = _linear_with_experts()
         inputs = torch.tensor([[[3.0, 5.0]]])
         selection = ComposeSelection(
-            torch.tensor([[0, 1, PAD_EXPERT_ID]], dtype=torch.long),
-            torch.tensor([[1.0, 3.0, 0.0]]),
+            torch.tensor([[0, 1, PAD_EXPERT_ID, PAD_EXPERT_ID]], dtype=torch.long),
+            torch.tensor([[1.0, 3.0, 0.0, 0.0]]),
             normalization="l1",
         )
         with use_selection(selection):
@@ -49,12 +49,12 @@ class ComposeLinearTest(unittest.TestCase):
         expected = (0.25 * 6.0 + 0.75 * 20.0) / (2.0 ** 0.5)
         torch.testing.assert_close(output, torch.tensor([[[expected]]]))
 
-    def test_selection_rejects_non_three_slot_shapes(self):
-        # The unified ComposeSelection is exactly MAX_ACTIVE_EXPERTS=3 slots
-        # wide; every slot count other than 3 is rejected.
-        with self.assertRaisesRegex(ValueError, "exactly 3 slots"):
+    def test_selection_rejects_non_four_slot_shapes(self):
+        # The unified ComposeSelection is exactly MAX_ACTIVE_EXPERTS=4 slots
+        # wide; every slot count other than 4 is rejected.
+        with self.assertRaisesRegex(ValueError, "exactly 4 slots"):
             ComposeSelection(torch.tensor([[0, 1]]), torch.ones(1, 2))
-        with self.assertRaisesRegex(ValueError, "exactly 3 slots"):
+        with self.assertRaisesRegex(ValueError, "exactly 4 slots"):
             ComposeSelection(
-                torch.tensor([[0, 1, 2, PAD_EXPERT_ID]]), torch.ones(1, 4)
+                torch.tensor([[0, 1, 2, 3, PAD_EXPERT_ID]]), torch.ones(1, 5)
             )

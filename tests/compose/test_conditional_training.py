@@ -53,8 +53,8 @@ class ConditionalTrainingTest(unittest.TestCase):
                 "labels": torch.tensor([1, 2, 3]),
             },
         ])
-        self.assertEqual(batch["compose_selections"][0][0], (0, 1, -1))
-        self.assertEqual(batch["compose_selections"][0][1], (1.0, 1.0, 0.0))
+        self.assertEqual(batch["compose_selections"][0][0], (0, 1, -1, -1))
+        self.assertEqual(batch["compose_selections"][0][1], (1.0, 1.0, 0.0, 0.0))
         self.assertEqual(collator.supervision_summary()["samples"], 1)
         self.assertEqual(collator.supervision_summary()["zero_supervision"], 0)
 
