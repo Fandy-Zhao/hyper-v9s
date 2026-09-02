@@ -2,16 +2,22 @@
 
 ## 2026-09-02 — V7 real 7B GPU2/GPU3 validation
 
-- GPU2 completed V7 stages S0--S2 on a bounded real ImageNet-R split, then the
+- GPU2 completed V7 stages S0--S5 on a bounded real ImageNet-R split. The
   first training step exposed an unpadded Top-2 versus four-slot execution
   boundary mismatch before any optimizer update.
 - The fix pads only the V7 execution representation with `-1`/zero slots; the
   Global Top-2 route, active gates, Key loss and sparse LoRA semantics remain
   unchanged.
-- Validation resumes from S3 on GPU2, followed by dependent Task1 on GPU3.
-- GPU2 Task0 completed two finite 7B optimization steps plus RMS/pruning/commit;
-  GPU3 Task1 then exposed a BF16 NumPy checksum incompatibility before its
+- GPU2 Task0 completed two finite 7B optimization steps plus 224-layer RMS,
+  removal-reroute pruning and commit; Candidate 2 was retained.
+- GPU3 Task1 then exposed a BF16 NumPy checksum incompatibility before its
   first optimizer update. The checksum now hashes raw tensor bytes.
+- GPU3 Task1 completed two finite 7B optimization steps, preserved the Task0
+  historical Key and LoRA checksums, completed 224-layer RMS and true removal-
+  reroute pruning, and retained Candidates 4, 5 and 7. The committed pool now
+  contains four frozen historical experts: 2, 4, 5 and 7.
+- This is a bounded real-model lifecycle smoke test, not a convergence or
+  benchmark-quality claim. The focused post-fix regression set is 26 passed.
 
 ## 2026-09-01 — V7 full-data global key–expert co-evolution
 

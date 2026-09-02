@@ -130,6 +130,8 @@ pair-weight trainer. Those modules remain intact for historical experiments.
 - V7 plus data/grouped-execution related regression: **24 passed**, 2 dependency
   warnings.
 - Earlier related batch including RMS: **27 passed**, 2 dependency warnings.
+- Post-GPU-fix focused V7/data/grouped regression: **26 passed**, 3 dependency
+  warnings.
 - Full Compose audit run: **353 passed, 27 failed, 8 subtests passed**. Of the
   failures, 25 are pre-existing stale tests that construct/expect the former
   three-slot selection while the baseline production contract is four slots;
@@ -159,14 +161,40 @@ reproducible pairwise cosines near (but below) one. Artifacts are under:
 
 `/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_smoke_seed42/task0_realprep`
 
+### Real 7B GPU2/GPU3 lifecycle smoke
+
+A bounded two-task run completed the complete S0--S5 lifecycle with the real
+LLaVA-1.5-7B base model. Task0 ran on physical GPU2 over 8 ImageNet-R training
+and 4 disjoint validation samples. Its two optimization steps had finite total
+losses 3.8550 and 4.6711, nonzero selected-current Key/LoRA gradient norms,
+224/224 RMS layers, and five validation NLL passes (full plus four true
+remove-and-reroute evaluations). Candidate 2 was retained and committed.
+
+Task1 resumed that checkpoint on physical GPU3 over 8 ArxivQA training and 4
+disjoint validation samples. All 448 historical adapter tensors loaded. Its two
+optimization steps had finite total losses 1.6593 and 1.1516 with nonzero
+selected-current Key/LoRA gradient norms. Historical Key and LoRA checksums
+were unchanged. RMS again covered 224/224 layers; pruning performed the full
+plus four removal-reroute evaluations and retained Candidates 4, 5 and 7. The
+final committed pool contains frozen experts 2, 4, 5 and 7.
+
+The run uncovered and fixed two pre-optimizer boundary defects: V7 Top-2 routes
+are now padded to the production four-slot execution representation, and BF16
+adapter checksums hash dtype/shape/raw bytes without NumPy BF16 conversion.
+Artifacts are under:
+
+`/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_gpu23_validation_seed42`
+
+This two-step run validates execution, gradients, historical freezing, RMS,
+pruning, commit and resume. It is not evidence of task convergence or final
+benchmark quality. Natural Task1 samples selected NewNew routes only; the
+quota-free CPU geometry probe remains the evidence that OldNew is reachable.
+
 ## 8. Known risks / TODO
 
-1. The real 7B Task0/Task1 optimization smoke was not launched because every
-   RTX 4090 is occupied by other users (about 14--21GB per GPU, long-running
-   6--16 hour jobs). A single 7B bf16 process cannot safely fit in the remaining
-   memory, and no foreign process was terminated. CPU gradient smoke and real
-   CLIP preparation are complete; resume can continue at S3 when resources are
-   available.
+1. Real 7B execution has completed only as a bounded two-step lifecycle smoke.
+   Full declared-data training, task convergence and official benchmark metrics
+   remain future experiment work.
 2. The runner's default validation performance signal is a documented
    negative-NLL proxy. A task-specific official evaluator can replace it when
    a labeled validation evaluator/annotation is declared; test answers remain
