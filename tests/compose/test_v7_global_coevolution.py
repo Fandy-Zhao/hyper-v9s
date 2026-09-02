@@ -473,3 +473,20 @@ def test_27_gradient_accumulation_audit_tracks_new_microbatch_contributions_only
     (r2 * 3).backward()
     assert r1.grad is not None and r2.grad is not None
     assert trainer._v7_key_gradient_ids == {2}
+
+
+def test_28_nll_eval_output_writer_persists_json_and_honors_sharding(tmp_path):
+    """Regression: nll_eval used os.makedirs without importing os, crashing
+    after computing per-sample NLLs. The output persistence is now a unit-
+    testable helper covering plain and sharded targets."""
+    from compose.eval.nll_eval import write_nll_output
+
+    results = {"v7_t0_val_0": {"global_top2": {"mean_answer_nll": 0.5}}}
+    plain = str(tmp_path / "nested" / "nll.json")
+    assert write_nll_output(plain, results, num_shards=1, shard_index=0) == plain
+    assert json.loads(Path(plain).read_text()) == results
+    sharded = str(tmp_path / "sharded.json")
+    target = write_nll_output(sharded, results, num_shards=2, shard_index=1)
+    assert target == sharded + ".rank1"
+    assert json.loads(Path(target).read_text()) == results
+    assert not Path(sharded).exists()

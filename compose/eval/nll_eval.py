@@ -13,6 +13,7 @@ module); this module is train-time only.
 
 import argparse
 import json
+import os
 from typing import Dict, List
 
 import torch
@@ -34,6 +35,15 @@ from llava.constants import IGNORE_INDEX
 def _records(question_file: str) -> List[Dict]:
     with open(question_file, "r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def write_nll_output(output: str, results: Dict[str, object], num_shards: int, shard_index: int) -> str:
+    """Persist per-sample NLL results, honoring multi-shard output naming."""
+    target = partial_path(output, shard_index) if num_shards > 1 else output
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+    with open(target, "w", encoding="utf-8") as handle:
+        json.dump(results, handle, indent=2, sort_keys=True)
+    return target
 
 
 def main() -> None:
@@ -164,10 +174,7 @@ def main() -> None:
             flush=True,
         )
 
-    target = partial_path(args.output, args.shard_index) if args.num_shards > 1 else args.output
-    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-    with open(target, "w", encoding="utf-8") as handle:
-        json.dump(results, handle, indent=2, sort_keys=True)
+    target = write_nll_output(args.output, results, args.num_shards, args.shard_index)
     print("NLL results written to {} (shard {}/{})".format(
         target, args.shard_index, args.num_shards
     ))
