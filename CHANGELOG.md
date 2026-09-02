@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-02
+
+- Fixed the V7 dynamic Global Top-2 training boundary to pad each two-expert
+  route to the unified four-slot `ComposeSelection` contract without changing
+  the active experts or gates.
+- Added a regression test reproducing the real 7B GPU2 first-step failure.
+
 ## 2026-09-01
 
 - Added Hyper-LLaVA V7 full-data global Key–Expert co-evolution as explicit

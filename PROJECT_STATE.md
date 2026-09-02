@@ -1,5 +1,15 @@
 # Project State
 
+## 2026-09-02 — V7 real 7B GPU2/GPU3 validation
+
+- GPU2 completed V7 stages S0--S2 on a bounded real ImageNet-R split, then the
+  first training step exposed an unpadded Top-2 versus four-slot execution
+  boundary mismatch before any optimizer update.
+- The fix pads only the V7 execution representation with `-1`/zero slots; the
+  Global Top-2 route, active gates, Key loss and sparse LoRA semantics remain
+  unchanged.
+- Validation resumes from S3 on GPU2, followed by dependent Task1 on GPU3.
+
 ## 2026-09-01 — V7 full-data global key–expert co-evolution
 
 - Baseline: `a8f3a7860631aec8e2ea0d65ad9794838ffaffc7`.

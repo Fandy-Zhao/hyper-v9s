@@ -12,6 +12,7 @@ from compose.v7.checkpoint import load_v7_checkpoint, save_v7_checkpoint
 from compose.v7.commit import commit_retained_candidates
 from compose.v7.config import V7Config, V7PruningConfig
 from compose.v7.inference import V7InferenceRouter
+from compose.v7.hf_trainer import padded_compose_selections
 from compose.v7.pool import (
     V7ExpertKeyPool,
     initialize_candidate_keys,
@@ -261,3 +262,23 @@ def test_17_checkpoint_resume_refreezes_historical_experts(tmp_path):
     assert all(not restored.keys[str(value)].requires_grad for value in restored.historical_ids)
     assert all(restored.keys[str(value)].requires_grad for value in restored.current_ids)
 
+
+def test_18_v7_top2_rows_are_padded_to_unified_four_slot_contract():
+    pool = pool_with(hist=((1, 0),), current=((7, 1), (8, 2), (9, 3)))
+    queries = torch.stack([
+        torch.nn.functional.normalize(basis(0) + basis(1), dim=0),
+        torch.nn.functional.normalize(basis(2) + basis(3), dim=0),
+    ])
+    routed = GlobalTop2Router(pool)(queries)
+
+    rows = padded_compose_selections(routed.selection)
+    assert len(rows) == 2
+    assert all(len(expert_ids) == 4 and len(gates) == 4 for expert_ids, gates in rows)
+    assert all(expert_ids[2:] == (-1, -1) for expert_ids, _ in rows)
+    assert all(gates[2:] == (0.0, 0.0) for _, gates in rows)
+
+    restored = ComposeSelection(
+        torch.tensor([expert_ids for expert_ids, _ in rows], dtype=torch.long),
+        torch.tensor([gates for _, gates in rows], dtype=torch.float32),
+    )
+    assert [record["expert_ids"] for record in restored.per_sample_sets()] == routed.expert_ids.tolist()

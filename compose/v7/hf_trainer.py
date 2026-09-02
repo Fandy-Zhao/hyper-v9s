@@ -7,6 +7,7 @@ from pathlib import Path
 
 import torch
 
+from compose.adapters.types import pad_selection
 from compose.train.trainer import ComposeTrainer
 
 from .checkpoint import load_v7_checkpoint, save_v7_checkpoint
@@ -48,6 +49,17 @@ def load_candidate_lora_state(manager, state):
     unknown = set(state) - expected
     if unknown:
         raise ValueError("unknown V7 candidate LoRA tensors: {}".format(sorted(unknown)[:5]))
+
+
+def padded_compose_selections(selection):
+    """Adapt V7 Top-2 rows to the unified four-slot execution contract."""
+    return [
+        pad_selection(
+            tuple(record["expert_ids"]),
+            tuple(record["gates"]),
+        )
+        for record in selection.per_sample_sets()
+    ]
 
 
 class V7ComposeTrainer(ComposeTrainer):
@@ -137,10 +149,7 @@ class V7ComposeTrainer(ComposeTrainer):
         queries = queries.to(key_device)
         inputs["fixed_queries"] = queries
         routed = self.v7_router(queries)
-        rows = routed.selection.per_sample_sets()
-        inputs["compose_selections"] = [
-            (tuple(value["expert_ids"]), tuple(value["gates"])) for value in rows
-        ]
+        inputs["compose_selections"] = padded_compose_selections(routed.selection)
         current_selected = set(routed.expert_ids.detach().cpu().view(-1).tolist()) & set(
             self.v7_key_pool.current_ids
         )
