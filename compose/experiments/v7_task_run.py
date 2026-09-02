@@ -147,22 +147,31 @@ def build_run_contract(args, config, formal_run, gradient_accumulation_steps):
             if not resolved.is_file():
                 raise FileNotFoundError(str(resolved))
             files[name] = {"path": str(resolved), "sha256": sha256(resolved)}
-    world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    if world_size != 1:
+    orchestrator_world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if orchestrator_world_size != 1:
         raise ValueError(
-            "V7 formal task runner is single-process; WORLD_SIZE={} is unsupported. "
-            "Use GPUS as task-to-device round-robin, not torchrun/DDP.".format(world_size)
+            "V7 task orchestrator must be single-process; WORLD_SIZE={} is unsupported. "
+            "Only its S3 training subprocess may use torchrun/DDP.".format(
+                orchestrator_world_size
+            )
         )
+    world_size = int(getattr(args, "training_world_size", 1))
+    actual_batch = (
+        config.training.per_device_train_batch_size
+        * gradient_accumulation_steps
+        * world_size
+    )
+    target_batch = 64
     recipe = {
         "num_train_epochs": config.training.num_train_epochs,
         "per_device_train_batch_size": config.training.per_device_train_batch_size,
         "gradient_accumulation_steps": gradient_accumulation_steps,
         "world_size": world_size,
-        "effective_global_batch_size": (
-            config.training.per_device_train_batch_size
-            * gradient_accumulation_steps
-            * world_size
-        ),
+        "effective_global_batch_size": actual_batch,
+        "target_global_batch_size": target_batch,
+        "global_batch_relative_difference": (actual_batch - target_batch) / target_batch,
+        "training_gpus": getattr(args, "training_gpus", None),
+        "distributed_backend": getattr(args, "distributed_backend", "nccl"),
         "learning_rate": config.training.learning_rate,
         "weight_decay": config.training.weight_decay,
         "warmup_ratio": config.training.warmup_ratio,
@@ -240,6 +249,13 @@ def main():
     parser.add_argument("--projector-path", required=True)
     parser.add_argument("--image-folder", required=True)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--training-world-size", type=int, default=1)
+    parser.add_argument(
+        "--training-gpus",
+        help="comma-separated physical GPU IDs visible only to the S3 torchrun subprocess",
+    )
+    parser.add_argument("--distributed-backend", default="nccl")
+    parser.add_argument("--training-gradient-accumulation-steps", type=int)
     parser.add_argument(
         "--smoke-max-steps", type=int, default=None,
         help="explicit smoke/debug optimizer-step cap; formal runs omit max_steps",
@@ -270,6 +286,14 @@ def main():
         raise ValueError("--smoke-max-steps must be positive")
     if args.smoke_gradient_accumulation_steps <= 0:
         raise ValueError("--smoke-gradient-accumulation-steps must be positive")
+    if args.training_world_size <= 0:
+        raise ValueError("--training-world-size must be positive")
+    training_gpu_ids = (
+        [value.strip() for value in args.training_gpus.split(",") if value.strip()]
+        if args.training_gpus else [args.device.split(":")[-1]]
+    )
+    if len(training_gpu_ids) != args.training_world_size:
+        raise ValueError("training GPU count must equal --training-world-size")
     formal_run = args.smoke_max_steps is None
     if formal_run and not args.test_file:
         raise ValueError("formal V7 requires an explicit --test-file")
@@ -278,10 +302,14 @@ def main():
     validation_metric = args.validation_metric or "nll_fallback"
     if validation_metric == "official_ucit" and not args.validation_annotation_file:
         raise ValueError("official validation metric requires --validation-annotation-file")
-    gradient_accumulation_steps = (
-        config.training.gradient_accumulation_steps
-        if formal_run else args.smoke_gradient_accumulation_steps
-    )
+    gradient_accumulation_steps = args.training_gradient_accumulation_steps
+    if gradient_accumulation_steps is None:
+        gradient_accumulation_steps = (
+            config.training.gradient_accumulation_steps
+            if formal_run else args.smoke_gradient_accumulation_steps
+        )
+    if gradient_accumulation_steps <= 0:
+        raise ValueError("training gradient accumulation must be positive")
     run_contract = build_run_contract(
         args, config, formal_run, gradient_accumulation_steps
     )
@@ -393,8 +421,14 @@ def main():
 
     output = root / "training"
     if not stage_done(root, "s3_training", run_contract_hash):
-        command = [
-            args.python, "-m", "compose.train.train_compose",
+        train_prefix = [args.python, "-m", "compose.train.train_compose"]
+        if args.training_world_size > 1:
+            train_prefix = [
+                args.python, "-m", "torch.distributed.run", "--standalone",
+                "--nproc_per_node", str(args.training_world_size),
+                "-m", "compose.train.train_compose",
+            ]
+        command = train_prefix + [
             "--model_name_or_path", args.model_path,
             "--vision_tower", args.vision_tower,
             "--data_path", str(train_json), "--image_folder", args.image_folder,
@@ -435,6 +469,7 @@ def main():
             "--model_max_length", str(config.training.model_max_length),
             "--remove_unused_columns", "False",
             "--compose_v7_require_full_coverage", str(formal_run),
+            "--ddp_find_unused_parameters", "True",
         ]
         if args.smoke_max_steps is not None:
             command += ["--max_steps", str(args.smoke_max_steps), "--save_steps", "10"]
@@ -445,7 +480,10 @@ def main():
                 for expert_id in pool.historical_ids
             ]
             command += ["--compose_existing_expert_origins", ",".join(origins)]
-        run(command, env, root / "logs" / "training.log")
+        training_env = dict(env)
+        training_env["CUDA_VISIBLE_DEVICES"] = ",".join(training_gpu_ids)
+        training_env["V7_DISTRIBUTED_BACKEND"] = args.distributed_backend
+        run(command, training_env, root / "logs" / "training.log")
         mark(root, "s3_training", run_contract_hash)
     if args.stop_after == "training":
         return

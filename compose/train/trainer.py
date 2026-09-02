@@ -121,6 +121,7 @@ class ComposeTrainer(LLaVATrainer):
         from compose.adapters.runtime import use_selection
 
         world_size = int(self.args.world_size)
+        backward_scale = self.ddp_backward_loss_scale(world_size)
         model.train()
         inputs = self._prepare_inputs(inputs)
         context = use_selection(selection) if selection is not None else nullcontext()
@@ -130,15 +131,23 @@ class ComposeTrainer(LLaVATrainer):
             if self.args.n_gpu > 1:
                 loss = loss.mean()
             if self.do_grad_scaling:
-                self.scaler.scale(loss * world_size).backward()
+                self.scaler.scale(loss * backward_scale).backward()
             elif self.use_apex:
                 from apex import amp
 
-                with amp.scale_loss(loss * world_size, self.optimizer) as scaled_loss:
+                with amp.scale_loss(loss * backward_scale, self.optimizer) as scaled_loss:
                     scaled_loss.backward()
             else:
-                self.accelerator.backward(loss * world_size)
+                self.accelerator.backward(loss * backward_scale)
         return loss.detach() / self.args.gradient_accumulation_steps
+
+    def ddp_backward_loss_scale(self, world_size):
+        """Return the legacy Compose DDP compensation factor.
+
+        Subclasses whose recipe defines the distributed global batch directly
+        can override this without changing the established V6 behaviour.
+        """
+        return float(world_size)
 
     def _save(self, output_dir=None, state_dict=None) -> None:
         output_dir = output_dir or self.args.output_dir

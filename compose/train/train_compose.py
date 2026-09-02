@@ -514,7 +514,12 @@ def train() -> None:
         data_module = make_supervised_data_module(tokenizer, data_args)
 
     if mode == "v7_global_coevolution":
-        from compose.v7.hf_trainer import V7ComposeTrainer
+        from compose.v7.hf_trainer import (
+            V7ComposeTrainer,
+            attach_v7_ddp_key_anchor,
+        )
+
+        attach_v7_ddp_key_anchor(model, v7_key_pool)
 
         trainer = V7ComposeTrainer(
             model=model,
@@ -546,11 +551,22 @@ def train() -> None:
             "output_dir contains checkpoint-* entries; automatic resume is disabled "
             "because Compose checkpoints are adapter-only: {}".format(sorted(checkpoints))
         )
+    distributed_audits = None
+    if mode == "v7_global_coevolution":
+        trainer.create_optimizer()
+        distributed_audits = {
+            "before_training": trainer.distributed_state_audit("before_training")
+        }
     trainer.train(
         resume_from_checkpoint=True
         if mode == "v7_global_coevolution" and checkpoints
         else None
     )
+    if mode == "v7_global_coevolution":
+        distributed_audits["after_training"] = trainer.distributed_state_audit(
+            "after_training"
+        )
+        trainer.distributed_barrier()
     trainer.save_state()
     coverage_audit = (
         trainer.full_data_coverage_audit(len(data_module["train_dataset"]))
@@ -558,8 +574,16 @@ def train() -> None:
         else None
     )
     model.config.use_cache = True
+    if mode == "v7_global_coevolution":
+        trainer.distributed_barrier()
     if training_args.should_save:
         if mode == "v7_global_coevolution":
+            with open(
+                os.path.join(training_args.output_dir, "v7_distributed_audit.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(distributed_audits, handle, indent=2, sort_keys=True)
+                handle.write("\n")
             with open(
                 os.path.join(training_args.output_dir, "v7_full_data_coverage.json"),
                 "w", encoding="utf-8"

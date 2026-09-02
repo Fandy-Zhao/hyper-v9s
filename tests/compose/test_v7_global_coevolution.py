@@ -684,6 +684,89 @@ def test_34_formal_recipe_records_single_process_effective_global_batch(
         build_run_contract(args, V7Config(), True, 64)
 
 
+def test_35_three_rank_recipe_records_batch_63_without_lr_scaling(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from compose.experiments.v7_task_run import build_run_contract
+
+    paths = []
+    for name in ("config", "train", "validation", "test", "annotation"):
+        path = tmp_path / (name + ".json")
+        path.write_text("{}", encoding="utf-8")
+        paths.append(str(path))
+    args = SimpleNamespace(
+        config=paths[0], train_file=paths[1], val_file=paths[2],
+        test_file=paths[3], validation_annotation_file=paths[4], task_index=0,
+        task_name="ImageNet-R", validation_metric="official_ucit",
+        previous_checkpoint=None, model_path=str(tmp_path / "model"),
+        vision_tower=str(tmp_path / "vision"),
+        projector_path=str(tmp_path / "projector.bin"),
+        image_folder=str(tmp_path / "images"), smoke_max_steps=None,
+        training_world_size=3, training_gpus="0,1,2",
+        distributed_backend="nccl",
+    )
+    monkeypatch.setenv("WORLD_SIZE", "1")
+    contract = build_run_contract(args, V7Config(), True, 21)
+    recipe = contract["recipe"]
+    assert recipe["world_size"] == 3
+    assert recipe["effective_global_batch_size"] == 63
+    assert recipe["target_global_batch_size"] == 64
+    assert recipe["global_batch_relative_difference"] == -0.015625
+    assert recipe["learning_rate"] == V7Config().training.learning_rate
+
+
+def test_36_v7_ddp_anchor_exposes_all_current_keys(monkeypatch):
+    import compose.v7.hf_trainer as module
+    from compose.v7.pool import V7ExpertKeyPool
+
+    monkeypatch.setattr(module, "_distributed", lambda: True)
+    monkeypatch.setattr(torch.distributed, "get_world_size", lambda: 3)
+    pool = V7ExpertKeyPool()
+    pool.add(0, torch.ones(1536), 0, "current", True)
+    pool.add(1, torch.arange(1536, dtype=torch.float32), 0, "current", True)
+
+    class Model(nn.Module):
+        def forward(self, value):
+            return {"loss": value.square().mean()}
+
+    model = Model()
+    module.attach_v7_ddp_key_anchor(model, pool)
+    output = model(torch.tensor([2.0], requires_grad=True))
+    output["loss"].backward()
+    assert all(parameter.grad is not None for parameter in pool.keys.values())
+    assert all(torch.count_nonzero(parameter.grad) == 0 for parameter in pool.keys.values())
+
+
+def test_37_v7_formal_evaluator_has_exact_lower_triangle_and_task_free_command(tmp_path):
+    from compose.eval.v7_formal_ucit_eval import generation_command, lower_triangle_cells
+
+    assert len(lower_triangle_cells()) == 21
+    assert lower_triangle_cells()[0] == (0, 0)
+    assert lower_triangle_cells()[-1] == (5, 5)
+    task_root = tmp_path / "task2" / "data"
+    task_root.mkdir(parents=True)
+    (task_root / "query_contract.json").write_text(
+        json.dumps({"backbone_hash": "abc"}), encoding="utf-8"
+    )
+    formal = {
+        "data": {
+            "model_path": "model", "vision_tower": "vision",
+            "projector_path": "projector", "image_folder": "images",
+        },
+        "tasks": [{"test_file": "test0"}, {"test_file": "test1"}],
+    }
+    method = {"query": {"path": "query-model"}}
+    _answers, command = generation_command(
+        tmp_path, formal, method, 2, 1, "python"
+    )
+    assert "--v7-key-state" in command
+    assert "--query-backbone-hash" in command
+    assert "--expert-ids" not in command
+    assert "--task-id" not in command
+
+
 def test_32_nll_eval_reuses_training_preprocessing_mask():
     import compose.eval.nll_eval as nll_eval
 

@@ -1,5 +1,21 @@
 # Project State
 
+## 2026-09-03 — V7 formal three-GPU run
+
+- `FORMAL_EXPERIMENT_READY = YES`; GPU0--2 and all declared train,
+  validation, test and annotation paths passed preflight.
+- The S3-only DDP implementation uses three ranks, per-device batch 1 and
+  accumulation 21 (effective global batch 63, -1.5625% from target 64), with
+  no learning-rate scaling and unchanged sparse Global Top-2 execution.
+- Focused regression: 39 passed. Real 7B gate: Task0, three ranks, two
+  optimizer steps, finite losses/gradients, identical cross-rank Key/LoRA
+  checksums, and exact current-only optimizer membership.
+- Formal output root:
+  `/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_ucit_formal_3gpu_seed42`.
+- Current status: formal Task0--Task5 launcher is being started; after Task5
+  it automatically evaluates the 21-cell lower triangle and computes the
+  original continual metrics.
+
 ## 2026-09-02 — V7 final formal-repair gate
 
 - Validated implementation SHA `ac7fb8d`: 33 focused V7 tests and the complete

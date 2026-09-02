@@ -11,7 +11,7 @@ from compose.adapters.types import pad_selection
 from compose.train.trainer import ComposeTrainer
 
 from .checkpoint import load_v7_checkpoint, save_v7_checkpoint
-from .pool import V7ExpertKeyPool
+from .pool import V7ExpertKeyPool, tensor_checksum
 from .routing import GlobalTop2Router
 from .training import (
     V7JsonlLogger,
@@ -21,6 +21,49 @@ from .training import (
     selected_current_key_loss,
     full_data_coverage_audit,
 )
+
+
+def _distributed():
+    return torch.distributed.is_available() and torch.distributed.is_initialized()
+
+
+def attach_v7_ddp_key_anchor(model, key_pool):
+    """Expose current keys to DDP graph discovery without dense execution.
+
+    V7 computes its routing loss outside the wrapped LLaVA forward.  The
+    zero-valued dependency added here makes the registered current keys visible
+    in DDP's forward output graph, while selected keys still receive the real
+    routing-loss gradient and unselected keys remain exact no-ops locally.
+    """
+    if not _distributed() or torch.distributed.get_world_size() == 1:
+        return None
+    if getattr(model, "_v7_ddp_key_anchor_handle", None) is not None:
+        return model._v7_ddp_key_anchor_handle
+
+    def hook(_module, _inputs, output):
+        anchor = sum(
+            parameter.sum() * 0.0
+            for parameter in key_pool.keys.values()
+            if parameter.requires_grad
+        )
+        if isinstance(output, dict):
+            field = "loss" if output.get("loss") is not None else "logits"
+            if output.get(field) is None:
+                raise RuntimeError("V7 DDP anchor requires loss or logits output")
+            output[field] = output[field] + anchor
+            return output
+        if isinstance(output, tuple) and output:
+            return (output[0] + anchor,) + output[1:]
+        field = "loss" if getattr(output, "loss", None) is not None else "logits"
+        value = getattr(output, field, None)
+        if value is None:
+            raise RuntimeError("V7 DDP anchor requires loss or logits output")
+        setattr(output, field, value + anchor)
+        return output
+
+    handle = model.register_forward_hook(hook)
+    model._v7_ddp_key_anchor_handle = handle
+    return handle
 
 
 def candidate_lora_state(manager, expert_ids):
@@ -78,11 +121,20 @@ class V7ComposeTrainer(ComposeTrainer):
         self.v7_config = v7_config
         self.v7_task_index = int(v7_task_index)
         self.v7_router = GlobalTop2Router(v7_key_pool)
-        self.v7_logger = V7JsonlLogger(v7_metrics_path)
+        metrics_path = Path(v7_metrics_path)
+        rank = torch.distributed.get_rank() if _distributed() else 0
+        world_size = torch.distributed.get_world_size() if _distributed() else 1
+        if world_size > 1:
+            metrics_path = metrics_path.with_name(
+                "{}.rank{}{}".format(metrics_path.stem, rank, metrics_path.suffix)
+            )
+        self.v7_metrics_base_path = Path(v7_metrics_path)
+        self.v7_logger = V7JsonlLogger(str(metrics_path))
         self.v7_usage = {str(value): 0 for value in v7_key_pool.current_ids}
         self.v7_noop_steps = 0
         self.v7_require_full_coverage = bool(v7_require_full_coverage)
         self.v7_unique_sample_ids = set()
+        self.v7_observed_sample_count = 0
         self.v7_micro_steps = 0
         self._v7_key_gradient_ids = set()
         self._v7_lora_gradient_ids = set()
@@ -180,8 +232,13 @@ class V7ComposeTrainer(ComposeTrainer):
             self._v7_pending_scheduler_state = None
         return scheduler
 
+    def ddp_backward_loss_scale(self, world_size):
+        # The V7 3-GPU recipe defines its real global batch as 1 x 21 x 3.
+        # Standard DDP averaging is therefore the intended optimization rule.
+        return 1.0
+
     def trainable_parameter_audit(self):
-        return {
+        audit = {
             "current_key_parameters": sum(value.numel() for value in self.v7_key_pool.parameters() if value.requires_grad),
             "current_lora_parameters": sum(
                 parameter.numel()
@@ -195,11 +252,22 @@ class V7ComposeTrainer(ComposeTrainer):
             ),
             "query_parameters": 0,
         }
+        audit["optimizer_parameter_count"] = sum(
+            parameter.numel()
+            for group in (self.optimizer.param_groups if self.optimizer else ())
+            for parameter in group["params"]
+        )
+        audit["optimizer_group_parameter_counts"] = [
+            sum(parameter.numel() for parameter in group["params"])
+            for group in (self.optimizer.param_groups if self.optimizer else ())
+        ]
+        return audit
 
     def training_step(self, model, inputs):
         sample_ids = tuple(str(value) for value in inputs.get("sample_ids", ()))
         self._v7_last_sample_ids = sample_ids
         self.v7_unique_sample_ids.update(sample_ids)
+        self.v7_observed_sample_count += len(sample_ids)
         self.v7_micro_steps += 1
         self._v7_key_gradient_ids.clear()
         self._v7_lora_gradient_ids.clear()
@@ -287,8 +355,22 @@ class V7ComposeTrainer(ComposeTrainer):
         cross_task_pairs = Counter()
         losses = Counter()
         rows = 0
-        with self.v7_logger.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
+        paths = [self.v7_logger.path]
+        if _distributed():
+            paths = [
+                self.v7_metrics_base_path.with_name(
+                    "{}.rank{}{}".format(
+                        self.v7_metrics_base_path.stem,
+                        rank,
+                        self.v7_metrics_base_path.suffix,
+                    )
+                )
+                for rank in range(torch.distributed.get_world_size())
+            ]
+        for path in paths:
+            with path.open("r", encoding="utf-8") as handle:
+                records = list(handle)
+            for line in records:
                 record = json.loads(line)
                 rows += 1
                 route_counts.update(record["route_types"])
@@ -336,46 +418,124 @@ class V7ComposeTrainer(ComposeTrainer):
         }
 
     def full_data_coverage_audit(self, num_train_samples):
-        local_ids = sorted(self.v7_unique_sample_ids)
-        gathered = [local_ids]
-        if torch.distributed.is_available() and torch.distributed.is_initialized():
+        local = {
+            "rank": torch.distributed.get_rank() if _distributed() else 0,
+            "unique_sample_ids": sorted(self.v7_unique_sample_ids),
+            "observed_rows": int(self.v7_observed_sample_count),
+            "micro_steps": int(self.v7_micro_steps),
+        }
+        gathered = [local]
+        if _distributed():
             gathered = [None] * torch.distributed.get_world_size()
-            torch.distributed.all_gather_object(gathered, local_ids)
-        unique_ids = sorted({value for rows in gathered for value in rows})
-        return full_data_coverage_audit(
+            torch.distributed.all_gather_object(gathered, local)
+        unique_ids = sorted({
+            value for row in gathered for value in row["unique_sample_ids"]
+        })
+        observed = sum(row["observed_rows"] for row in gathered)
+        audit = full_data_coverage_audit(
             num_train_samples=num_train_samples,
             unique_sample_ids=unique_ids,
-            optimizer_micro_steps=self.v7_micro_steps,
+            optimizer_micro_steps=max(row["micro_steps"] for row in gathered),
             optimizer_steps=self.state.global_step,
-            observed_sample_count=sum(len(rows) for rows in gathered),
+            observed_sample_count=observed,
             require_full=self.v7_require_full_coverage,
         )
+        audit.update({
+            "world_size": len(gathered),
+            "rank_unique_sample_ids_seen": {
+                str(row["rank"]): len(row["unique_sample_ids"]) for row in gathered
+            },
+            "rank_observed_rows": {
+                str(row["rank"]): row["observed_rows"] for row in gathered
+            },
+            "distributed_padding_count": max(0, observed - int(num_train_samples)),
+        })
+        return audit
+
+    def _local_usage_counters(self):
+        return {
+            "rank": torch.distributed.get_rank() if _distributed() else 0,
+            "candidate_usage": dict(self.v7_usage),
+            "noop_micro_steps": int(self.v7_noop_steps),
+            "micro_steps": int(self.v7_micro_steps),
+            "observed_sample_count": int(self.v7_observed_sample_count),
+            "unique_sample_ids": sorted(self.v7_unique_sample_ids),
+        }
+
+    def distributed_barrier(self):
+        if _distributed():
+            torch.distributed.barrier()
+
+    def distributed_state_audit(self, stage):
+        optimizer_names = []
+        if self.optimizer is not None:
+            optimizer_ids = {
+                id(parameter)
+                for group in self.optimizer.param_groups
+                for parameter in group["params"]
+            }
+            optimizer_names = sorted(
+                (name, parameter.numel())
+                for name, parameter in self.model.named_parameters()
+                if id(parameter) in optimizer_ids
+            )
+        local = {
+            "rank": torch.distributed.get_rank() if _distributed() else 0,
+            "key_checksums": {
+                expert_id: tensor_checksum(self.v7_key_pool.keys[str(expert_id)])
+                for expert_id in self.v7_key_pool.expert_ids
+            },
+            "current_lora_checksums": adapter_checksums(
+                self.expert_pool.manager, self.v7_key_pool.current_ids
+            ),
+            "optimizer_parameters": optimizer_names,
+            "model_router_share_key_pool": self.v7_router.key_pool is self.v7_key_pool,
+            "model_registers_same_key_pool": getattr(self.model, "v7_key_pool", None) is self.v7_key_pool,
+        }
+        gathered = [local]
+        if _distributed():
+            gathered = [None] * torch.distributed.get_world_size()
+            torch.distributed.all_gather_object(gathered, local)
+        comparable = [
+            {key: value for key, value in row.items() if key != "rank"}
+            for row in gathered
+        ]
+        if any(row != comparable[0] for row in comparable[1:]):
+            raise AssertionError("V7 distributed state differs across ranks at {}".format(stage))
+        if not local["model_router_share_key_pool"] or not local["model_registers_same_key_pool"]:
+            raise AssertionError("V7 model and router must share the registered key pool")
+        return {"stage": stage, "world_size": len(gathered), "ranks": gathered}
 
     def _save_checkpoint(self, model, trial, metrics=None):
+        self.distributed_barrier()
         super()._save_checkpoint(model, trial, metrics)
+        self.distributed_barrier()
+        counters = [self._local_usage_counters()]
+        if _distributed():
+            counters = [None] * torch.distributed.get_world_size()
+            torch.distributed.all_gather_object(
+                counters, self._local_usage_counters()
+            )
         checkpoint_dir = os.path.join(
             self._get_output_dir(trial=trial),
             "checkpoint-{}".format(self.state.global_step),
         )
-        save_v7_checkpoint(
-            os.path.join(checkpoint_dir, "v7_state.pt"),
-            task_index=self.v7_task_index,
-            training_step=self.state.global_step,
-            key_pool=self.v7_key_pool,
-            candidate_lora_state=candidate_lora_state(
-                self.expert_pool.manager, self.v7_key_pool.current_ids
-            ),
-            optimizer=self.optimizer,
-            scheduler=self.lr_scheduler,
-            usage_counters={
-                "candidate_usage": dict(self.v7_usage),
-                "noop_micro_steps": int(self.v7_noop_steps),
-                "micro_steps": int(self.v7_micro_steps),
-                "unique_sample_ids": sorted(self.v7_unique_sample_ids),
-            },
-            config=self.v7_config,
-            rms_state={},
-        )
+        if self.args.should_save:
+            save_v7_checkpoint(
+                os.path.join(checkpoint_dir, "v7_state.pt"),
+                task_index=self.v7_task_index,
+                training_step=self.state.global_step,
+                key_pool=self.v7_key_pool,
+                candidate_lora_state=candidate_lora_state(
+                    self.expert_pool.manager, self.v7_key_pool.current_ids
+                ),
+                optimizer=self.optimizer,
+                scheduler=self.lr_scheduler,
+                usage_counters={"per_rank": counters},
+                config=self.v7_config,
+                rms_state={},
+            )
+        self.distributed_barrier()
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
         path = Path(resume_from_checkpoint) / "v7_state.pt"
@@ -395,10 +555,15 @@ class V7ComposeTrainer(ComposeTrainer):
             self.expert_pool.manager, payload["candidate_lora_state"]
         )
         counters = dict(payload["candidate_usage_counters"])
+        if "per_rank" in counters:
+            rank = torch.distributed.get_rank() if _distributed() else 0
+            per_rank = {int(row["rank"]): row for row in counters["per_rank"]}
+            counters = dict(per_rank[rank])
         if "candidate_usage" in counters:
             self.v7_usage = dict(counters["candidate_usage"])
             self.v7_noop_steps = int(counters.get("noop_micro_steps", 0))
             self.v7_micro_steps = int(counters.get("micro_steps", 0))
+            self.v7_observed_sample_count = int(counters.get("observed_sample_count", 0))
             self.v7_unique_sample_ids = set(counters.get("unique_sample_ids", ()))
         else:
             # Backward compatibility with initial V7 checkpoints.

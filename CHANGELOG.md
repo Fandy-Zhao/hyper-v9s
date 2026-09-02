@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-03
+
+- Added the formal V7 three-rank DDP path on GPU0--2. Only S3 training is
+  distributed; six tasks remain strictly sequential with global batch 63
+  (`1 x 21 x 3`) and unchanged learning rates.
+- Added sparse-Key DDP graph anchoring, rank-local logs, cross-rank
+  Key/current-LoRA and optimizer audits, global sampler coverage/padding
+  accounting, rank0-only V7 checkpoint writes, and per-rank resume counters.
+- Added the resumable six-task launcher and a three-worker task-free V7
+  evaluator for exactly 21 lower-triangle UCIT cells.
+- Passed 39 focused tests and a real 7B Task0 three-GPU/two-step gate.
+
 ## 2026-09-02
 
 - Hardened the final V7 pre-training gate: split isolation now distinguishes
