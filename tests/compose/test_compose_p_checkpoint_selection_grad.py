@@ -34,8 +34,8 @@ from compose.train.train_compose import _prepare_cluster_expert_backward
 
 
 def _selection(batch_size: int) -> ComposeSelection:
-    ids = torch.full((batch_size, 3), PAD_EXPERT_ID, dtype=torch.long)
-    gates = torch.zeros(batch_size, 3)
+    ids = torch.full((batch_size, 4), PAD_EXPERT_ID, dtype=torch.long)
+    gates = torch.zeros(batch_size, 4)
     ids[:, 0] = 7
     gates[:, 0] = 1.0
     return ComposeSelection(ids, gates)

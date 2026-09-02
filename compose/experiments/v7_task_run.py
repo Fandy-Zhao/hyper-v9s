@@ -91,6 +91,10 @@ def main():
         "--smoke-max-steps", type=int, default=None,
         help="explicit smoke/debug optimizer-step cap; formal runs omit max_steps",
     )
+    parser.add_argument(
+        "--smoke-gradient-accumulation-steps", type=int, default=1,
+        help="explicit smoke-only accumulation override; formal runs use the YAML recipe",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--skip-eval", action="store_true")
     parser.add_argument(
@@ -110,6 +114,8 @@ def main():
         raise ValueError("wrong method")
     if args.smoke_max_steps is not None and args.smoke_max_steps <= 0:
         raise ValueError("--smoke-max-steps must be positive")
+    if args.smoke_gradient_accumulation_steps <= 0:
+        raise ValueError("--smoke-gradient-accumulation-steps must be positive")
     formal_run = args.smoke_max_steps is None
     if formal_run and not args.test_file:
         raise ValueError("formal V7 requires an explicit --test-file")
@@ -118,6 +124,10 @@ def main():
     validation_metric = args.validation_metric or "nll_fallback"
     if validation_metric == "official_ucit" and not args.validation_annotation_file:
         raise ValueError("official validation metric requires --validation-annotation-file")
+    gradient_accumulation_steps = (
+        config.training.gradient_accumulation_steps
+        if formal_run else args.smoke_gradient_accumulation_steps
+    )
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = args.device.split(":")[-1]
     worker_device = "cuda:0" if args.device.startswith("cuda") else args.device
@@ -220,7 +230,7 @@ def main():
             "--mm_vision_select_feature", config.runtime.mm_vision_select_feature,
             "--image_aspect_ratio", config.runtime.image_aspect_ratio,
             "--per_device_train_batch_size", str(config.training.per_device_train_batch_size),
-            "--gradient_accumulation_steps", str(config.training.gradient_accumulation_steps),
+            "--gradient_accumulation_steps", str(gradient_accumulation_steps),
             "--num_train_epochs", str(config.training.num_train_epochs),
             "--learning_rate", str(config.training.learning_rate),
             "--weight_decay", str(config.training.weight_decay),
@@ -323,10 +333,15 @@ def main():
                     "--device", worker_device, "--runtime-contract", str(runtime_contract_path),
                 ], env, root / "logs" / "pruning_generation_{}.log".format(index))
                 metric_output = root / "pruning" / "official_metric_{}.json".format(index)
+                annotation_file = args.validation_annotation_file
+                if Path(annotation_file).resolve() == Path(args.val_file).resolve():
+                    # Classification/instruction annotations are rewritten with collision-safe
+                    # validation IDs; score against that exact rewritten validation artifact.
+                    annotation_file = str(val_json)
                 run([
                     args.python, "-m", "compose.eval.v7_validation_metric",
                     "--task-index", str(args.task_index),
-                    "--annotation-file", args.validation_annotation_file,
+                    "--annotation-file", annotation_file,
                     "--predictions-file", str(answers),
                     "--work-root", str(root / "pruning" / "official_work_{}".format(index)),
                     "--output", str(metric_output),

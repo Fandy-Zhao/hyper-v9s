@@ -327,7 +327,17 @@ def test_20_formal_recipe_has_no_implicit_30_step_cap_and_smoke_is_explicit():
     ) == 64
     source = inspect.getsource(runner)
     assert '"--smoke-max-steps"' in source
+    assert '"--smoke-gradient-accumulation-steps"' in source
+    assert "if formal_run else args.smoke_gradient_accumulation_steps" in source
     assert '"--max-steps", type=int, default=30' not in source
+
+
+def test_20b_official_classification_metric_uses_rewritten_validation_ids():
+    import compose.experiments.v7_task_run as runner
+
+    source = inspect.getsource(runner)
+    assert "Path(annotation_file).resolve() == Path(args.val_file).resolve()" in source
+    assert 'annotation_file = str(val_json)' in source
 
 
 def test_21_formal_full_data_coverage_fails_but_explicit_smoke_can_be_partial():

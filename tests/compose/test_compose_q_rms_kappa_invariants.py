@@ -93,8 +93,8 @@ class KappaRuntimeForwardTest(unittest.TestCase):
     def test_pair_forward_matches_kappa_scaled_composition(self):
         layer = self._build_layer()
         x = torch.randn(4, 8)
-        ids = torch.full((4, 3), PAD_EXPERT_ID, dtype=torch.long)
-        gates = torch.zeros(4, 3)
+        ids = torch.full((4, 4), PAD_EXPERT_ID, dtype=torch.long)
+        gates = torch.zeros(4, 4)
         ids[:, 0] = 0
         ids[:, 1] = 1
         gates[:, 0] = 1.0
@@ -113,8 +113,8 @@ class KappaRuntimeForwardTest(unittest.TestCase):
     def test_single_forward_scales_by_kappa_only(self):
         layer = self._build_layer()
         x = torch.randn(3, 8)
-        ids = torch.full((3, 3), PAD_EXPERT_ID, dtype=torch.long)
-        gates = torch.zeros(3, 3)
+        ids = torch.full((3, 4), PAD_EXPERT_ID, dtype=torch.long)
+        gates = torch.zeros(3, 4)
         ids[:, 0] = 0
         gates[:, 0] = 1.0
         selection = ComposeSelection(ids, gates)
@@ -127,8 +127,8 @@ class KappaRuntimeForwardTest(unittest.TestCase):
         layer = self._build_layer()
         layer.set_expert_calibration({0: 2.0})  # expert 1 unlisted -> 1.0
         x = torch.randn(2, 8)
-        ids = torch.full((2, 3), PAD_EXPERT_ID, dtype=torch.long)
-        gates = torch.zeros(2, 3)
+        ids = torch.full((2, 4), PAD_EXPERT_ID, dtype=torch.long)
+        gates = torch.zeros(2, 4)
         ids[:, 0] = 1
         gates[:, 0] = 1.0
         selection = ComposeSelection(ids, gates)

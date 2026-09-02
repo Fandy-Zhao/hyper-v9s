@@ -27,8 +27,8 @@ def _layer():
 
 
 def _selection(batch_size, expert_ids, gates):
-    ids = torch.full((batch_size, 3), PAD_EXPERT_ID, dtype=torch.long)
-    gate_tensor = torch.zeros(batch_size, 3)
+    ids = torch.full((batch_size, 4), PAD_EXPERT_ID, dtype=torch.long)
+    gate_tensor = torch.zeros(batch_size, 4)
     for index, (expert_id, gate) in enumerate(zip(expert_ids, gates)):
         ids[0, index] = expert_id
         gate_tensor[0, index] = gate
