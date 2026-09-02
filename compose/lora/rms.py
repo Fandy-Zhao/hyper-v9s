@@ -308,6 +308,27 @@ def apply_kappa_calibration(model, calibration: Mapping[str, Mapping[str, float]
         )
 
 
+def runtime_kappa_calibration(
+    model, expert_ids: Optional[Sequence[int]] = None
+) -> Dict[str, Dict[str, float]]:
+    """Return the effective persisted calibration currently used by runtime."""
+    from compose.adapters.lora import ComposeLinear
+
+    selected = None if expert_ids is None else {int(value) for value in expert_ids}
+    result = {}
+    for name, module in model.named_modules():
+        if not isinstance(module, ComposeLinear):
+            continue
+        values = {
+            str(expert_id): float(kappa)
+            for expert_id, kappa in module._expert_calibration.items()
+            if selected is None or int(expert_id) in selected
+        }
+        if values:
+            result[name] = dict(sorted(values.items(), key=lambda item: int(item[0])))
+    return result
+
+
 def rms_report(
     stats: RMSStatistics,
     expert_ids: Sequence[int],

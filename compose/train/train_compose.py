@@ -216,9 +216,14 @@ def _inject_and_pool(model, model_args):
 def _load_old_checkpoint(pool, model_args, training_args):
     if not model_args.compose_checkpoint:
         return None
-    load_summary = load_expert_checkpoint(pool, model_args.compose_checkpoint)[
-        "load_summary"
-    ]
+    loaded_manifest = load_expert_checkpoint(pool, model_args.compose_checkpoint)
+    load_summary = loaded_manifest["load_summary"]
+    calibration = loaded_manifest.get("rms_calibration") or {}
+    if calibration:
+        from compose.lora.rms import apply_kappa_calibration
+
+        apply_kappa_calibration(pool.manager.model, calibration)
+        load_summary["rms_calibration_applied"] = True
     for expert_id, origin_task_id in _expert_origin_mapping(
         model_args.compose_existing_expert_origins
     ).items():
@@ -334,6 +339,7 @@ def train() -> None:
             "compose_v7_query_cache": model_args.compose_v7_query_cache,
             "compose_v7_config": model_args.compose_v7_config,
             "compose_v7_metrics_path": model_args.compose_v7_metrics_path,
+            "compose_v7_runtime_contract": model_args.compose_v7_runtime_contract,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
@@ -431,6 +437,26 @@ def train() -> None:
     model.config.mm_projector_lr = training_args.mm_projector_lr
     training_args.use_im_start_end = model_args.mm_use_im_start_end
     model.initialize_vision_tokenizer(model_args, tokenizer)
+    if mode == "v7_global_coevolution":
+        from compose.v7.provenance import (
+            build_runtime_contract,
+            load_runtime_contract,
+            validate_runtime_contract,
+        )
+
+        actual_runtime = build_runtime_contract(
+            image_aspect_ratio=data_args.image_aspect_ratio,
+            vision_tower=model_args.vision_tower,
+            mm_vision_select_layer=model_args.mm_vision_select_layer,
+            mm_vision_select_feature=model_args.mm_vision_select_feature,
+            mm_projector_type=model_args.mm_projector_type,
+            projector_path=model_args.pretrain_mm_mlp_adapter,
+        )
+        validate_runtime_contract(
+            load_runtime_contract(model_args.compose_v7_runtime_contract),
+            actual_runtime,
+            "training",
+        )
 
     if mode == "cluster_expert":
         selections = _load_selection_manifest(model_args.compose_selection_manifest)
@@ -499,6 +525,7 @@ def train() -> None:
             v7_config=v7_config,
             v7_task_index=model_args.compose_v7_task_index,
             v7_metrics_path=model_args.compose_v7_metrics_path,
+            v7_require_full_coverage=model_args.compose_v7_require_full_coverage,
             **data_module
         )
     else:
@@ -525,9 +552,20 @@ def train() -> None:
         else None
     )
     trainer.save_state()
+    coverage_audit = (
+        trainer.full_data_coverage_audit(len(data_module["train_dataset"]))
+        if mode == "v7_global_coevolution"
+        else None
+    )
     model.config.use_cache = True
     if training_args.should_save:
         if mode == "v7_global_coevolution":
+            with open(
+                os.path.join(training_args.output_dir, "v7_full_data_coverage.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(coverage_audit, handle, indent=2, sort_keys=True)
+                handle.write("\n")
             freeze_audit = trainer.assert_task_freeze_integrity()
             with open(
                 os.path.join(training_args.output_dir, "v7_freeze_audit.json"),
@@ -557,7 +595,16 @@ def train() -> None:
         pool.sync_training_step(trainer.state.global_step)
         pool.train_only([])
         model.config.save_pretrained(training_args.output_dir)
-        save_expert_checkpoint(pool, training_args.output_dir)
+        if mode == "v7_global_coevolution":
+            from compose.lora.rms import runtime_kappa_calibration
+
+            save_expert_checkpoint(
+                pool,
+                training_args.output_dir,
+                rms_calibration=runtime_kappa_calibration(model),
+            )
+        else:
+            save_expert_checkpoint(pool, training_args.output_dir)
         # Standalone per-expert state dicts are written for both fixed and
         # cluster modes so every capacity-chain point can be assembled and
         # evaluated through the same loader.

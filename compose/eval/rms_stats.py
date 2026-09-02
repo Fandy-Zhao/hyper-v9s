@@ -208,6 +208,7 @@ def main() -> None:
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--frozen-calibration", default=None)
     parser.add_argument("--new-expert-ids", default="")
+    parser.add_argument("--runtime-contract")
     args = parser.parse_args()
 
     records = json.loads(Path(args.question_file).read_text(encoding="utf-8"))
@@ -238,6 +239,25 @@ def main() -> None:
         dtype=torch.bfloat16,
         model_max_length=2048,
     )
+    if args.runtime_contract:
+        from compose.v7.provenance import (
+            build_runtime_contract,
+            load_runtime_contract,
+            validate_runtime_contract,
+        )
+
+        validate_runtime_contract(
+            load_runtime_contract(args.runtime_contract),
+            build_runtime_contract(
+                image_aspect_ratio=bundle.model.config.image_aspect_ratio,
+                vision_tower=args.vision_tower,
+                mm_vision_select_layer=-2,
+                mm_vision_select_feature="patch",
+                mm_projector_type="mlp2x_gelu",
+                projector_path=args.projector_path,
+            ),
+            "rms",
+        )
     expert_ids = sorted(int(value) for value in bundle.expert_pool.expert_ids())
     if not expert_ids:
         raise ValueError("checkpoint has no registered experts")

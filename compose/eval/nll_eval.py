@@ -13,35 +13,27 @@ module); this module is train-time only.
 
 import argparse
 import json
-import os
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List
 
 import torch
-from PIL import Image
-
 from compose.adapters.types import ComposeSelection, pad_selection
 from compose.eval.load_compose import load_compose_model
 from compose.eval.sharding import partial_path, shard_records
-from compose.teacher.scorer import answer_token_nll
-from compose.train.data import DataCollatorForSupervisedDataset
+from compose.train.arguments import DataArguments
+from compose.train.data import DataCollatorForSupervisedDataset, LazySupervisedDataset
+from compose.v7.training import supervised_token_mask, teacher_forcing_token_nll
+from compose.v7.provenance import (
+    build_runtime_contract,
+    load_runtime_contract,
+    validate_runtime_contract,
+)
 from llava import conversation as conversation_lib
-from llava.mm_utils import tokenizer_image_token
+from llava.constants import IGNORE_INDEX
 
 
 def _records(question_file: str) -> List[Dict]:
     with open(question_file, "r", encoding="utf-8") as handle:
         return json.load(handle)
-
-
-def _sample_text(record: Dict) -> Tuple[str, Optional[str]]:
-    if "conversations" in record:
-        for message in record["conversations"]:
-            if message["from"] == "human":
-                text = message["value"]
-            elif message["from"] == "gpt":
-                answer = message["value"]
-        return text, answer
-    return record.get("text", ""), record.get("answer")
 
 
 def main() -> None:
@@ -57,6 +49,8 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--image-aspect-ratio", default="pad")
+    parser.add_argument("--runtime-contract")
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
@@ -64,14 +58,6 @@ def main() -> None:
 
     with open(args.selections, "r", encoding="utf-8") as handle:
         selections = json.load(handle)
-    records = _records(args.question_file)
-    if args.max_samples:
-        records = records[: args.max_samples]
-    # 4-GPU execution (spec §13): shard by SAMPLE only; the per-sample
-    # candidate sets in the shared selections file are never sharded, so
-    # every sample's teacher candidate space is identical to single-GPU.
-    records = shard_records(records, args.num_shards, args.shard_index)
-
     bundle = load_compose_model(
         model_path=args.model_path,
         checkpoint_dir=args.checkpoint_dir,
@@ -84,47 +70,63 @@ def main() -> None:
     )
     model = bundle.model
     tokenizer = bundle.tokenizer
-    image_processor = bundle.image_processor
-    conv_template = conversation_lib.conv_templates["vicuna_v1"].copy()
+    conversation_lib.default_conversation = conversation_lib.conv_templates["vicuna_v1"]
+    data_args = DataArguments(
+        data_path=args.question_file,
+        image_folder=args.image_folder,
+        image_aspect_ratio=args.image_aspect_ratio,
+    )
+    if args.runtime_contract:
+        validate_runtime_contract(
+            load_runtime_contract(args.runtime_contract),
+            build_runtime_contract(
+                image_aspect_ratio=args.image_aspect_ratio,
+                vision_tower=args.vision_tower,
+                mm_vision_select_layer=-2,
+                mm_vision_select_feature="patch",
+                mm_projector_type="mlp2x_gelu",
+                projector_path=args.projector_path,
+            ),
+            "pruning_nll",
+        )
+    data_args.image_processor = bundle.image_processor
+    data_args.is_multimodal = True
+    data_args.mm_use_im_start_end = False
+    dataset = LazySupervisedDataset(args.question_file, tokenizer, data_args)
     collator = DataCollatorForSupervisedDataset(tokenizer)
+    indices = list(range(len(dataset)))
+    if args.max_samples:
+        indices = indices[: args.max_samples]
+    indices = shard_records(indices, args.num_shards, args.shard_index)
 
     results = {}
-    for record in records:
+    for record_index in indices:
+        record = dataset.records[record_index]
         sample_id = str(record.get("id", record.get("question_id")))
         if sample_id not in selections:
             continue
-        text, answer = _sample_text(record)
-        if not answer:
-            raise ValueError("record {} has no answer".format(sample_id))
-        image_path = os.path.join(args.image_folder, record["image"])
-        if not os.path.isfile(image_path):
-            raise ValueError("missing image: {}".format(image_path))
-
-        conv_template.messages = []
-        conv_template.append_message(conv_template.roles[0], text)
-        conv_template.append_message(conv_template.roles[1], answer)
-        prompt = conv_template.get_prompt()
-        input_ids = tokenizer_image_token(
-            prompt, tokenizer, return_tensors="pt"
-        ).to(args.device)
-        image = image_processor.preprocess(
-            Image.open(image_path).convert("RGB"), return_tensors="pt"
-        )["pixel_values"][0].to(args.device, dtype=torch.bfloat16)
-        image = image.unsqueeze(0)
+        batch = collator([dataset[record_index]])
+        input_ids = batch["input_ids"].to(args.device)
+        attention_mask = batch["attention_mask"].to(args.device)
+        labels = batch["labels"].to(args.device)
+        images = batch["images"].to(args.device, dtype=torch.bfloat16)
         # Expand labels in lockstep with the multimodal sequence so they
         # align with the forward logits (image patch tokens included).
-        raw_labels = input_ids.clone().unsqueeze(0)
         expanded = model.prepare_inputs_labels_for_multimodal(
-            input_ids=input_ids.unsqueeze(0),
+            input_ids=input_ids,
             position_ids=None,
-            attention_mask=None,
+            attention_mask=attention_mask,
             past_key_values=None,
-            labels=raw_labels,
-            images=image,
+            labels=labels,
+            images=images,
         )
         prepared_ids = expanded[0]
+        prepared_attention_mask = expanded[2]
         prepared_inputs_embeds = expanded[4]
         prepared_labels = expanded[5]
+        supervised_token_count = int(supervised_token_mask(prepared_labels).sum().item())
+        if supervised_token_count <= 0:
+            raise ValueError("record {} has zero supervised answer tokens".format(sample_id))
 
         per_set = {}
         for set_key, expert_ids in sorted(selections[sample_id].items()):
@@ -138,21 +140,26 @@ def main() -> None:
                 outputs = model(
                     input_ids=prepared_ids,
                     inputs_embeds=prepared_inputs_embeds,
+                    attention_mask=prepared_attention_mask,
                     labels=prepared_labels,
                     return_dict=True,
                 )
             logits = outputs.logits
-            nll = answer_token_nll(
-                logits, prepared_labels,
-                eos_token_id=tokenizer.eos_token_id,
-                include_eos=False,
-            )
-            per_set[set_key] = float(nll["mean_nll"])
+            nll = teacher_forcing_token_nll(logits, prepared_labels)
+            per_set[set_key] = {
+                "mean_answer_nll": float(nll),
+                "supervised_token_count": supervised_token_count,
+                "supervision_contract": "compose_train_preprocess_v1_shifted",
+                "eos_policy": "same_as_training_labels",
+            }
         results[sample_id] = per_set
         print(
             "  sample {}: {}".format(
                 sample_id,
-                ", ".join("{}={:.4f}".format(key, value) for key, value in per_set.items()),
+                ", ".join(
+                    "{}={:.4f}".format(key, value["mean_answer_nll"])
+                    for key, value in per_set.items()
+                ),
             ),
             flush=True,
         )

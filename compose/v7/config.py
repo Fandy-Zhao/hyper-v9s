@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 @dataclass(frozen=True)
@@ -43,8 +43,56 @@ class V7RoutingConfig:
 class V7TrainingConfig:
     lambda_key: float = 0.1
     key_learning_rate: float = 3.0e-4
-    lora_learning_rate: float = 2.0e-4
+    learning_rate: float = 2.0e-4
+    # Backward-compatible override for older V7 configs. Formal configs use
+    # ``learning_rate`` so the recipe matches Hugging Face/UCIT terminology.
+    lora_learning_rate: Optional[float] = None
+    num_train_epochs: float = 1.0
+    per_device_train_batch_size: int = 1
+    gradient_accumulation_steps: int = 64
+    warmup_ratio: float = 0.03
+    lr_scheduler_type: str = "cosine"
+    weight_decay: float = 0.0
+    seed: int = 42
+    gradient_checkpointing: bool = True
+    group_by_modality_length: bool = True
+    bf16: bool = True
+    tf32: bool = True
+    logging_steps: int = 1
+    save_strategy: str = "epoch"
+    model_max_length: int = 2048
+    dataloader_num_workers: int = 4
     gradient_audit_every: int = 1
+
+    def __post_init__(self) -> None:
+        if self.num_train_epochs <= 0:
+            raise ValueError("num_train_epochs must be positive")
+        if self.per_device_train_batch_size <= 0:
+            raise ValueError("per_device_train_batch_size must be positive")
+        if self.gradient_accumulation_steps <= 0:
+            raise ValueError("gradient_accumulation_steps must be positive")
+        if not 0.0 <= self.warmup_ratio <= 1.0:
+            raise ValueError("warmup_ratio must be in [0, 1]")
+
+    @property
+    def effective_lora_learning_rate(self) -> float:
+        return float(
+            self.learning_rate
+            if self.lora_learning_rate is None
+            else self.lora_learning_rate
+        )
+
+
+@dataclass(frozen=True)
+class V7RuntimeConfig:
+    image_aspect_ratio: str = "pad"
+    mm_vision_select_layer: int = -2
+    mm_vision_select_feature: str = "patch"
+    mm_projector_type: str = "mlp2x_gelu"
+
+    def __post_init__(self) -> None:
+        if self.image_aspect_ratio != "pad":
+            raise ValueError("formal V7 requires image_aspect_ratio: pad")
 
 
 @dataclass(frozen=True)
@@ -70,6 +118,7 @@ class V7Config:
     candidates: V7CandidateConfig = field(default_factory=V7CandidateConfig)
     routing: V7RoutingConfig = field(default_factory=V7RoutingConfig)
     training: V7TrainingConfig = field(default_factory=V7TrainingConfig)
+    runtime: V7RuntimeConfig = field(default_factory=V7RuntimeConfig)
     pruning: V7PruningConfig = field(default_factory=V7PruningConfig)
 
     def __post_init__(self) -> None:
@@ -89,6 +138,7 @@ class V7Config:
             candidates=V7CandidateConfig(**value.get("candidates", {})),
             routing=V7RoutingConfig(**value.get("routing", {})),
             training=V7TrainingConfig(**value.get("training", {})),
+            runtime=V7RuntimeConfig(**value.get("runtime", {})),
             pruning=V7PruningConfig(**value.get("pruning", {})),
         )
 

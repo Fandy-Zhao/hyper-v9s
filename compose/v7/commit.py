@@ -28,6 +28,10 @@ def commit_retained_candidates(
     if not retained.issubset(set(key_pool.current_ids)):
         raise ValueError("retained IDs must be current candidates")
     selected = historical | retained
+    if len(selected) < 2:
+        raise ValueError(
+            "V7 commit requires at least two selectable experts for Global Top-2"
+        )
     source = Path(source_checkpoint)
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=False)

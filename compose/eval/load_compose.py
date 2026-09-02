@@ -108,6 +108,7 @@ def load_compose_model(
     device: str = "cuda:0",
     dtype: torch.dtype = torch.bfloat16,
     model_max_length: int = 2048,
+    apply_persisted_rms: bool = True,
 ) -> EvaluationBundle:
     manifest = _read_compose_manifest(checkpoint_dir)
     adapter = manifest["adapter"]
@@ -124,6 +125,11 @@ def load_compose_model(
     manager = ExpertManager(model)
     pool = ExpertPool(manager)
     loaded_manifest = load_expert_checkpoint(pool, checkpoint_dir)
+    calibration = loaded_manifest.get("rms_calibration") or {}
+    if apply_persisted_rms and calibration:
+        from compose.lora.rms import apply_kappa_calibration
+
+        apply_kappa_calibration(model, calibration)
     if expert_id is not None and expert_id not in pool.expert_ids():
         raise KeyError("expert {} is not present in checkpoint".format(expert_id))
     pool.train_only([])
@@ -149,7 +155,8 @@ def load_compose_model(
             "adapter_parameter_count": loaded_manifest["metrics"][
                 "adapter_parameter_count"
             ],
-            "rms_calibration": loaded_manifest.get("rms_calibration"),
+            "rms_calibration": calibration,
+            "rms_calibration_applied": bool(apply_persisted_rms and calibration),
         },
     )
 

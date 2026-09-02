@@ -88,13 +88,22 @@ def main() -> None:
         "--v7-key-state", default=None,
         help="committed v7_keys.pt; fixed 1536-D query + global Top-2",
     )
+    parser.add_argument(
+        "--selection-manifest", default=None,
+        help="precomputed per-sample expert IDs for validation remove-and-reroute",
+    )
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--model-max-length", type=int, default=2048)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--runtime-contract")
     args = parser.parse_args()
-    if args.router_checkpoint and args.v7_key_state:
-        raise ValueError("legacy router and V7 key state are mutually exclusive")
+    routing_modes = sum(
+        value is not None
+        for value in (args.router_checkpoint, args.v7_key_state, args.selection_manifest)
+    )
+    if routing_modes > 1:
+        raise ValueError("router, V7 key state and selection manifest are mutually exclusive")
 
     torch.manual_seed(42)
     if torch.cuda.is_available():
@@ -111,7 +120,12 @@ def main() -> None:
         model_max_length=args.model_max_length,
     )
     if args.adapter_kind == "compose":
-        if args.expert_ids is None and args.router_checkpoint is None and args.v7_key_state is None:
+        if (
+            args.expert_ids is None
+            and args.router_checkpoint is None
+            and args.v7_key_state is None
+            and args.selection_manifest is None
+        ):
             bundle = load_compose_model(
                 expert_id=args.expert_id,
                 gate=args.gate,
@@ -147,20 +161,32 @@ def main() -> None:
             }
     else:
         bundle = load_peft_model(**common)
+    if args.runtime_contract:
+        from compose.v7.provenance import (
+            build_runtime_contract,
+            load_runtime_contract,
+            validate_runtime_contract,
+        )
 
-    # Runtime kappa calibration, when the checkpoint carries one.
-    calibration = bundle.load_summary.get("rms_calibration")
-    if calibration:
-        from compose.lora.rms import apply_kappa_calibration
-
-        apply_kappa_calibration(bundle.model, calibration)
-        bundle.load_summary["rms_calibration_applied"] = True
+        validate_runtime_contract(
+            load_runtime_contract(args.runtime_contract),
+            build_runtime_contract(
+                image_aspect_ratio=bundle.model.config.image_aspect_ratio,
+                vision_tower=args.vision_tower,
+                mm_vision_select_layer=-2,
+                mm_vision_select_feature="patch",
+                mm_projector_type="mlp2x_gelu",
+                projector_path=args.projector_path,
+            ),
+            "evaluation",
+        )
 
     # Router-based inference: per-sample ComposeRouter.select() with the
     # frozen query encoder and the expert keys; no answers, no oracle,
     # no task-id lookup, no clustering at test time (spec §22).
     router = None
     v7_router = None
+    selection_manifest = None
     clip = None
     clip_processor = None
     if args.router_checkpoint:
@@ -222,6 +248,16 @@ def main() -> None:
             "pool_version": v7_pool.pool_version,
             "task_id_used": False,
         }
+    elif args.selection_manifest:
+        with open(args.selection_manifest, "r", encoding="utf-8") as handle:
+            selection_manifest = json.load(handle)
+        bundle.expert_pool.manager.clear_default_selection()
+        bundle.load_summary["evaluation_selection"] = {
+            "mode": "precomputed_global_top2_validation",
+            "selection_manifest": args.selection_manifest,
+            "answer_features_used": False,
+            "task_id_used": False,
+        }
 
     with open(args.question_file, "r", encoding="utf-8") as handle:
         all_records = json.load(handle)
@@ -244,6 +280,24 @@ def main() -> None:
                 [image], bundle.image_processor, bundle.model.config
             )[0].unsqueeze(0).to(device=args.device, dtype=torch.bfloat16)
             selection_meta = None
+            if selection_manifest is not None:
+                sample_id = str(record.get("id", record.get("question_id")))
+                if sample_id not in selection_manifest:
+                    raise KeyError("selection manifest misses sample {}".format(sample_id))
+                row = selection_manifest[sample_id]
+                ids = row.get("global_top2", row) if isinstance(row, dict) else row
+                ids = [int(value) for value in ids]
+                if len(ids) != 2 or len(set(ids)) != 2:
+                    raise ValueError("V7 validation selection must contain two distinct experts")
+                bundle.expert_pool.manager.set_default_selection(ids, [1.0, 1.0])
+                selection_meta = {
+                    "expert_ids": ids,
+                    "selection_source": "precomputed_global_top2_validation",
+                    "answer_features_used": False,
+                    "oracle_used": False,
+                    "task_id_lookup_used": False,
+                    "clustering_used_at_test": False,
+                }
             if router is not None or v7_router is not None:
                 clip_inputs = clip_processor(
                     text=[question_text(record)],
@@ -353,6 +407,7 @@ def main() -> None:
         "load_summary": bundle.load_summary,
         "selection_mode": (
             "v7_global_coevolution" if v7_router is not None
+            else "precomputed_global_top2_validation" if selection_manifest is not None
             else "compose_router" if router is not None else "fixed"
         ),
         "router_selection_histogram": (

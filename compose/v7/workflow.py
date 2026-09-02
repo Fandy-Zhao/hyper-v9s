@@ -1,10 +1,13 @@
 """Full-split preparation and machine-readable V7 workflow helpers."""
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Dict, Mapping, Sequence, Tuple
 
 import torch
+
+from compose.data.records import question_text
 
 from .pool import V7ExpertKeyPool, initialize_candidate_keys
 
@@ -18,6 +21,16 @@ def write_full_split_with_unique_ids(
     for index, record in enumerate(records):
         # A deterministic internal id prevents repeated UCIT question_ids from
         # overwriting feature-cache rows. It does not alter benchmark data.
+        source_id = record.get("id", record.get("question_id"))
+        source_identity = {
+            "source_index": index,
+            "source_id": None if source_id is None else str(source_id),
+            "image": str(record.get("image", "")),
+            "question_sha256": hashlib.sha256(
+                question_text(record).strip().encode("utf-8")
+            ).hexdigest(),
+        }
+        record["v7_source_identity"] = source_identity
         record["id"] = "v7_t{}_{}_{}".format(int(task_index), split, index)
     target = Path(destination)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -86,7 +99,12 @@ def route_manifest(sample_ids: Sequence[str], selected_ids: torch.Tensor) -> Dic
 
 def mean_nll(path: str) -> float:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    values = [float(row["global_top2"]) for row in payload.values()]
+    values = []
+    for row in payload.values():
+        value = row["global_top2"]
+        if isinstance(value, dict):
+            value = value["mean_answer_nll"]
+        values.append(float(value))
     if not values:
         raise ValueError("NLL output is empty")
     return sum(values) / len(values)

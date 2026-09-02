@@ -19,6 +19,7 @@ import yaml
 from compose.v7.commit import commit_retained_candidates
 from compose.v7.config import V7Config
 from compose.v7.pool import V7ExpertKeyPool
+from compose.v7.provenance import audit_split_isolation, build_runtime_contract
 from compose.v7.pruning import CandidatePruner
 from compose.v7.routing import GlobalTop2Router
 from compose.v7.workflow import (
@@ -71,6 +72,14 @@ def main():
     parser.add_argument("--train-file", required=True)
     parser.add_argument("--val-file", required=True)
     parser.add_argument("--test-file")
+    parser.add_argument("--task-name")
+    parser.add_argument(
+        "--validation-metric",
+        choices=("official_ucit", "nll_fallback"),
+        default=None,
+        help="formal runs must select a task-specific official metric or explicit fallback",
+    )
+    parser.add_argument("--validation-annotation-file")
     parser.add_argument("--previous-checkpoint")
     parser.add_argument("--python", default=os.environ.get("PYTHON", sys.executable))
     parser.add_argument("--model-path", required=True)
@@ -78,7 +87,10 @@ def main():
     parser.add_argument("--projector-path", required=True)
     parser.add_argument("--image-folder", required=True)
     parser.add_argument("--device", default="cuda:0")
-    parser.add_argument("--max-steps", type=int, default=30)
+    parser.add_argument(
+        "--smoke-max-steps", type=int, default=None,
+        help="explicit smoke/debug optimizer-step cap; formal runs omit max_steps",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--skip-eval", action="store_true")
     parser.add_argument(
@@ -96,6 +108,16 @@ def main():
     config = V7Config.from_dict(yaml.safe_load(Path(args.config).read_text()))
     if config.method != "v7_global_coevolution":
         raise ValueError("wrong method")
+    if args.smoke_max_steps is not None and args.smoke_max_steps <= 0:
+        raise ValueError("--smoke-max-steps must be positive")
+    formal_run = args.smoke_max_steps is None
+    if formal_run and not args.test_file:
+        raise ValueError("formal V7 requires an explicit --test-file")
+    if formal_run and args.validation_metric is None:
+        raise ValueError("formal V7 requires an explicit --validation-metric")
+    validation_metric = args.validation_metric or "nll_fallback"
+    if validation_metric == "official_ucit" and not args.validation_annotation_file:
+        raise ValueError("official validation metric requires --validation-annotation-file")
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = args.device.split(":")[-1]
     worker_device = "cuda:0" if args.device.startswith("cuda") else args.device
@@ -105,7 +127,11 @@ def main():
 
     train_json = root / "data" / "train_full.json"
     val_json = root / "data" / "val_full.json"
+    runtime_contract_path = root / "data" / "runtime_contract.json"
     if not marker(root, "s0_full_data").is_file():
+        split_audit = audit_split_isolation(
+            args.train_file, args.val_file, args.test_file
+        )
         train_count = write_full_split_with_unique_ids(
             args.train_file, str(train_json), args.task_index, "train"
         )
@@ -118,7 +144,20 @@ def main():
             "train_source": args.train_file,
             "validation_source": args.val_file,
             "test_data_used": False,
+            "formal_run": formal_run,
         })
+        write_json(root / "data" / "split_provenance.json", split_audit)
+        write_json(
+            runtime_contract_path,
+            build_runtime_contract(
+                image_aspect_ratio=config.runtime.image_aspect_ratio,
+                vision_tower=args.vision_tower,
+                mm_vision_select_layer=config.runtime.mm_vision_select_layer,
+                mm_vision_select_feature=config.runtime.mm_vision_select_feature,
+                mm_projector_type=config.runtime.mm_projector_type,
+                projector_path=args.projector_path,
+            ),
+        )
         mark(root, "s0_full_data")
     coverage = json.loads((root / "data" / "coverage.json").read_text())
     if args.stop_after == "full_data":
@@ -173,13 +212,33 @@ def main():
             "--compose_v7_config", args.config,
             "--compose_v7_metrics_path", str(root / "metrics" / "train_steps.jsonl"),
             "--compose_v7_task_index", str(args.task_index),
-            "--per_device_train_batch_size", "1",
-            "--gradient_accumulation_steps", "1",
-            "--max_steps", str(args.max_steps), "--save_steps", "10",
-            "--logging_steps", "1", "--bf16", "True",
-            "--gradient_checkpointing", "True", "--report_to", "none",
-            "--model_max_length", "2048", "--remove_unused_columns", "False",
+            "--compose_v7_runtime_contract", str(runtime_contract_path),
+            "--version", "v1",
+            "--pretrain_mm_mlp_adapter", args.projector_path,
+            "--mm_projector_type", config.runtime.mm_projector_type,
+            "--mm_vision_select_layer", str(config.runtime.mm_vision_select_layer),
+            "--mm_vision_select_feature", config.runtime.mm_vision_select_feature,
+            "--image_aspect_ratio", config.runtime.image_aspect_ratio,
+            "--per_device_train_batch_size", str(config.training.per_device_train_batch_size),
+            "--gradient_accumulation_steps", str(config.training.gradient_accumulation_steps),
+            "--num_train_epochs", str(config.training.num_train_epochs),
+            "--learning_rate", str(config.training.learning_rate),
+            "--weight_decay", str(config.training.weight_decay),
+            "--warmup_ratio", str(config.training.warmup_ratio),
+            "--lr_scheduler_type", config.training.lr_scheduler_type,
+            "--save_strategy", config.training.save_strategy,
+            "--logging_steps", str(config.training.logging_steps),
+            "--bf16", str(config.training.bf16), "--tf32", str(config.training.tf32),
+            "--gradient_checkpointing", str(config.training.gradient_checkpointing),
+            "--group_by_modality_length", str(config.training.group_by_modality_length),
+            "--dataloader_num_workers", str(config.training.dataloader_num_workers),
+            "--seed", str(config.training.seed), "--report_to", "none",
+            "--model_max_length", str(config.training.model_max_length),
+            "--remove_unused_columns", "False",
+            "--compose_v7_require_full_coverage", str(formal_run),
         ]
+        if args.smoke_max_steps is not None:
+            command += ["--max_steps", str(args.smoke_max_steps), "--save_steps", "10"]
         if args.previous_checkpoint:
             command += ["--compose_checkpoint", args.previous_checkpoint]
             origins = [
@@ -208,6 +267,7 @@ def main():
             ).hexdigest(),
             "--output-dir", str(root / "rms"), "--device", worker_device,
             "--batch-size", "1", "--new-expert-ids", ",".join(map(str, candidate_ids)),
+            "--runtime-contract", str(runtime_contract_path),
         ]
         if args.previous_checkpoint:
             previous_manifest = json.loads(
@@ -246,16 +306,56 @@ def main():
                 "--checkpoint-dir", str(output), "--question-file", str(val_json),
                 "--image-folder", args.image_folder, "--selections", str(selections),
                 "--output", str(nll_output), "--device", worker_device, "--batch-size", "1",
+                "--image-aspect-ratio", config.runtime.image_aspect_ratio,
+                "--runtime-contract", str(runtime_contract_path),
             ], env, root / "logs" / "pruning_{}.log".format(index))
             loss = mean_nll(str(nll_output))
-            # Uniform audit metric when a task-specific official evaluator is
-            # not configured; reports identify it explicitly as an NLL proxy.
-            return {"metric": -loss, "loss": loss}
+            if validation_metric == "official_ucit":
+                answers = root / "pruning" / "answers_{}.jsonl".format(index)
+                summary = root / "pruning" / "generation_{}.json".format(index)
+                run([
+                    args.python, "-m", "compose.eval.eval_task",
+                    "--adapter-kind", "compose", "--model-path", args.model_path,
+                    "--checkpoint-dir", str(output), "--projector-path", args.projector_path,
+                    "--vision-tower", args.vision_tower, "--question-file", str(val_json),
+                    "--image-folder", args.image_folder, "--answers-file", str(answers),
+                    "--run-summary-file", str(summary), "--selection-manifest", str(selections),
+                    "--device", worker_device, "--runtime-contract", str(runtime_contract_path),
+                ], env, root / "logs" / "pruning_generation_{}.log".format(index))
+                metric_output = root / "pruning" / "official_metric_{}.json".format(index)
+                run([
+                    args.python, "-m", "compose.eval.v7_validation_metric",
+                    "--task-index", str(args.task_index),
+                    "--annotation-file", args.validation_annotation_file,
+                    "--predictions-file", str(answers),
+                    "--work-root", str(root / "pruning" / "official_work_{}".format(index)),
+                    "--output", str(metric_output),
+                ], env, root / "logs" / "pruning_metric_{}.log".format(index))
+                official = json.loads(metric_output.read_text())
+                return {
+                    "metric": float(official["value"]),
+                    "loss": loss,
+                    "official_metric": official,
+                    "answer_nll": loss,
+                    "metric_fallback": False,
+                }
+            return {
+                "metric": -loss,
+                "loss": loss,
+                "official_metric": None,
+                "answer_nll": loss,
+                "metric_fallback": True,
+                "fallback_reason": "explicit_nll_fallback",
+            }
 
         retained, metrics, audit = CandidatePruner(trained_pool, config.pruning).evaluate(
             train_queries, val_queries, center, scorer
         )
-        audit["performance_metric"] = "negative_token_average_nll_proxy"
+        audit["performance_metric"] = (
+            "task_specific_official_ucit"
+            if validation_metric == "official_ucit"
+            else "negative_answer_nll_explicit_fallback"
+        )
         write_json(root / "metrics" / "candidate_pruning.json", {
             "retained_candidate_ids": list(retained),
             "retained_candidate_count": len(retained),
@@ -279,6 +379,7 @@ def main():
             "--run-summary-file", str(root / "eval" / "summary.json"),
             "--v7-key-state", str(root / "committed" / "v7_keys.pt"),
             "--device", worker_device,
+            "--runtime-contract", str(runtime_contract_path),
         ], env, root / "logs" / "inference.log")
         mark(root, "s6_inference")
     write_json(root / "task_complete.json", {

@@ -19,6 +19,7 @@ from .training import (
     assert_historical_key_gradients_frozen,
     assert_historical_lora_frozen,
     selected_current_key_loss,
+    full_data_coverage_audit,
 )
 
 
@@ -70,6 +71,7 @@ class V7ComposeTrainer(ComposeTrainer):
         v7_config,
         v7_task_index: int,
         v7_metrics_path: str,
+        v7_require_full_coverage: bool = False,
         **kwargs
     ) -> None:
         self.v7_key_pool = v7_key_pool
@@ -79,12 +81,53 @@ class V7ComposeTrainer(ComposeTrainer):
         self.v7_logger = V7JsonlLogger(v7_metrics_path)
         self.v7_usage = {str(value): 0 for value in v7_key_pool.current_ids}
         self.v7_noop_steps = 0
+        self.v7_require_full_coverage = bool(v7_require_full_coverage)
+        self.v7_unique_sample_ids = set()
+        self.v7_micro_steps = 0
+        self._v7_key_gradient_ids = set()
+        self._v7_lora_gradient_ids = set()
+        self._v7_key_gradient_sq = 0.0
+        self._v7_lora_gradient_sq = 0.0
+        self._v7_gradient_hook_handles = []
         self._v7_active = None
         super().__init__(*args, **kwargs)
         self._historical_key_before = v7_key_pool.historical_checksums()
         self._historical_lora_before = adapter_checksums(
             self.expert_pool.manager, v7_key_pool.historical_ids
         )
+        from compose.lora.rms import runtime_kappa_calibration
+
+        self._historical_rms_before = runtime_kappa_calibration(
+            self.model, v7_key_pool.historical_ids
+        )
+        for expert_id in v7_key_pool.current_ids:
+            self._v7_gradient_hook_handles.append(
+                v7_key_pool.keys[str(expert_id)].register_hook(
+                    lambda gradient, value=expert_id: self._record_v7_gradient(
+                        "key", value, gradient
+                    )
+                )
+            )
+            for layer in self.expert_pool.manager.layers.values():
+                for parameter in layer.experts[str(expert_id)].parameters():
+                    self._v7_gradient_hook_handles.append(
+                        parameter.register_hook(
+                            lambda gradient, value=expert_id: self._record_v7_gradient(
+                                "lora", value, gradient
+                            )
+                        )
+                    )
+
+    def _record_v7_gradient(self, kind, expert_id, gradient):
+        finite = gradient.detach().float()
+        if not bool(torch.isfinite(finite).all()):
+            raise FloatingPointError("non-finite V7 {} gradient".format(kind))
+        squared = float(finite.square().sum())
+        if squared > 0.0:
+            getattr(self, "_v7_{}_gradient_ids".format(kind)).add(int(expert_id))
+            attribute = "_v7_{}_gradient_sq".format(kind)
+            setattr(self, attribute, getattr(self, attribute) + squared)
+        return gradient
 
     def create_optimizer(self):
         if self.optimizer is not None:
@@ -113,7 +156,7 @@ class V7ComposeTrainer(ComposeTrainer):
             [
                 {
                     "params": lora_parameters,
-                    "lr": self.v7_config.training.lora_learning_rate,
+                    "lr": self.v7_config.training.effective_lora_learning_rate,
                     "weight_decay": self.args.weight_decay,
                 },
                 {
@@ -142,6 +185,14 @@ class V7ComposeTrainer(ComposeTrainer):
         }
 
     def training_step(self, model, inputs):
+        sample_ids = tuple(str(value) for value in inputs.get("sample_ids", ()))
+        self._v7_last_sample_ids = sample_ids
+        self.v7_unique_sample_ids.update(sample_ids)
+        self.v7_micro_steps += 1
+        self._v7_key_gradient_ids.clear()
+        self._v7_lora_gradient_ids.clear()
+        self._v7_key_gradient_sq = 0.0
+        self._v7_lora_gradient_sq = 0.0
         queries = inputs.get("fixed_queries")
         if queries is None:
             raise ValueError("V7 batch is missing fixed_queries")
@@ -162,10 +213,10 @@ class V7ComposeTrainer(ComposeTrainer):
         assert_historical_lora_frozen(
             self.expert_pool.manager, self.v7_key_pool.historical_ids
         )
-        for expert_id in set(self.v7_key_pool.current_ids) - current_selected:
-            gradient = self.v7_key_pool.keys[str(expert_id)].grad
-            if gradient is not None and bool(gradient.detach().ne(0).any()):
-                raise AssertionError("unselected current key received gradient")
+        if not self._v7_key_gradient_ids.issubset(current_selected):
+            raise AssertionError("unselected current key received a new micro-batch gradient")
+        if not self._v7_lora_gradient_ids.issubset(current_selected):
+            raise AssertionError("unselected current LoRA received a new micro-batch gradient")
         self._write_step_metrics()
         return loss
 
@@ -196,18 +247,8 @@ class V7ComposeTrainer(ComposeTrainer):
     def _write_step_metrics(self):
         answer, key, total, per_sample = self._v7_losses
         _, routed, current_selected = self._v7_active
-        selected_key_grad = sum(
-            float(self.v7_key_pool.keys[str(value)].grad.detach().float().square().sum())
-            for value in current_selected
-            if self.v7_key_pool.keys[str(value)].grad is not None
-        ) ** 0.5
-        selected_lora_grad = sum(
-            float(parameter.grad.detach().float().square().sum())
-            for value in current_selected
-            for layer in self.expert_pool.manager.layers.values()
-            for parameter in layer.experts[str(value)].parameters()
-            if parameter.grad is not None
-        ) ** 0.5
+        selected_key_grad = self._v7_key_gradient_sq ** 0.5
+        selected_lora_grad = self._v7_lora_gradient_sq ** 0.5
         self.v7_logger.write(
             {
                 "step": int(self.state.global_step),
@@ -221,6 +262,9 @@ class V7ComposeTrainer(ComposeTrainer):
                 "old_old_noop": not bool(current_selected),
                 "selected_current_key_grad_norm": selected_key_grad,
                 "selected_current_lora_grad_norm": selected_lora_grad,
+                "sample_ids": list(
+                    str(value) for value in self._v7_last_sample_ids
+                ),
             }
         )
 
@@ -279,6 +323,22 @@ class V7ComposeTrainer(ComposeTrainer):
             },
         }
 
+    def full_data_coverage_audit(self, num_train_samples):
+        local_ids = sorted(self.v7_unique_sample_ids)
+        gathered = [local_ids]
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            gathered = [None] * torch.distributed.get_world_size()
+            torch.distributed.all_gather_object(gathered, local_ids)
+        unique_ids = sorted({value for rows in gathered for value in rows})
+        return full_data_coverage_audit(
+            num_train_samples=num_train_samples,
+            unique_sample_ids=unique_ids,
+            optimizer_micro_steps=self.v7_micro_steps,
+            optimizer_steps=self.state.global_step,
+            observed_sample_count=sum(len(rows) for rows in gathered),
+            require_full=self.v7_require_full_coverage,
+        )
+
     def _save_checkpoint(self, model, trial, metrics=None):
         super()._save_checkpoint(model, trial, metrics)
         checkpoint_dir = os.path.join(
@@ -328,4 +388,15 @@ class V7ComposeTrainer(ComposeTrainer):
             raise AssertionError("historical key checksum changed during task")
         if after_lora != self._historical_lora_before:
             raise AssertionError("historical LoRA checksum changed during task")
-        return {"historical_key_unchanged": True, "historical_lora_unchanged": True}
+        from compose.lora.rms import runtime_kappa_calibration
+
+        after_rms = runtime_kappa_calibration(
+            self.model, self.v7_key_pool.historical_ids
+        )
+        if after_rms != self._historical_rms_before:
+            raise AssertionError("historical RMS calibration changed during task")
+        return {
+            "historical_key_unchanged": True,
+            "historical_lora_unchanged": True,
+            "historical_rms_unchanged": True,
+        }

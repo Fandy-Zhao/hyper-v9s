@@ -41,6 +41,8 @@ class ModelArguments:
     compose_v7_config: Optional[str] = field(default=None)
     compose_v7_metrics_path: Optional[str] = field(default=None)
     compose_v7_task_index: int = field(default=0)
+    compose_v7_require_full_coverage: bool = field(default=False)
+    compose_v7_runtime_contract: Optional[str] = field(default=None)
     max_samples: Optional[int] = field(default=None)
     expected_adapter_parameters: Optional[int] = field(default=None)
 

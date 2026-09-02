@@ -16,13 +16,47 @@ from .pool import V7ExpertKeyPool
 from .routing import GlobalTop2Result, GlobalTop2Router
 
 
+def full_data_coverage_audit(
+    num_train_samples: int,
+    unique_sample_ids: Iterable[str],
+    optimizer_micro_steps: int,
+    optimizer_steps: int,
+    observed_sample_count: int,
+    require_full: bool,
+) -> Dict[str, object]:
+    sample_count = int(num_train_samples)
+    unique_count = len(set(str(value) for value in unique_sample_ids))
+    coverage = unique_count / sample_count if sample_count else 0.0
+    effective_epochs = observed_sample_count / sample_count if sample_count else 0.0
+    result = {
+        "num_train_samples": sample_count,
+        "unique_train_sample_ids_seen": unique_count,
+        "optimizer_micro_steps": int(optimizer_micro_steps),
+        "optimizer_steps": int(optimizer_steps),
+        "effective_epochs": float(effective_epochs),
+        "train_sample_coverage": float(coverage),
+        "full_data_required": bool(require_full),
+    }
+    if require_full and unique_count != sample_count:
+        raise RuntimeError(
+            "formal V7 training did not cover the full declared split: {}".format(result)
+        )
+    return result
+
+
+def supervised_token_mask(labels: Tensor, ignore_index: int = -100) -> Tensor:
+    if labels.ndim != 2:
+        raise ValueError("labels must have shape [B,T]")
+    return labels[:, 1:].ne(ignore_index)
+
+
 def teacher_forcing_token_nll(logits: Tensor, labels: Tensor, ignore_index: int = -100) -> Tensor:
     """Standard next-token NLL averaged over target answer tokens only."""
     if logits.ndim != 3 or labels.ndim != 2 or logits.shape[:2] != labels.shape:
         raise ValueError("logits/labels must have shapes [B,T,V] and [B,T]")
     shift_logits = logits[:, :-1].contiguous()
     shift_labels = labels[:, 1:].contiguous()
-    valid = shift_labels.ne(ignore_index)
+    valid = supervised_token_mask(labels, ignore_index)
     if not bool(valid.any()):
         raise ValueError("answer loss requires at least one supervised token")
     losses = F.cross_entropy(
