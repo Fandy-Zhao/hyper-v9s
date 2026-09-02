@@ -1,5 +1,9 @@
 # Hyper-LLaVA V7 implementation report
 
+> Superseded for formal-readiness decisions by
+> `docs/reports/V7_FINAL_IMPLEMENTATION_REPAIR_REPORT.md`. This file is retained
+> as the historical V7 implementation and early-smoke record.
+
 ## 1. Git and scope
 
 - Baseline commit: `a8f3a7860631aec8e2ea0d65ad9794838ffaffc7`

@@ -1,5 +1,20 @@
 # Project State
 
+## 2026-09-02 — V7 final formal-repair gate
+
+- Validated implementation SHA `ac7fb8d`: 33 focused V7 tests and the complete
+  Compose suite (`396 passed + 8 subtests`) pass.
+- Formal defaults, answer-only NLL, RMS/preprocessing parity, iterative
+  pruning, strict Top-2, leakage provenance, official validation metrics,
+  accumulation-safe gradients, resume, query provenance and atomic commit are
+  implemented without changing the V7 method skeleton.
+- Final-HEAD GPU2/3 smoke was resource-blocked because both cards had external
+  19--21 GiB allocations. Earlier real-7B Task0/Task1 evidence is retained;
+  a fresh CPU 30+30 lifecycle smoke passed.
+- `FORMAL_EXPERIMENT_READY = NO`: the declared six-task validation directory
+  is absent, so the formal launcher intentionally fails before Task0 rather
+  than reusing test data.
+
 ## 2026-09-02 — V7 real 7B GPU2/GPU3 validation
 
 - GPU2 completed V7 stages S0--S5 on a bounded real ImageNet-R split. The

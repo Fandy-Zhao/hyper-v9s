@@ -2,6 +2,18 @@
 
 ## 2026-09-02
 
+- Completed the V7 formal implementation repair: uncapped full-data formal
+  mode with observed-sample coverage, answer-only NLL mask parity, unified RMS
+  and preprocessing contracts, iterative remove-and-reroute pruning, strict
+  Top-2 commit, split provenance, official UCIT validation path and a separate
+  resumable six-task launcher.
+- Added explicit fixed-query CLIP backbone/hash provenance, schema-locked
+  `1/sqrt(2)` pair scaling, accumulation-aware gradient hooks, optimizer and
+  scheduler resume restoration, and transactional atomic commit directories.
+- Expanded final regression coverage to `396 passed + 8 subtests`; final-HEAD
+  GPU smoke was resource-blocked by external allocations. Formal launch remains
+  fail-closed until audited validation files are installed.
+
 - Fixed the V7 dynamic Global Top-2 training boundary to pad each two-expert
   route to the unified four-slot `ComposeSelection` contract without changing
   the active experts or gates.
