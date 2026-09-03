@@ -74,6 +74,7 @@ class CandidatePruner:
             if initial_full_score is None:
                 initial_full_score = dict(full_score)
             removal = {}
+            scored_entries = []
             for expert_id in surviving:
                 pool_after = tuple(
                     value for value in self.pool.selectable_ids(excluded)
@@ -89,7 +90,17 @@ class CandidatePruner:
                     }
                     continue
                 rerouted = self.router(val_queries, excluded=excluded | {expert_id})
-                minus = dict(scorer(rerouted.expert_ids))
+                # Two-phase iteration (spec 0903 S5): every removal hypothesis
+                # of this iteration is submitted before any score is consumed,
+                # so a parallel scorer (adaptive multi-GPU execution) can run
+                # the full/minus jobs of one iteration on separate GPUs while
+                # the serial remove-and-reroute trajectory stays exact.  A
+                # synchronous scorer executes inline at submission, so legacy
+                # behavior is bit-identical.
+                scored_entries.append(
+                    (expert_id, rerouted, dict(scorer(rerouted.expert_ids)))
+                )
+            for expert_id, rerouted, minus in scored_entries:
                 removal[expert_id] = {
                     "protected": False,
                     "metric": float(minus["metric"]),
