@@ -8,6 +8,10 @@
   `FORMAL_TRAINING_READY=NO`）；500/502 CPU 测试通过（2 个失败为既有的
   `java` 缺失环境限制，与本次无关）。
 - 已完成：S1 cache 适配器（train+val payload 从二进制 cache 直接发出，
+  （Phase B smoke 实测发现并修复 d5bd9f8 潜伏缺陷：adaptive S5 scorer 把
+  routes `.tolist()` 成 list 后传入需要 tensor 的 route_manifest，任何 fresh
+  自适应 pruning 打分 job 必崩；修复为保留 CPU tensor，不改路由/剪枝语义，
+  legacy 路径同样受益）；
   encoder_calls=0、id 序列 fail-closed、backbone/impl 内容绑定、git drift 记录）；
   S3/S4/S5 cache-origin guards；S6 与 21-cell 最终评测改为 cache test rows →
   committed-pool selection manifests（eval_task --selection-manifest，零 CLIP

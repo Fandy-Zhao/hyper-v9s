@@ -1056,7 +1056,10 @@ def main():
             def scorer(routes):
                 index = score_index["value"]
                 score_index["value"] += 1
-                rows = routes.detach().cpu().tolist()
+                # Keep the CPU tensor: route_manifest requires a tensor
+                # (.shape); the tolist() here would crash fresh scoring jobs
+                # (latent d5bd9f8 defect first exercised by the Phase B smoke).
+                rows = routes.detach().cpu()
                 if score_job_cache_valid(index, rows):
                     return cached_scoring_result(index)
                 future = runner.submit(scoring_executor(index, rows))
