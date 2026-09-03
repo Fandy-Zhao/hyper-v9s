@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-09-03 — V7 Phase A independent cache re-verification (0903 spec §2-3)
+
+- Added `compose/eval/v7_cache_precheck.py`: read-only, CPU-only gate tool
+  that recomputes every count, sample-id/tensor hash and contract binding
+  from the *live* declared split files, the on-disk cache binaries and the
+  current runtime module constants / live CLIP backbone provenance, then
+  emits the spec §3 QUERY CACHE PRECHECK block + JSON evidence.
+- Phase A re-audit at HEAD `ea816a3`: 18/18 splits PASS (230,780 queries:
+  declared == saved == unique, missing/unknown = 0, 1536-D fp32 all-finite,
+  L2-norm tolerance, sample-id set hash and query tensor hash rehash-match,
+  live source sha256 + content hash + backbone/impl content binding green);
+  6/6 task centers recomputed from the full cached train rows bit-identical
+  (max_abs_diff 0.0).  FULL_SAMPLE_QUERY_COVERAGE = YES ·
+  QUERY_CONTRACT_MATCH = YES · QUERY_CACHE_READY = YES.  Producer `c93f51e`
+  vs runtime `ea816a3` git drift recorded (content-bound decision record).
+- Cache-vs-live gate re-run at the *final* HEAD `ea816a3` on physical GPU0
+  (task0/task1.train, 128 real samples each, evidence run root
+  `v7_gpu01_cache_live_gate_20260903_rerun_head`): QUERY_NUMERICAL_
+  EQUIVALENCE PASS (exact_bit_equal, max_abs_diff 0.0, cosine_min
+  0.99999976) and TOP2_ROUTING_EQUIVALENCE PASS (rate 1.0, score diff 0.0).
+- Full `tests/compose` regression at HEAD `ea816a3`: 500 passed / 2
+  env-limited failures unchanged (`java`-less caption scorers) — the
+  EXISTING_V7_REGRESSION baseline is reconfirmed at the formal HEAD.
+- Phase A evidence: `artifacts/v7_query_cache/reverification_20260903_080136.json`
+  (gitignored; mirrored in the cache run root for reports).
+
 ## 2026-09-03 (evening) — V7 downstream cache adaptation (0903 spec §4-28)
 
 - Added the S1 cache adapter `compose/v7/cache_to_s1.py`: emits the legacy

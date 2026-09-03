@@ -1,5 +1,30 @@
 # Project State
 
+## 2026-09-03 — V7 Phase A re-audit PASS + Phase B gate progress (0903 spec §2-3/§19-21)
+
+- HEAD `ea816a3` (branch `feat/0903-v7-throughput-equivalence`, tree clean
+  after the precheck-tool commit).  GPU0/GPU1 idle at session start
+  (GPU2–7 still other users' jobs, untouched).
+- 双会话协调：bg 会话（cache 预计算 + smoke 驱动）转为只读；本会话接续驱动
+  Phase B GPU gates → Phase C。其 smoke（`v7_gpu01_cache_smoke_task0_fixed_20260903`，
+  physical GPU1，PID 3216132）S5 pruning 进行中。
+- Phase A 独立复核 PASS（`compose/eval/v7_cache_precheck.py`，CPU-only，从 live
+  声明文件/磁盘 cache/现役常量全量重算，不信报告文本）：18/18 splits
+  （230,780 条 declared==saved==unique、miss/unk=0、1536-D fp32 finite、
+  双哈希重算匹配、source/backbone/impl content binding 全绿）+ 6/6 task
+  centers 用完整 train cache 重算逐位一致（max_abs_diff=0.0）。
+  FULL_SAMPLE_QUERY_COVERAGE=YES / QUERY_CONTRACT_MATCH=YES /
+  QUERY_CACHE_READY=YES（producer c93f51e → runtime ea816a3 git drift 记录）。
+- Gate 证据在最终 HEAD 重新锚定：cache-vs-live gate rerun 于 physical GPU0
+  （run root `v7_gpu01_cache_live_gate_20260903_rerun_head`）：task0/task1.train
+  ×128 条 QUERY_NUMERICAL_EQUIVALENCE PASS（exact_bit_equal、max_abs_diff=0.0）
+  + TOP2_ROUTING_EQUIVALENCE PASS（rate 1.0、score diff 0.0）。原 GPU1 证据
+  （git 8f1a08f）依旧有效（修复 commit 不动 query 行/路由数学）。
+- 回归：`tests/compose` 全量 500 passed / 2 env-limited（java 缺失，与基线一致）。
+- 下一步：单卡 smoke 收尾验证（pruning trajectory/commit/encoder_calls=0）→
+  2-GPU DDP cache smoke → cached-vs-online 孪生对跑 → RMS/PRUNING/EVAL
+  equivalence gates → RECIPE_EXACT → formal launcher Task0→Task5。
+
 ## 2026-09-03 (evening) — V7 downstream cache adaptation (0903 spec Phase B)
 
 - 状态：代码改动完成（commit `af716f0`、docs `1083eee`、formal launcher +
