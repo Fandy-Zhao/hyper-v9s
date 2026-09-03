@@ -1,5 +1,26 @@
 # Project State
 
+## 2026-09-03 (late morning) — Phase B smokes + comparator + resume (0903 spec §19-28)
+
+- 我的 live twin smoke 初启误落在 physical GPU1(adaptive `--gpus 1` =
+  physical id,非"1 张卡";CLI 优先于 CUDA_VISIBLE_DEVICES)—— 已 kill 重建于
+  GPU0(`--gpus 0`,PID 3389457,gpu_plan available=[0]);peer 的 cache smoke
+  仍在 GPU1。这不是 orchestrator bug,是我的启动参数错误。
+- 新增 `compose/eval/v7_twin_run_compare.py` + 16 CPU 测试(全部 PASS):
+  CPU-only 双 run 逐阶段 diff(双 root 必须同为完整 task0 lifecycle),
+  输出 S1_QUERY_ROWS / S3_TRAIN_STEPS / RMS_CACHE(或 DISTRIBUTED_RMS)/
+  PRUNING_TRAJECTORY / COMMIT_STATE 判定行 + 原子 audit JSON,任何 FAIL
+  退出非零。服务于 cached-vs-online 收尾验证与后续 DDP-vs-single gate。
+- cache smoke(单卡,fixed root)再次被外部 SIGTERM(~08:52,非本会话/peer
+  所为;07:48 首次)。产物:encoder_calls=0 证据 + s0-s4 完整 + S5 job 0-4
+  (job 1 被 07:48 打断),无 commit。已在 ea816a3 worktree(PID 3427469,
+  GPU1)resume,score-job cache 使 job 0-4 重放,只跑剩余假设 → s5+commit。
+- 当前:GPU0 = live twin(S3 training,2-step smoke);GPU1 = cache smoke
+  resume(S5 scoring)。双卡各自 ~15 GiB / 30-40% util,健康。
+- 下一步(按 peer handoff 顺序):twin/resume 收尾验证(full trajectory +
+  commit + 双 run 全文 compare)→ DDP cache smoke(GPU0/1 空闲后,world
+  2×batch1×GA32=64)→ EVALUATION_CACHE_EQUIVALENCE → formal launcher。
+
 ## 2026-09-03 — V7 Phase A re-audit PASS + Phase B gate progress (0903 spec §2-3/§19-21)
 
 - HEAD `ea816a3` (branch `feat/0903-v7-throughput-equivalence`, tree clean

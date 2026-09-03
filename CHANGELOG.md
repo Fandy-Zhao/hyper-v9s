@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-09-03 — V7 Phase B twin-run comparator + smoke affinity correction (0903 spec §28)
+
+- Added `compose/eval/v7_twin_run_compare.py` (+ 16 CPU tests): read-only
+  gate evidence machinery that diffs two complete task0 run roots stage by
+  stage and emits the named spec verdicts — S1_QUERY_ROWS_EQUIVALENCE
+  (per-sample_id cosine bound 1-1e-6), S3_TRAIN_STEPS_EQUIVALENCE (float
+  fields 1e-4, id/route fields exact, timing recorded not compared),
+  RMS_CACHE_EQUIVALENCE / DISTRIBUTED_RMS_EQUIVALENCE (same comparator,
+  `--gate-mode distributed`; RMS value bound 1e-4 rel + 1e-6 abs,
+  checkpoint-sha equality recorded separately), PRUNING_TRAJECTORY_
+  EQUIVALENCE (identical pruning job sets + per-job selections/nll/
+  official_metric), COMMIT_STATE_EQUIVALENCE (committed/ file set +
+  v7_keys.pt byte sha256).  Any FAIL exits non-zero.
+- GPU-affinity correction (my launch error, not an orchestrator bug):
+  adaptive `--gpus N` means *physical GPU id N* (CLI > env precedence),
+  so the live twin smoke had been running on physical GPU1 beside the
+  cache smoke instead of GPU0.  Killed the misplaced process tree,
+  relaunched with `--gpus 0` on GPU0 (PID 3389457); gpu_plan.json
+  available_gpu_ids=[0] verified.
+- Cache-mode fixed smoke externally terminated ~08:52 (its exit-watcher
+  fired; last artifact job_4.done 08:23, no s5 marker; second external
+  termination of that run after 07:48 — neither session's doing).  Its
+  root resumed on GPU1 from an `ea816a3` git worktree (stored
+  run-contract git_sha binding requires the original HEAD; `--config`
+  must point at the main-repo absolute path and cwd must be the worktree
+  — the first attempt failed exactly on that contract mismatch).
+
 ## 2026-09-03 — V7 Phase A independent cache re-verification (0903 spec §2-3)
 
 - Added `compose/eval/v7_cache_precheck.py`: read-only, CPU-only gate tool
