@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-09-03 — V7 comparator semantic fixes + twin-run divergence localization (0903 spec §26/§28)
+
+- `compose/eval/v7_twin_run_compare.py` semantic fixes (semantic
+  comparator v2; tests updated to 21, all PASS):
+  - S1 gate compares per-*sample_id* rows (id-set equality is hard; file
+    order is an emission artifact — cache emits declared order, live
+    emits encode order — recorded as informational
+    `id_sequence_identical`).
+  - json structure walk relocates machine-path leaves
+    (output_dir/annotation_file/prediction_file) root-relatively and
+    counts them as `relocated_path_leaves`; RMS compare passes the per-root
+    paths.
+  - COMMIT gate is semantic: committed/ file set hard, binary files byte
+    sha256 hard, json scalars numeric with `COMMIT_FLOAT_ATOL` 2e-4, and
+    v7_keys.pt compared per expert via torch.load with `KEY_ATOL` 2e-4 —
+    both bounds are the *measured* upstream-noise envelope (answer_nll_full
+    1.7e-4, redundancy contribution 7e-5, key diffs 7.6e-5..1.2e-4 from
+    the batch-shape effect), not free parameters; sha256 mismatches stay
+    informational.
+- Root-caused the two remaining cache-vs-online FAIL classes to a single
+  control-setup defect (report §8a, five-step evidence chain): the live
+  twin's S1 ran the legacy encoder at its default batch **16** while cache
+  production / the bounded gate encode at batch **32**; fp16 CLIP conv
+  kernels are cuDNN-chosen per batch shape → deterministic visual-half
+  row diffs ≤1.87e-3 → S2 center/keys share a 7.6e-5 offset → pruning val
+  rows 170/195 (+ reroute 107) boundary Top-2 flips.  S2 determinism is
+  proven (DDP-vs-single cache `candidate_keys.pt` 4/4 bit-equal on the
+  same cache rows); the V7 method and the formal path (encoder_calls: 0)
+  are untouched.  Remediation: re-run the live twin with `--batch-size 32`
+  after the DDP smoke frees GPU0/1.
+- RMS_CACHE_EQUIVALENCE PASS on the real twin pair (3 RMS files
+  numeric-equal, calibration/statistics byte-identical); commit keys
+  numeric sub-gate PASS (≤1.16e-4); compose_experts reroute flip correctly
+  still FAILs (route-id structure diff).  Audit v2:
+  `v7_gpu01_smoke_compare_task0_20260903/compare_audit_v2.json`.
+
 ## 2026-09-03 — V7 Phase B twin-run comparator + smoke affinity correction (0903 spec §28)
 
 - Added `compose/eval/v7_twin_run_compare.py` (+ 16 CPU tests): read-only

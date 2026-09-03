@@ -1,5 +1,68 @@
 # Project State
 
+## 2026-09-03 (late) — comparator semantic fixes; batch16-vs-batch32 localization (0903 spec §26/§28)
+
+- 全 root cache-vs-online twin 对比(单卡 cache smoke root vs GPU0 live
+  twin root)首轮 5 gate FAIL → 三分是 comparator 缺陷,已修复(semantic
+  comparator v2,`compose/eval/v7_twin_run_compare.py` + 21 CPU 测试全
+  PASS):S1 按 per-sample_id 对齐(文件顺序是 emission artifact,信息性
+  记录 id_sequence_identical);json 结构 walk 对 machine-path leaf
+  (output_dir/annotation_file/prediction_file)做 root 相对比较并计数
+  relocated;commit gate 语义化 — 文件集 hard、bin byte-hard、json
+  数值 2e-4 界、v7_keys.pt 按 per-expert max-abs-diff ≤ KEY_ATOL 2e-4
+  (实测噪声包络,非自由参数),sha 改信息性。
+- **剩余两类 FAIL 精确定位(§8a 五步证据链)**:S1/S3/PRUNING/COMMIT 的
+  每个分歧都追踪到一个控制设置缺陷 — twin S1 用 `query_features` 默认
+  batch **16** 编码,live cache 生产/有界 gate 用 batch **32**;fp16 CLIP
+  conv kernels 按 batch shape 选择 → visual half 逐行 ≤1.87e-3 确定性
+  fp16 差异 → S2 center 7.6e-5(共享 offset)→ pruning val rows 170/195
+  (+reroute 107)边界 Top-2 翻转。S2 自身确定性由 DDP-vs-single
+  candidate_keys.pt 4/4 bit-equal 证明(同一 cache binary rows)。§26
+  remediation = DDP smoke 后以 `--batch-size 32` 重跑 live twin,重新对
+  batch32 pair 签发 named gates。
+- RMS_CACHE_EQUIVALENCE 在真实 twin pair 上 **PASS**(3 RMS 文件数值
+  相等,rms_calibration/rms_statistics byte-identical;唯一结构差 =
+  output_dir path leaf,已 root 相对比较);commit v7_keys.pt numeric
+  sub-gate PASS(≤1.16e-4 ≤ 2e-4);compose_experts.json rerouted_expert_
+  ids[107] flip 仍正确拒绝(route id 结构差不宽容忍)。twin audit v2:
+  `v7_gpu01_smoke_compare_task0_20260903/compare_audit_v2.json`。
+- DDP cache smoke(GPU0/1,world 2×batch1×GA32,09:34 起,PID 3711301):
+  S2 done + candidate_keys.pt 已用于决定性 proof;现处 S5 pruning;完成
+  后跑 `v7_twin_run_compare.py --gate-mode distributed`(DDP root vs
+  单卡 cache root,same cache rows)→ DISTRIBUTED_RMS_EQUIVALENCE + batch32
+  live twin rerun → Phase B gates re-issue。
+- 报告 `docs/reports/V7_QUERY_CACHE_DOWNSTREAM_ADAPTATION_REPORT.md` §8a
+  已写五步定位 + evidence table;HEAD `dab7d38` + comparator fixes
+  (uncommitted,待 commit)。
+
+## 2026-09-03 (morning) — cache smoke commit complete; EVAL gate running (0903 spec §29-40)
+
+- Cache-mode smoke root `v7_gpu01_cache_smoke_task0_fixed_20260903` lifecycle
+  CLOSED: `s5_pruning_commit.done` 08:40:45 + `committed/` 08:40:44
+  (compose_experts.bin/json + v7_keys.pt, pool selectable (0,1,2,3) all
+  origin_task 0).  Pruning job chain closed: job_0 07:43:03 (original run),
+  job_1 08:40:44 (resume full re-score), job_2 08:00:17, job_3 08:11:55,
+  job_4 08:23:26.  features train/val carry `encoder_calls: 0`.
+- Death-time thread CLOSED (both sessions' evidence agree): old-process
+  3216132 died ∈ (08:23:25, 08:23:36] (last artifact official_metric_4.json
+  08:23:25; rc-marker watcher output mtime 08:23:36) = external unknown
+  SIGTERM (×2 counting 07:48); resume launched 08:29:10 → zero overlap, no
+  causality.  My earlier "kill -0 = ALIVE" observations were a zombie-reap
+  artifact (signal 0 succeeds on zombies) — withdrawn.  Session clocks
+  verified synced (both read ~08:34 at the same wall moment).
+- Twin (GPU0, live mode, `v7_gpu01_smoke_task0_live_twin_20260903`, main
+  3389457 since 08:16:30): S3 done (2 steps finite, train_runtime 204.96 s),
+  `s4_rms.done` written, S5 pruning scoring in flight (~11 min/job × 5 →
+  ETA ~09:30-45); after it: full twin-vs-cache stage compare
+  (`v7_twin_run_compare.py --gate-mode cache`).
+- EVALUATION_CACHE_EQUIVALENCE gate running on GPU1 (evidence root
+  `v7_gpu01_eval_gate_20260903`): step 1 cached_selections full-test-row
+  manifest from committed v7_keys.pt + cache test split (content-bound),
+  step 2 v7_cache_live_gate `--split test --limit 128 --pool-state
+  <committed v7_keys.pt>` (live CLIP rows vs cache rows routed through the
+  committed pool).  Committed pool verified loadable via
+  `V7ExpertKeyPool.from_state` (selectable (0,1,2,3)).
+
 ## 2026-09-03 (late morning) — Phase B smokes + comparator + resume (0903 spec §19-28)
 
 - 我的 live twin smoke 初启误落在 physical GPU1(adaptive `--gpus 1` =

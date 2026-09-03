@@ -18,18 +18,21 @@ def _query_row(seed: int) -> list:
     return [v / norm for v in values]
 
 
+_SID_SEED = {"a1": 0, "b2": 1, "c3": 2}  # row content keyed by sample id
+
+
 def _features_payload(sample_ids, perturb: float = 0.0) -> dict:
     # alternating-sign perturbation: perpendicular-ish to the row so the
     # cosine drop is ~ 1536*perturb**2/2 (deterministic, no common-mode
-    # norm shift)
+    # norm shift); content depends on the sample id, never on file order
     return {
         "schema_version": 1,
         "feature_source": "frozen_clip_l14_336",
         "query_mode": "v7_fixed",
         "records": {
             sid: {"query": [v + (perturb if i % 2 == 0 else -perturb)
-                            for i, v in enumerate(_query_row(seed))]}
-            for seed, sid in enumerate(sample_ids)
+                            for i, v in enumerate(_query_row(_SID_SEED[sid]))]}
+            for sid in sample_ids
         },
     }
 
@@ -93,12 +96,17 @@ def _write_root(root, *, perturb_query: float = 0.0,
                 perturb_steps: float = 0.0, perturb_rms: float = 0.0,
                 perturb_nll: float = 0.0, perturb_metric: float = 0.0,
                 perturb_selections: bool = False, drop_commit: bool = False,
-                commit_perturb: bool = False, drop_job1: bool = False):
+                commit_perturb: bool = False, commit_key_noise: float = 0.0,
+                commit_json_perturb: float = 0.0, drop_job1: bool = False,
+                reorder_train: bool = False, drop_sample: str = None):
     features = root / "features"
     features.mkdir(parents=True, exist_ok=True)
     sample_ids = ["a1", "b2", "c3"]
+    train_ids = (["c3", "a1", "b2"] if reorder_train else sample_ids)
+    if drop_sample is not None:
+        train_ids = [sid for sid in train_ids if sid != drop_sample]
     (features / "train.json").write_text(json.dumps(
-        _features_payload(sample_ids, perturb_query)))
+        _features_payload(train_ids, perturb_query)))
     (features / "val.json").write_text(json.dumps(
         _features_payload(sample_ids, perturb_query)))
     metrics = root / "metrics"
@@ -133,12 +141,27 @@ def _write_root(root, *, perturb_query: float = 0.0,
         shutil.rmtree(committed, ignore_errors=True)
     else:
         committed.mkdir(exist_ok=True)
-        keys = b"frozen-keys-bytes"
-        if commit_perturb:
-            keys = b"frozen-keys-bytes-CHANGED"
-        (committed / "v7_keys.pt").write_bytes(keys)
-        (committed / "manifest.json").write_text(json.dumps(
-            {"candidate_ids": [0, 3]}))
+        import torch
+        key_scale = 1.0
+        if commit_perturb:          # 5e-4 relative -> > KEY_ATOL (2e-4)
+            key_scale = 1.0 + 5.0e-4
+        key_scale = key_scale + commit_key_noise
+        torch.save(
+            {
+                "schema_version": 1, "query_dim": 1536, "pool_version": 0,
+                "keys": {
+                    "0": torch.tensor([0.3, -0.4, 0.1]) * key_scale,
+                    "3": torch.tensor([-0.2, 0.5, 0.2]) * key_scale,
+                },
+            },
+            committed / "v7_keys.pt",
+        )
+        # manifest embeds the run's own committed dir (machine-path leaf)
+        # and a validation scalar that the upstream-noise bound tolerates
+        (committed / "manifest.json").write_text(json.dumps({
+            "candidate_ids": [0, 3],
+            "output_dir": str(committed),
+            "answer_nll_full": 1.897 + commit_json_perturb}))
 
 
 def _identical_roots(tmp_path):
@@ -178,13 +201,27 @@ def test_query_perturbation_fails_s1_only(tmp_path):
     assert audit["RMS_CACHE_EQUIVALENCE"]["verdict"] == "PASS"
 
 
-def test_sequence_mismatch_fails_s1(tmp_path):
+def test_reordered_same_ids_pass_s1_with_order_note(tmp_path):
+    # File order is an emission artifact (cache = declared order, live =
+    # encode order); rows are keyed by sample_id, so a reorder with the same
+    # id set and identical per-id content must PASS (recorded as
+    # informational).
     root_a, root_b = _identical_roots(tmp_path)
-    (root_b / "features" / "train.json").unlink()
-    payload = _features_payload(["c3", "a1", "b2"])  # reordered
-    (root_b / "features" / "train.json").write_text(json.dumps(payload))
+    _write_root(root_b, reorder_train=True)
+    audit = twin.run_compare(root_a, root_b)
+    assert audit["S1_QUERY_ROWS_EQUIVALENCE"]["verdict"] == "PASS"
+    detail = audit["S1_QUERY_ROWS_EQUIVALENCE"]["splits"]["train"]
+    assert detail["id_sequence_identical"] is False
+    assert audit["verdict"] == "PASS"
+
+
+def test_different_id_set_fails_s1(tmp_path):
+    root_a, root_b = _identical_roots(tmp_path)
+    _write_root(root_b, drop_sample="a1")
     audit = twin.run_compare(root_a, root_b)
     assert audit["S1_QUERY_ROWS_EQUIVALENCE"]["verdict"] == "FAIL"
+    assert "sample-id set mismatch" in audit[
+        "S1_QUERY_ROWS_EQUIVALENCE"]["splits"]["train"]["error"]
 
 
 def test_step_perturbation_fails_s3(tmp_path):
@@ -245,12 +282,56 @@ def test_metric_perturbation_fails_trajectory(tmp_path):
     assert audit["PRUNING_TRAJECTORY_EQUIVALENCE"]["verdict"] == "FAIL"
 
 
-def test_commit_sha_mismatch_fails_commit_gate(tmp_path):
+def test_commit_key_perturbation_fails_commit_gate(tmp_path):
+    # keys scaled 5e-4 relative -> max key diff ~2.5e-4 > KEY_ATOL
     root_a, root_b = _identical_roots(tmp_path)
     _write_root(root_b, commit_perturb=True)
     audit = twin.run_compare(root_a, root_b)
     assert audit["COMMIT_STATE_EQUIVALENCE"]["verdict"] == "FAIL"
     assert audit["PRUNING_TRAJECTORY_EQUIVALENCE"]["verdict"] == "PASS"
+
+
+def test_commit_key_noise_within_bound_passes(tmp_path):
+    # upstream-noise envelope (measured 7.6e-5..1.2e-4): 1e-4 relative
+    # key scale -> ~5e-5 max diff <= KEY_ATOL -> PASS, sha recorded
+    root_a, root_b = _identical_roots(tmp_path)
+    _write_root(root_b, commit_key_noise=1.0e-4)
+    audit = twin.run_compare(root_a, root_b)
+    commit = audit["COMMIT_STATE_EQUIVALENCE"]
+    assert commit["verdict"] == "PASS"
+    assert "v7_keys.pt" in commit["sha256_mismatch_files"]
+    assert audit["verdict"] == "PASS"
+
+
+def test_commit_json_perturbation_within_bound_passes(tmp_path):
+    # validation scalar 1.5e-4 (measured 1.7e-4 class) + per-root
+    # output_dir machine-path leaf: both tolerated -> PASS
+    root_a, root_b = _identical_roots(tmp_path)
+    _write_root(root_b, commit_json_perturb=1.5e-4)
+    audit = twin.run_compare(root_a, root_b)
+    assert audit["COMMIT_STATE_EQUIVALENCE"]["verdict"] == "PASS"
+    assert audit["verdict"] == "PASS"
+
+
+def test_commit_json_perturbation_over_bound_fails(tmp_path):
+    root_a, root_b = _identical_roots(tmp_path)
+    _write_root(root_b, commit_json_perturb=5.0e-3)
+    audit = twin.run_compare(root_a, root_b)
+    assert audit["COMMIT_STATE_EQUIVALENCE"]["verdict"] == "FAIL"
+
+
+def test_rms_path_leaf_only_differs_passes(tmp_path):
+    # rms_summary with a per-root output_dir leaf (the twin-run FAIL cause)
+    # and identical numerics must PASS the RMS gate
+    root_a, root_b = _identical_roots(tmp_path)
+    for root, path in ((root_a, root_a / "rms" / "rms_summary.json"),
+                       (root_b, root_b / "rms" / "rms_summary.json")):
+        payload = _rms_payload()
+        payload["output_dir"] = str(root / "rms")
+        path.write_text(json.dumps(payload))
+    audit = twin.run_compare(root_a, root_b)
+    assert audit["RMS_CACHE_EQUIVALENCE"]["verdict"] == "PASS"
+    assert audit["verdict"] == "PASS"
 
 
 def test_missing_commit_fails_commit_gate(tmp_path):
