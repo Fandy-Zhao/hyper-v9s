@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-09-03 — DDP smoke lifecycle closed; DISTRIBUTED_RMS_EQUIVALENCE PASS (0903 spec §22/§24)
+
+- DDP cache smoke (`v7_gpu01_ddp_cache_smoke_task0_20260903`, world 2 ×
+  batch 1 × GA 32 = global 64, GPU0+1, started 09:34) closed 10:47 with a
+  full committed/ (9 pruning jobs; rank/coverage/checksum audits green) —
+  TWO_GPU_DDP_CACHE_TRAIN_SMOKE PASS.
+- DISTRIBUTED_RMS_EQUIVALENCE certified PASS on the real pair: world-2 RMS
+  recompute of the single-GPU cache root's *identical* post-S3 model
+  (`v7_gpu01_rms_recompute_task0_20260903`, checkpoint_hash `6380bb4d…`
+  equal on both sides) vs the recorded single-process RMS through the new
+  `--gate-mode distributed-rms` comparator (`compare_audit_v3_
+  distributed_rms.json`): rms_calibration 900 leaves + rms_summary 10
+  leaves bit-identical, rms_statistics 13,441 leaves max_rel 5.9e-8;
+  execution mode/world_size + calibration_sha256 recorded informational.
+- Batch-32 live twin rerun launched 10:58 on GPU0 (PID 3971155, root
+  `v7_gpu01_smoke_task0_live_twin_batch32_20260903`) for the §8a/§26 gate
+  re-issue on the batch-32 pair.
+
 ## 2026-09-03 — DISTRIBUTED_RMS recompute gate mode + live-encoder batch passthrough (0903 spec §24/§8a)
 
 - `compose/eval/v7_twin_run_compare.py` gains `--gate-mode distributed-rms`:

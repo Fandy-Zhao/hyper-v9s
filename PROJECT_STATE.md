@@ -1,5 +1,30 @@
 # Project State
 
+## 2026-09-03 (late, cont. 2) — DDP smoke closed; DISTRIBUTED_RMS PASS; batch32 twin in flight (0903 spec §22/§24)
+
+- **DDP cache smoke lifecycle CLOSED 10:47** (`v7_gpu01_ddp_cache_smoke_
+  task0_20260903`, GPU0+1, world2×batch1×GA32): s3/s4/s5 markers +
+  `committed/` (compose_experts + v7_keys.pt), 9 pruning jobs, all three
+  exit watchers fired, clean process exit.  TWO_GPU_DDP_CACHE_TRAIN_SMOKE
+  (§22) PASS from its own rank/coverage/checksum audits.
+- **DISTRIBUTED_RMS_EQUIVALENCE = PASS (10:57)**: world-2 RMS recompute
+  (`v7_gpu01_rms_recompute_task0_20260903`, GPU0/1, 10 min, clean) of the
+  single root's identical model (checkpoint_hash `6380bb4d…` equal both
+  sides; calibration_sha256 came out equal too) vs recorded single-process
+  RMS via comparator `--gate-mode distributed-rms`
+  (`compare_audit_v3_distributed_rms.json`): rms_calibration 900 leaves +
+  rms_summary 10 leaves **bit-identical** (only output_dir relocated),
+  rms_statistics 13,441 leaves max_rel 5.9e-8.  Execution
+  mode/world_size + calibration_sha256 exempted informational only.
+- **batch-32 live twin RUNNING on GPU0** (PID 3971155, started 10:58, root
+  `v7_gpu01_smoke_task0_live_twin_batch32_20260903`, config sha f99fdad4…
+  == original twin; full lifecycle 2-step strict smoke, `--query-features-
+  batch-size 32`; launcher staged in the compare evidence root).
+  ~1.5 h ETA → full-root comparator re-issue (S1/S3/RMS/PRUNING/COMMIT)
+  on the batch-32 pair → FORMAL_TRAINING_READY decision.
+- Regression at `9037aa0`: 535/537 (2 env-limited java-less) — report
+  §8/§10 updated (HEAD `3cfc2dd`).
+
 ## 2026-09-03 (late, cont.) — DISTRIBUTED_RMS gate redesign + batch32 twin prep (0903 spec §22/§24)
 
 - Comparator fixes + §8a localization committed (`40bc226`/`2c54a41`, tree

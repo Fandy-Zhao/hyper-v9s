@@ -1,8 +1,10 @@
 # V7 Query Cache Downstream Adaptation Report (0903 spec Phase B)
 
 Date: 2026-09-03 (late) · Branch: `feat/0903-v7-throughput-equivalence` ·
-HEAD: `40bc226` (comparator semantic fixes + §8a localization committed;
-DDP cache smoke in S5 — see §9) · Cache: `v7_fixed_query_cache_gpu01_20260903` (230,780
+HEAD: `3cfc2dd` (DDP smoke lifecycle closed 10:47; DISTRIBUTED_RMS_
+EQUIVALENCE PASS via the world-2 same-checkpoint recompute 10:57; batch-32
+live twin running on GPU0 since 10:58 — see §9) · Cache:
+`v7_fixed_query_cache_gpu01_20260903` (230,780
 queries + 6 task centers, manifest sha256
 `0b66f2520db5822002fe618a21b04c9bdc58cf0bb7bef53c0c07815d37004c7e`,
 producer git `c93f51e`).
@@ -118,8 +120,8 @@ branch (pre-existing), configs, model/recipe parameters, legacy launchers.
 
 ## 8. Gate status (Phase B)
 
-Updated 2026-09-03 (post-GPU0/1 idle, continuation session at HEAD
-`ea816a3`/`b0b9030`).  Phase A re-audit + GPU gates are now evidenced:
+Updated 2026-09-03 (evening continuation, HEAD `3cfc2dd`).  Phase A
+re-audit + GPU gates are now evidenced:
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
@@ -130,10 +132,11 @@ Updated 2026-09-03 (post-GPU0/1 idle, continuation session at HEAD
 | single-GPU 7B smoke (loss/gradient matrix) | PASS | cache-mode task0 smoke `v7_gpu01_cache_smoke_task0_fixed_20260903` (GPU1, resumed 08:29:10 after external SIGTERM): full S0–S5 lifecycle closed — `s5_pruning_commit.done` 08:40:45, `committed/` 08:40:44 (v7_keys.pt pool selectable (0,1,2,3), compose_experts), pruning job chain complete (job_0 07:43:03 / job_1 08:40:44 / job_2 08:00:17 / job_3 08:11:55 / job_4 08:23:26), 2 training steps finite (train_runtime 204.96 s), resume stdout `resume_20260903.log` clean exit |
 | cached-vs-online step compare | FAIL — root-caused (§26), batch-32 twin rerun pending | full-root stage compare rerun with the semantic-fixed comparator (`compare_audit_v2.json`): RMS PASS; S1/S3/PRUNING/COMMIT FAIL with every divergence traced to one located cause (twin S1 encoded at `query_features` default batch 16 vs the cache's batch-32 production → deterministic fp16-kernel differences ≤2e-3 in the visual half, see §8a) |
 | RMS_CACHE_EQUIVALENCE | PASS | twin-run audit, semantic comparator v2: all 3 RMS files numeric-equal (the only structure diff was the per-run `output_dir` machine-path leaf, now root-relatively compared); rms_calibration/rms_statistics byte-identical sha |
-| DISTRIBUTED_RMS_EQUIVALENCE | pending | DDP cache smoke (in S3) → `--gate-mode distributed` vs single-GPU cache root (same cache rows; S2 keys already proven bit-equal) |
+| TWO_GPU_DDP_CACHE_TRAIN_SMOKE | PASS | DDP cache smoke `v7_gpu01_ddp_cache_smoke_task0_20260903` (GPU0+1, world 2 × batch 1 × GA 32 = global 64, 2 steps, started 09:34): lifecycle closed 10:47 — s3/s4/s5 markers, `committed/` (compose_experts + v7_keys.pt), 9 pruning jobs, rank health/per-rank checksums/coverage audits green, clean exit |
+| DISTRIBUTED_RMS_EQUIVALENCE | PASS | world-2 RMS recompute of the single-GPU root's *identical* model (`v7_gpu01_rms_recompute_task0_20260903`, checkpoint_hash `6380bb4d…` == recorded on both sides) vs the recorded single-process RMS; comparator `--gate-mode distributed-rms`, `compare_audit_v3_distributed_rms.json`: rms_calibration 900 leaves + rms_summary 10 leaves bit-identical (only `output_dir` leaf root-relocated), rms_statistics 13,441 leaves max_rel 5.9e-8; execution mode/world_size + calibration_sha256 exempted informational.  (Full-root DDP-vs-single value comparison is not well-posed: the length-grouped sampler consumes disjoint S3 windows per world size → legitimately different weights → the same-checkpoint recompute isolates the world-size contrast — decision recorded in PROJECT_STATE) |
 | PRUNING_TRAJECTORY_EQUIVALENCE | FAIL — root-caused (§26) | jobs {0..4} equal; divergences confined to val rows 170/195 (boundary Top-2 flips, NLL diffs ≤0.0174) with the same located cause; batch-32 twin rerun pending |
 | EVALUATION_CACHE_EQUIVALENCE | PASS | `v7_gpu01_eval_gate_20260903/` (GPU1, HEAD `dab7d38`): `cached_selections_audit.json` — full ImageNet-R test split (3,000 rows) manifest from committed v7_keys.pt, sequence_matches_cache, encoder_calls=0, healthy 6-pair routing histogram; `gate_task0_test.json` — 128 bounded test rows live vs cache: QUERY_NUMERICAL_EQUIVALENCE PASS (exact_bit_equal, max_abs_diff 0.0, cosine_min 0.999999642 ≥ 1−1e−6), TOP2_ROUTING_EQUIVALENCE PASS through the committed pool (rate 1.0, exact, 0 disagreements, max_abs_score_diff 0.0, visible experts [0,1,2,3]) |
-| EXISTING_V7_REGRESSION | PASS (500/502, 2 env-limited `java`-less caption scorers, at HEAD `ea816a3`) |
+| EXISTING_V7_REGRESSION | PASS (535/537, 2 env-limited `java`-less caption scorers, re-run at HEAD `9037aa0`; 500 → 535 = 35 new tests from the Phase B tooling) |
 | RECIPE_EXACT | PASS (plan-verified: `V7GPUPlan.build([0,1], strict)` → world 2 × batch 1 × GA 32 = global batch 64; formal launcher asserts it) |
 
 ## 8a. Twin-run divergence localization (0903 spec §26)
@@ -213,6 +216,11 @@ Localization (each step pinned by a controlled comparison, not inferred):
   relocation, semantic commit gate with measured noise envelope) + §8a
   twin-run divergence localization (batch16-vs-batch32 fp16 encoder);
   RMS_CACHE_EQUIVALENCE PASS on the real twin pair (§26/§28)
+- `9037aa0` comparator `--gate-mode distributed-rms` (same-checkpoint
+  world-2 recompute gate; execution-context leaves exempted informational,
+  checkpoint_hash hard) + `--query-features-batch-size` passthrough on all
+  three live-encoder sites (§8a remediation tooling)
+- `3cfc2dd` launch-command records (docs)
 - formal run records `FORMAL_START_SHA` before Task0 and per-task resumes use
   marker/sha discipline unchanged.
 
@@ -224,15 +232,24 @@ Localization (each step pinned by a controlled comparison, not inferred):
   `ea816a3` git drift recorded by design)
 - QUERY_NUMERICAL_EQUIVALENCE=PASS · TOP2_ROUTING_EQUIVALENCE=PASS
   (bit-exact; re-anchored at the formal HEAD on GPU0 + original GPU1)
-- EXISTING_V7_REGRESSION=PASS (500/502, 2 `java`-less env-limited)
+- EXISTING_V7_REGRESSION=PASS (535/537 at `9037aa0`, 2 `java`-less
+  env-limited)
 - RECIPE_EXACT=YES (world 2 × batch 1 × GA 32 = global batch 64)
 - RMS_CACHE_EQUIVALENCE=PASS (real cache-vs-online twin pair, semantic
   comparator v2: 3 RMS files numeric-equal, calibration/statistics
   byte-identical; output_dir path leaf relocated by design)
+- DISTRIBUTED_RMS_EQUIVALENCE=PASS (world-2 RMS recompute of the identical
+  checkpoint `6380bb4d…` vs recorded single-process RMS: calibration/
+  summary bit-identical, statistics max_rel 5.9e-8;
+  `compare_audit_v3_distributed_rms.json`)
+- TWO_GPU_DDP_CACHE_TRAIN_SMOKE=PASS (world 2 × batch 1 × GA 32 = 64, 2
+  steps, full lifecycle closed 10:47 with committed/)
 - S1/S3/PRUNING/COMMIT twin verdicts = FAIL root-caused to one §26-located
   control-setup defect (live twin encoded at batch 16 vs cache batch 32;
-  see §8a) — batch-32 live twin rerun pending after the DDP smoke
+  see §8a) — batch-32 live twin rerun in flight on GPU0 (PID 3971155,
+  started 10:58) → full-root gate re-issue on the batch-32 pair pending
 - FORMAL_TRAINING_READY=NO (Phase B: single-GPU cache smoke lifecycle
-  closed + eval gate PASS; DDP cache smoke in S5 pruning; batch-32 twin
-  rerun + trajectory gates still pending)
+  closed + eval gate PASS + DDP smoke lifecycle closed + DISTRIBUTED_RMS_
+  EQUIVALENCE PASS; batch-32 twin rerun + S1/S3/PRUNING/COMMIT gate
+  re-issue still pending)
 - FORMAL_TRAINING_STARTED=NO
