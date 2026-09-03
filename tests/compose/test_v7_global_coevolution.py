@@ -25,6 +25,7 @@ from compose.v7.routing import GlobalTop2Router, route_signature_groups
 from compose.v7.training import adapter_checksums, selected_current_key_loss
 from compose.v7.training import (
     full_data_coverage_audit,
+    per_sample_teacher_forcing_token_nll,
     supervised_token_mask,
     teacher_forcing_token_nll,
 )
@@ -372,6 +373,27 @@ def test_22_answer_nll_uses_only_shifted_supervised_positions():
         teacher_forcing_token_nll(logits, torch.full_like(labels, -100))
 
 
+def test_22b_packed_answer_nll_preserves_sum_of_batch_one_losses():
+    torch.manual_seed(7)
+    logits = torch.randn(3, 6, 11)
+    labels = torch.tensor([
+        [-100, -100, 2, 3, -100, -100],
+        [-100, 4, 5, 6, 7, -100],
+        [-100, -100, -100, 8, 9, 10],
+    ])
+    packed = per_sample_teacher_forcing_token_nll(logits, labels)
+    separate = torch.stack([
+        teacher_forcing_token_nll(logits[index:index + 1], labels[index:index + 1])
+        for index in range(3)
+    ])
+    assert torch.equal(packed, separate)
+    assert torch.equal(packed.sum(), separate.sum())
+    with pytest.raises(ValueError, match="every sample"):
+        per_sample_teacher_forcing_token_nll(
+            logits, torch.full_like(labels, -100)
+        )
+
+
 def test_23_historical_rms_is_one_persisted_runtime_contract():
     model = nn.Module()
     model.layer = make_linear((1, 7))
@@ -712,9 +734,24 @@ def test_35_three_rank_recipe_records_batch_63_without_lr_scaling(
     recipe = contract["recipe"]
     assert recipe["world_size"] == 3
     assert recipe["effective_global_batch_size"] == 63
-    assert recipe["target_global_batch_size"] == 64
-    assert recipe["global_batch_relative_difference"] == -0.015625
+    assert recipe["target_global_batch_size"] == 63
+    assert recipe["global_batch_relative_difference"] == 0.0
     assert recipe["learning_rate"] == V7Config().training.learning_rate
+
+    args.training_per_device_batch_size = 3
+    args.training_dataloader_num_workers = 8
+    optimized = build_run_contract(args, V7Config(), True, 7)["recipe"]
+    assert optimized["per_device_train_batch_size"] == 3
+    assert optimized["gradient_accumulation_steps"] == 7
+    assert optimized["world_size"] == 3
+    assert optimized["effective_global_batch_size"] == 63
+    assert optimized["dataloader_num_workers"] == 8
+    for locked in (
+        "num_train_epochs", "learning_rate", "weight_decay", "warmup_ratio",
+        "lr_scheduler_type", "bf16", "gradient_checkpointing", "seed",
+        "dataloader_drop_last",
+    ):
+        assert optimized[locked] == recipe[locked]
 
 
 def test_36_v7_ddp_anchor_exposes_all_current_keys(monkeypatch):

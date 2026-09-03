@@ -50,6 +50,31 @@ def supervised_token_mask(labels: Tensor, ignore_index: int = -100) -> Tensor:
     return labels[:, 1:].ne(ignore_index)
 
 
+def per_sample_teacher_forcing_token_nll(
+    logits: Tensor, labels: Tensor, ignore_index: int = -100
+) -> Tensor:
+    """Return one answer-token mean NLL per sample.
+
+    Summing these values across a micro-batch preserves the established V7
+    batch-size-one accumulation contract when execution batches are packed.
+    """
+    if logits.ndim != 3 or labels.ndim != 2 or logits.shape[:2] != labels.shape:
+        raise ValueError("logits/labels must have shapes [B,T,V] and [B,T]")
+    shift_logits = logits[:, :-1].contiguous()
+    shift_labels = labels[:, 1:].contiguous()
+    valid = supervised_token_mask(labels, ignore_index)
+    counts = valid.sum(dim=1)
+    if bool(counts.eq(0).any()):
+        raise ValueError("every sample requires at least one supervised answer token")
+    losses = F.cross_entropy(
+        shift_logits.view(-1, shift_logits.shape[-1]),
+        shift_labels.view(-1),
+        ignore_index=ignore_index,
+        reduction="none",
+    ).view_as(shift_labels)
+    return (losses * valid).sum(dim=1) / counts
+
+
 def teacher_forcing_token_nll(logits: Tensor, labels: Tensor, ignore_index: int = -100) -> Tensor:
     """Standard next-token NLL averaged over target answer tokens only."""
     if logits.ndim != 3 or labels.ndim != 2 or logits.shape[:2] != labels.shape:

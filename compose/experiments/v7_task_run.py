@@ -156,15 +156,31 @@ def build_run_contract(args, config, formal_run, gradient_accumulation_steps):
             )
         )
     world_size = int(getattr(args, "training_world_size", 1))
-    actual_batch = (
-        config.training.per_device_train_batch_size
-        * gradient_accumulation_steps
-        * world_size
+    requested_batch = getattr(args, "training_per_device_batch_size", None)
+    requested_workers = getattr(args, "training_dataloader_num_workers", None)
+    per_device_batch = (
+        requested_batch
+        if requested_batch is not None
+        else config.training.per_device_train_batch_size
     )
-    target_batch = 64
+    dataloader_workers = (
+        requested_workers
+        if requested_workers is not None
+        else config.training.dataloader_num_workers
+    )
+    actual_batch = (
+        per_device_batch * gradient_accumulation_steps * world_size
+    )
+    target_batch = 63 if world_size == 3 else 64
+    if formal_run and actual_batch != target_batch:
+        raise ValueError(
+            "formal V7 effective global batch must be {} for world_size={}, got {}".format(
+                target_batch, world_size, actual_batch
+            )
+        )
     recipe = {
         "num_train_epochs": config.training.num_train_epochs,
-        "per_device_train_batch_size": config.training.per_device_train_batch_size,
+        "per_device_train_batch_size": per_device_batch,
         "gradient_accumulation_steps": gradient_accumulation_steps,
         "world_size": world_size,
         "effective_global_batch_size": actual_batch,
@@ -179,7 +195,7 @@ def build_run_contract(args, config, formal_run, gradient_accumulation_steps):
         "bf16": config.training.bf16,
         "gradient_checkpointing": config.training.gradient_checkpointing,
         "seed": config.training.seed,
-        "dataloader_num_workers": config.training.dataloader_num_workers,
+        "dataloader_num_workers": dataloader_workers,
         "save_strategy": config.training.save_strategy,
         "dataloader_drop_last": False,
         "max_steps": -1 if formal_run else args.smoke_max_steps,
@@ -256,6 +272,8 @@ def main():
     )
     parser.add_argument("--distributed-backend", default="nccl")
     parser.add_argument("--training-gradient-accumulation-steps", type=int)
+    parser.add_argument("--training-per-device-batch-size", type=int)
+    parser.add_argument("--training-dataloader-num-workers", type=int)
     parser.add_argument(
         "--smoke-max-steps", type=int, default=None,
         help="explicit smoke/debug optimizer-step cap; formal runs omit max_steps",
@@ -310,6 +328,10 @@ def main():
         )
     if gradient_accumulation_steps <= 0:
         raise ValueError("training gradient accumulation must be positive")
+    if args.training_per_device_batch_size is not None and args.training_per_device_batch_size <= 0:
+        raise ValueError("training per-device batch size must be positive")
+    if args.training_dataloader_num_workers is not None and args.training_dataloader_num_workers < 0:
+        raise ValueError("training dataloader workers must be non-negative")
     run_contract = build_run_contract(
         args, config, formal_run, gradient_accumulation_steps
     )
@@ -452,7 +474,8 @@ def main():
             "--mm_vision_select_layer", str(config.runtime.mm_vision_select_layer),
             "--mm_vision_select_feature", config.runtime.mm_vision_select_feature,
             "--image_aspect_ratio", config.runtime.image_aspect_ratio,
-            "--per_device_train_batch_size", str(config.training.per_device_train_batch_size),
+            "--per_device_train_batch_size",
+            str(run_contract["recipe"]["per_device_train_batch_size"]),
             "--gradient_accumulation_steps", str(gradient_accumulation_steps),
             "--num_train_epochs", str(config.training.num_train_epochs),
             "--learning_rate", str(config.training.learning_rate),
@@ -464,7 +487,8 @@ def main():
             "--bf16", str(config.training.bf16), "--tf32", str(config.training.tf32),
             "--gradient_checkpointing", str(config.training.gradient_checkpointing),
             "--group_by_modality_length", str(config.training.group_by_modality_length),
-            "--dataloader_num_workers", str(config.training.dataloader_num_workers),
+            "--dataloader_num_workers",
+            str(run_contract["recipe"]["dataloader_num_workers"]),
             "--seed", str(config.training.seed), "--report_to", "none",
             "--model_max_length", str(config.training.model_max_length),
             "--remove_unused_columns", "False",

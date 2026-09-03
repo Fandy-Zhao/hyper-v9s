@@ -17,6 +17,7 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from transformers import AutoConfig, AutoModelForCausalLM, \
                          LlamaConfig, LlamaModel, LlamaForCausalLM
@@ -188,6 +189,7 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
         **kwargs,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
+        v7_sum_per_sample_loss = bool(kwargs.pop("v7_sum_per_sample_loss", False))
         if inputs_embeds is None:
             (
                 input_ids,
@@ -216,6 +218,24 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict
         )
+        if v7_sum_per_sample_loss and labels is not None and labels.shape[0] > 1:
+            if return_dict is False:
+                raise ValueError("V7 per-sample loss requires return_dict output")
+            shift_logits = outputs.logits[:, :-1].contiguous()
+            shift_labels = labels[:, 1:].contiguous().to(shift_logits.device)
+            valid = shift_labels.ne(-100)
+            counts = valid.sum(dim=1)
+            if bool(counts.eq(0).any()):
+                raise ValueError(
+                    "every V7 sample requires at least one supervised answer token"
+                )
+            token_losses = F.cross_entropy(
+                shift_logits.view(-1, shift_logits.shape[-1]),
+                shift_labels.view(-1),
+                ignore_index=-100,
+                reduction="none",
+            ).view_as(shift_labels)
+            outputs.loss = (token_losses * valid).sum(dim=1).div(counts).sum()
         routing_mode = getattr(self.config, "modality_routing_mode", "task")
         if self.training and routing_mode == "sample":
             router_loss = getattr(self, "router_aux_loss", None)

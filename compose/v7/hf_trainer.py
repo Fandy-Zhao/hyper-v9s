@@ -2,7 +2,9 @@
 
 import os
 import json
+import time
 from collections import Counter
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -106,6 +108,59 @@ def padded_compose_selections(selection):
     ]
 
 
+def mean_sync_accumulated_gradients(parameters):
+    """Mean-reduce a sparse-routing accumulation window exactly once.
+
+    This runs at the accumulation boundary *before* Trainer gradient clipping.
+    Doing the reduction inside ``optimizer.step`` would incorrectly clip each
+    rank's local gradient before synchronization.  A separate presence reduce
+    also makes ``grad=None`` global: if any rank used a parameter, every rank
+    takes the same Adam step even when the reduced numerical gradient is zero.
+    """
+    if not _distributed() or torch.distributed.get_world_size() == 1:
+        return False
+    grouped = {}
+    for parameter in parameters:
+        grouped.setdefault((parameter.dtype, parameter.device), []).append(parameter)
+    world_size = float(torch.distributed.get_world_size())
+    for values in grouped.values():
+        present = torch.tensor(
+            [parameter.grad is not None for parameter in values],
+            dtype=torch.int32,
+            device=values[0].device,
+        )
+        torch.distributed.all_reduce(present, op=torch.distributed.ReduceOp.MAX)
+        globally_present = present.cpu().tolist()
+        flat = torch.zeros(
+            sum(parameter.numel() for parameter in values),
+            dtype=values[0].dtype,
+            device=values[0].device,
+        )
+        offset = 0
+        for parameter in values:
+            size = parameter.numel()
+            if parameter.grad is not None:
+                if parameter.grad.is_sparse:
+                    raise TypeError("V7 mean synchronization requires dense gradients")
+                flat[offset:offset + size].copy_(parameter.grad.detach().reshape(-1))
+            offset += size
+        torch.distributed.all_reduce(flat, op=torch.distributed.ReduceOp.SUM)
+        flat.div_(world_size)
+        offset = 0
+        for index, parameter in enumerate(values):
+            size = parameter.numel()
+            reduced = flat[offset:offset + size].reshape(parameter.shape)
+            if globally_present[index]:
+                if parameter.grad is None:
+                    parameter.grad = reduced.clone()
+                else:
+                    parameter.grad.detach().copy_(reduced)
+            else:
+                parameter.grad = None
+            offset += size
+    return True
+
+
 class V7ComposeTrainer(ComposeTrainer):
     def __init__(
         self,
@@ -142,6 +197,8 @@ class V7ComposeTrainer(ComposeTrainer):
         self._v7_lora_gradient_sq = 0.0
         self._v7_gradient_hook_handles = []
         self._v7_active = None
+        self._v7_previous_step_end = None
+        self._v7_step_timing = None
         super().__init__(*args, **kwargs)
         self._historical_key_before = v7_key_pool.historical_checksums()
         self._historical_lora_before = adapter_checksums(
@@ -264,6 +321,12 @@ class V7ComposeTrainer(ComposeTrainer):
         return audit
 
     def training_step(self, model, inputs):
+        step_started = time.perf_counter()
+        inter_step_wait = (
+            None
+            if self._v7_previous_step_end is None
+            else step_started - self._v7_previous_step_end
+        )
         sample_ids = tuple(str(value) for value in inputs.get("sample_ids", ()))
         self._v7_last_sample_ids = sample_ids
         self.v7_unique_sample_ids.update(sample_ids)
@@ -288,7 +351,9 @@ class V7ComposeTrainer(ComposeTrainer):
         for expert_id in routed.expert_ids.detach().cpu().view(-1).tolist():
             if str(expert_id) in self.v7_usage:
                 self.v7_usage[str(expert_id)] += 1
-        loss = super().training_step(model, inputs)
+        no_sync = model.no_sync() if _distributed() and hasattr(model, "no_sync") else nullcontext()
+        with no_sync:
+            loss = super().training_step(model, inputs)
         assert_historical_key_gradients_frozen(self.v7_key_pool)
         assert_historical_lora_frozen(
             self.expert_pool.manager, self.v7_key_pool.historical_ids
@@ -297,20 +362,39 @@ class V7ComposeTrainer(ComposeTrainer):
             raise AssertionError("unselected current key received a new micro-batch gradient")
         if not self._v7_lora_gradient_ids.issubset(current_selected):
             raise AssertionError("unselected current LoRA received a new micro-batch gradient")
+        gradient_window_synced = False
+        if self.accelerator.sync_gradients:
+            if self.optimizer is None:
+                raise RuntimeError("V7 optimizer must exist before gradient synchronization")
+            gradient_window_synced = mean_sync_accumulated_gradients(
+                parameter
+                for group in self.optimizer.param_groups
+                for parameter in group["params"]
+            )
+        self._v7_step_timing = {
+            "wall_time": time.time(),
+            "training_step_sec": time.perf_counter() - step_started,
+            "inter_step_wait_sec": inter_step_wait,
+            "local_batch_size": len(sample_ids),
+            "gradient_window_synced": gradient_window_synced,
+        }
         self._write_step_metrics()
+        self._v7_previous_step_end = time.perf_counter()
         return loss
 
     def compute_loss(self, model, inputs, return_outputs=False):
         queries = inputs.pop("fixed_queries")
         inputs.pop("sample_ids", None)
+        inputs["v7_sum_per_sample_loss"] = True
         result = super().compute_loss(model, inputs, return_outputs=return_outputs)
         answer_loss, outputs = result if return_outputs else (result, None)
         if self._v7_active is None:
             raise RuntimeError("V7 routing must run before compute_loss")
         _, routed, current_selected = self._v7_active
-        key_loss, per_sample = selected_current_key_loss(
+        mean_key_loss, per_sample = selected_current_key_loss(
             queries, routed.expert_ids, self.v7_key_pool
         )
+        key_loss = per_sample.sum() if queries.shape[0] > 1 else mean_key_loss
         total = answer_loss + self.v7_config.training.lambda_key * key_loss
         if not current_selected:
             # Old+Old has no expert graph. A zero-valued current-key anchor
@@ -329,8 +413,7 @@ class V7ComposeTrainer(ComposeTrainer):
         _, routed, current_selected = self._v7_active
         selected_key_grad = self._v7_key_gradient_sq ** 0.5
         selected_lora_grad = self._v7_lora_gradient_sq ** 0.5
-        self.v7_logger.write(
-            {
+        payload = {
                 "step": int(self.state.global_step),
                 "answer_loss": float(answer),
                 "key_loss": float(key),
@@ -345,8 +428,10 @@ class V7ComposeTrainer(ComposeTrainer):
                 "sample_ids": list(
                     str(value) for value in self._v7_last_sample_ids
                 ),
-            }
-        )
+        }
+        if self._v7_step_timing is not None:
+            payload.update(self._v7_step_timing)
+        self.v7_logger.write(payload)
 
     def final_diagnostics(self, num_train_samples):
         route_counts = Counter()
