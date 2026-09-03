@@ -329,6 +329,33 @@ def _validate_query_partial(partial, expected_ids):
     return sorted(records) == sorted(expected_ids)
 
 
+def _live_query_features_command(python, *, questions, images, output,
+                                 vision_model, device="cuda:0",
+                                 num_shards=None, shard_index=None,
+                                 batch_size=None):
+    """Assemble the legacy live fixed-query encoder invocation.
+
+    ``batch_size`` maps to query_features' ``--batch-size`` (built-in
+    default 16).  The built-in default is what the cache-production and
+    bounded-gate encode paths use **explicitly** as 32, so live gate
+    twins must be able to override it (0903 spec §8a root cause); when
+    absent the command stays byte-identical to the legacy launchers.
+    """
+    command = [
+        python, "-m", "compose.eval.query_features",
+        "--questions", str(questions), "--images", str(images),
+        "--output", str(output),
+        "--query-vision-model", str(vision_model),
+        "--query-mode", "v7_fixed", "--device", device,
+    ]
+    if batch_size is not None:
+        command += ["--batch-size", str(batch_size)]
+    if num_shards is not None:
+        command += ["--num-shards", str(num_shards),
+                    "--shard-index", str(shard_index)]
+    return command
+
+
 def _assert_s1_payload_origin(root):
     """Cache-mode guard: every query-consuming stage must read the S1
     payloads emitted from the fixed-query cache, never a live encoder.
@@ -379,14 +406,15 @@ def run_adaptive_fixed_queries(args, config, root, env, gpu_plan, run_contract_h
         if query_world == 1:
             # One worker writes the final file directly, like the legacy
             # single-GPU path (identical payload and semantics).
-            run([
-                python, "-m", "compose.eval.query_features",
-                "--questions", str(records_json), "--images", args.image_folder,
-                "--output", str(output_full),
-                "--query-vision-model", config.query.path,
-                "--query-mode", "v7_fixed", "--device", "cuda:0",
-            ], make_worker_env(env, gpu_plan.query_gpu_ids[0]),
-               root / "logs" / ("features_" + split + ".log"))
+            run(
+                _live_query_features_command(
+                    python, questions=records_json, images=args.image_folder,
+                    output=output_full, vision_model=config.query.path,
+                    batch_size=args.query_features_batch_size,
+                ),
+                make_worker_env(env, gpu_plan.query_gpu_ids[0]),
+                root / "logs" / ("features_" + split + ".log"),
+            )
             continue
         partials = []
         jobs = []
@@ -396,15 +424,13 @@ def run_adaptive_fixed_queries(args, config, root, env, gpu_plan, run_contract_h
             expected = shard_expected_ids(records, query_world, shard_index)
             if _validate_query_partial(partial, expected):
                 continue
-            command = [
-                python, "-m", "compose.eval.query_features",
-                "--questions", str(records_json), "--images", args.image_folder,
-                "--output", str(tmp_dir / (split + ".json")),
-                "--query-vision-model", config.query.path,
-                "--query-mode", "v7_fixed", "--device", "cuda:0",
-                "--num-shards", str(query_world),
-                "--shard-index", str(shard_index),
-            ]
+            command = _live_query_features_command(
+                python, questions=records_json, images=args.image_folder,
+                output=tmp_dir / (split + ".json"),
+                vision_model=config.query.path,
+                num_shards=query_world, shard_index=shard_index,
+                batch_size=args.query_features_batch_size,
+            )
             gpu_id = gpu_plan.query_gpu_ids[shard_index % query_world]
             jobs.append({
                 "command": command,
@@ -464,6 +490,15 @@ def main():
              "the CLIP query encoder (encoder_calls=0); without it S1 keeps the "
              "legacy live-encoder behavior exactly",
     )
+    parser.add_argument(
+        "--query-features-batch-size", type=int, default=None,
+        help="legacy live-encoder CLIP batch size (0903 spec §8a): the cache "
+             "production / bounded-gate encode paths encode at batch 32 while "
+             "query_features' built-in default is 16, so live gate twins must "
+             "pass 32 to reproduce the gate setup; absent -> built-in 16, "
+             "byte-identical legacy behavior; never applies to cache/formal "
+             "runs (they invoke no encoder)",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--training-world-size", type=int, default=1)
     parser.add_argument(
@@ -521,6 +556,8 @@ def main():
         raise ValueError("training per-device batch size must be positive")
     if args.training_dataloader_num_workers is not None and args.training_dataloader_num_workers < 0:
         raise ValueError("training dataloader workers must be non-negative")
+    if args.query_features_batch_size is not None and args.query_features_batch_size <= 0:
+        raise ValueError("--query-features-batch-size must be positive")
 
     gpu_plan = None
     if args.recipe_mode == "throughput" and args.gpus is None:
@@ -745,13 +782,16 @@ def main():
             )
         else:
             for split, path in (("train", train_json), ("val", val_json)):
-                run([
-                    args.python, "-m", "compose.eval.query_features",
-                    "--questions", str(path), "--images", args.image_folder,
-                    "--output", str(root / "features" / (split + ".json")),
-                    "--query-vision-model", config.query.path,
-                    "--query-mode", "v7_fixed", "--device", worker_device,
-                ], env, root / "logs" / ("features_" + split + ".log"))
+                run(
+                    _live_query_features_command(
+                        args.python, questions=path, images=args.image_folder,
+                        output=root / "features" / (split + ".json"),
+                        vision_model=config.query.path,
+                        device=worker_device,
+                        batch_size=args.query_features_batch_size,
+                    ),
+                    env, root / "logs" / ("features_" + split + ".log"),
+                )
         mark(root, "s1_fixed_queries", run_contract_hash)
     query_contract_path = root / "data" / "query_contract.json"
     query_contract = validate_query_cache_contract(

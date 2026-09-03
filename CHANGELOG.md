@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-09-03 — DISTRIBUTED_RMS recompute gate mode + live-encoder batch passthrough (0903 spec §24/§8a)
+
+- `compose/eval/v7_twin_run_compare.py` gains `--gate-mode distributed-rms`:
+  a single-stage RMS-only gate certifying a world-2 RMS recompute of the
+  *identical* post-S3 checkpoint against the recorded single-process RMS
+  run (spec §24 leg 2).  Execution-context leaves
+  (`execution.mode`/`world_size`) and the self-derived `calibration_sha256`
+  are exempted informational on both sides; `checkpoint_hash` and every
+  value leaf stay hard-compared — a recompute over a different checkpoint
+  FAILs.  Design basis (recorded in PROJECT_STATE): two independently
+  smoked roots consume disjoint S3 sample windows per world size
+  (length-grouped sampler), so their weights legitimately differ and no
+  full-root value comparison can certify the gate; the same-checkpoint
+  recompute isolates the world-size contrast.  Real-artifact precheck:
+  calibration/statistics files differ only in provenance.checkpoint_hash
+  (same schema, no world-dependent ordered arrays).  6 new CPU tests.
+- `compose/experiments/v7_task_run.py` gains `--query-features-batch-size`
+  (default None -> legacy built-in 16, byte-identical): explicit live-
+  encoder CLIP batch override required by the §8a batch32 twin remediation
+  (cache-production / bounded gates encode at batch 32).  All three live
+  encoder sites now assemble through the pure, unit-tested
+  `_live_query_features_command`; cache/formal paths (encoder_calls=0)
+  untouched.  6 new CPU tests.
+
 ## 2026-09-03 — V7 comparator semantic fixes + twin-run divergence localization (0903 spec §26/§28)
 
 - `compose/eval/v7_twin_run_compare.py` semantic fixes (semantic

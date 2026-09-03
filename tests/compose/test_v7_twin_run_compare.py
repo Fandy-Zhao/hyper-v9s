@@ -362,3 +362,130 @@ def test_main_exit_code(tmp_path, gate_mode, capsys):
     assert payload["verdict"] == "PASS"
     out = capsys.readouterr().out
     assert "OVERALL: PASS" in out
+
+
+# ---------------------------------------------------------------------------
+# --gate-mode distributed-rms: world-2 RMS recompute vs the recorded
+# single-process RMS run over the *identical* checkpoint (spec §24 leg 2)
+# ---------------------------------------------------------------------------
+
+_CKPT = "6380bb4d" + "d" * 56
+
+
+def _rms_file_payload(kind, *, perturb_rms=0.0, mode="single_gpu",
+                      world_size=1, calibration_sha=None, checkpoint_hash=None,
+                      output_dir=None):
+    payload = _rms_payload(perturb_rms)
+    payload.update({
+        "rms_mode": "commit_frozen",
+        "samples": 256,
+        "calibration_split": "validation",
+        "checkpoint_hash": checkpoint_hash or _CKPT,
+        "calibration_sha256": calibration_sha or ("0" * 64),
+        "manifest_patched": True,
+        "frozen_calibration_source": None,
+        "execution": {
+            "aggregation": "sum_all_reduce_fp64",
+            "mode": mode,
+            "pair_diagnostics_shard": "rank0_only",
+            "world_size": world_size,
+        },
+        "output_dir": str(output_dir) if output_dir else None,
+    })
+    return payload
+
+
+def _write_rms_root(root, *, mode="single_gpu", world_size=1,
+                    calibration_sha=None, checkpoint_hash=None,
+                    perturb_rms=0.0, drop_file=None):
+    rms = root / "rms"
+    rms.mkdir(parents=True, exist_ok=True)
+    for filename in twin._RMS_FILES:
+        if filename == drop_file:
+            continue
+        (rms / filename).write_text(json.dumps(_rms_file_payload(
+            filename, mode=mode, world_size=world_size,
+            calibration_sha=calibration_sha, checkpoint_hash=checkpoint_hash,
+            perturb_rms=perturb_rms, output_dir=rms)))
+    return root
+
+
+def _distributed_rms_pair(tmp_path, **root_b_kwargs):
+    # root_a = world-2 recompute, root_b = recorded single-process RMS run
+    root_a = _write_rms_root(
+        tmp_path / "a", mode="4gpu_torchrun", world_size=2,
+        calibration_sha="b3" * 32)
+    root_b = _write_rms_root(
+        tmp_path / "b", mode="single_gpu", world_size=1,
+        calibration_sha="08" * 32, **root_b_kwargs)
+    return root_a, root_b
+
+
+def test_distributed_rms_single_gate_emitted(tmp_path):
+    root_a, root_b = _distributed_rms_pair(tmp_path)
+    audit = twin.run_compare(root_a, root_b, gate_mode="distributed-rms")
+    assert set(k for k, v in audit.items()
+               if isinstance(v, dict) and "verdict" in v) == {
+                   "DISTRIBUTED_RMS_EQUIVALENCE"}
+    assert audit["DISTRIBUTED_RMS_EQUIVALENCE"]["verdict"] == "PASS"
+    assert audit["verdict"] == "PASS"
+
+
+def test_distributed_rms_context_leaves_exempt_informational(tmp_path):
+    # execution.mode/world_size + self-derived calibration_sha256 differ
+    # legitimately between the two worlds -> PASS, recorded informational
+    root_a, root_b = _distributed_rms_pair(tmp_path)
+    audit = twin.run_compare(root_a, root_b, gate_mode="distributed-rms")
+    gate = audit["DISTRIBUTED_RMS_EQUIVALENCE"]
+    assert gate["verdict"] == "PASS"
+    summary = gate["files"]["rms_summary.json"]
+    exempt = summary["exempt_leaves"]
+    assert exempt["$['execution']['mode']"] == {
+        "a": "4gpu_torchrun", "b": "single_gpu"}
+    assert exempt["$['execution']['world_size']"] == {"a": 2, "b": 1}
+    assert gate["checkpoint_identity"]["same_model"] is True
+    assert audit["verdict"] == "PASS"
+
+
+def test_distributed_rms_same_model_required(tmp_path):
+    # different checkpoint_hash = gate misapplied over a different model
+    root_a, root_b = _distributed_rms_pair(
+        tmp_path, checkpoint_hash="aa" * 32)
+    audit = twin.run_compare(root_a, root_b, gate_mode="distributed-rms")
+    gate = audit["DISTRIBUTED_RMS_EQUIVALENCE"]
+    assert gate["verdict"] == "FAIL"
+    assert gate["checkpoint_identity"]["same_model"] is False
+    assert audit["verdict"] == "FAIL"
+
+
+def test_distributed_rms_value_perturbation_fails(tmp_path):
+    # per-layer kappa perturbed far over the RMS bound -> FAIL (values are
+    # the actual gate content; only execution context is exempted)
+    root_a, root_b = _distributed_rms_pair(tmp_path, perturb_rms=1.0)
+    audit = twin.run_compare(root_a, root_b, gate_mode="distributed-rms")
+    gate = audit["DISTRIBUTED_RMS_EQUIVALENCE"]
+    assert gate["verdict"] == "FAIL"
+    assert gate["checkpoint_identity"]["same_model"] is True
+    assert audit["verdict"] == "FAIL"
+
+
+def test_distributed_rms_missing_file_fails(tmp_path):
+    root_a, root_b = _distributed_rms_pair(
+        tmp_path, drop_file="rms_calibration.json")
+    audit = twin.run_compare(root_a, root_b, gate_mode="distributed-rms")
+    gate = audit["DISTRIBUTED_RMS_EQUIVALENCE"]
+    assert gate["verdict"] == "FAIL"
+    assert gate["files"]["rms_calibration.json"]["verdict"] == "FAIL"
+    assert audit["verdict"] == "FAIL"
+
+
+def test_distributed_rms_main_exit_code(tmp_path, capsys):
+    root_a, root_b = _distributed_rms_pair(tmp_path)
+    output = tmp_path / "audit.json"
+    code = twin.main(["--root-a", str(root_a), "--root-b", str(root_b),
+                      "--gate-mode", "distributed-rms",
+                      "--audit-output", str(output)])
+    assert code == 0
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["verdict"] == "PASS"
+    assert "DISTRIBUTED_RMS_EQUIVALENCE: PASS" in capsys.readouterr().out

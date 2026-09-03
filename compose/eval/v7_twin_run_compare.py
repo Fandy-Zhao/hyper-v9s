@@ -30,6 +30,10 @@ Compared per stage (all from on-disk JSON/JSONL artifacts, no model, no GPU):
   noise).  The emitted verdict name is ``RMS_CACHE_EQUIVALENCE`` for the
   cache-vs-live pair and ``DISTRIBUTED_RMS_EQUIVALENCE`` when
   ``--gate-mode distributed`` is given (DDP root vs single-GPU root).
+  ``--gate-mode distributed-rms`` emits DISTRIBUTED_RMS_EQUIVALENCE as a
+  single RMS-only gate: root_a is a world-2 RMS recompute of root_b's
+  recorded RMS over the *identical* checkpoint (execution-context leaves
+  exempted informational; a checkpoint_hash mismatch fails the gate).
 * PRUNING_TRAJECTORY_EQUIVALENCE - pruning job set {0..N} must be
   identical; per job ``selections_N.json`` (exact route maps),
   ``nll_N.json`` (float bound), ``official_metric_N.json`` (float bound).
@@ -447,6 +451,115 @@ def compare_rms(root_a: Path, root_b: Path,
 
 
 # ---------------------------------------------------------------------------
+# DISTRIBUTED_RMS_EQUIVALENCE (world-2 recompute of the same checkpoint)
+# ---------------------------------------------------------------------------
+
+# Leaves that legitimately differ between a world-2 RMS recompute and the
+# recorded single-process RMS run over the *identical* checkpoint: the
+# execution context (mode/world_size) and the self-derived
+# calibration_sha256.  Everything else -- checkpoint_hash, samples,
+# calibration_split, rms_mode, aggregation, per-layer kappa/statistics --
+# is the actual gate content and stays compared.
+_EXEMPT_RMS_LEAVES = frozenset((
+    "$['execution']['mode']", "$['execution']['world_size']",
+    "$['calibration_sha256']",
+))
+
+
+def _strip_exempt_leaves(node: object, path: str = "$") -> object:
+    """Deep copy of ``node`` without the ``_EXEMPT_RMS_LEAVES`` leaf paths."""
+    if isinstance(node, dict):
+        return {
+            key: (None if "{}['{}']".format(path, key) in _EXEMPT_RMS_LEAVES
+                  else _strip_exempt_leaves(value, "{}['{}']".format(path, key)))
+            for key, value in node.items()
+        }
+    if isinstance(node, list):
+        return [_strip_exempt_leaves(value, "{}[{}]".format(path, index))
+                for index, value in enumerate(node)]
+    return node
+
+
+def _collect_exempt_leaves(node: object, path: str = "$") -> List[Tuple[str, object]]:
+    """Values at the exempt leaf paths (recorded informational)."""
+    found = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            child = "{}['{}']".format(path, key)
+            if child in _EXEMPT_RMS_LEAVES:
+                found.append((child, value))
+            else:
+                found.extend(_collect_exempt_leaves(value, child))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            found.extend(_collect_exempt_leaves(value, "{}[{}]".format(path, index)))
+    return found
+
+
+def compare_rms_same_checkpoint(root_a: Path, root_b: Path,
+                                ) -> Tuple[bool, Dict[str, object]]:
+    """RMS-only gate: a world-2 RMS recompute (root_a) vs the recorded
+    single-process RMS run (root_b) over the *identical* post-S3 checkpoint.
+
+    0903 spec §24: DISTRIBUTED_RMS_EQUIVALENCE = "1 GPU cached RMS vs
+    2 GPU cached RMS" on the same model.  Because the length-grouped HF
+    sampler consumes different S3 sample windows per world size, two
+    *independently smoked* roots carry legitimately different weights and
+    cannot value-certify the gate; the well-posed comparison is the RMS
+    recompute of one root's own model at world size 2 (same
+    checkpoint_hash, same val rows, same fp64 sharded-moments machinery --
+    only the world size differs).  Exempted execution-context leaves are
+    recorded informational; a checkpoint_hash mismatch fails (gate
+    misapplied over a different model).
+    """
+    per_file: Dict[str, object] = {}
+    any_missing = False
+    checkpoint: Dict[str, object] = {}
+    for filename in _RMS_FILES:
+        file_a = root_a / "rms" / filename
+        file_b = root_b / "rms" / filename
+        if not file_a.is_file() or not file_b.is_file():
+            per_file[filename] = {
+                "present_a": file_a.is_file(), "present_b": file_b.is_file(),
+                "verdict": "FAIL",
+            }
+            any_missing = True
+            continue
+        payload_a = _load_json(file_a)
+        payload_b = _load_json(file_b)
+        sha_a = hashlib.sha256(file_a.read_bytes()).hexdigest()
+        sha_b = hashlib.sha256(file_b.read_bytes()).hexdigest()
+        exempt_a = dict(_collect_exempt_leaves(payload_a))
+        exempt_b = dict(_collect_exempt_leaves(payload_b))
+        ok, numeric = _compare_json_numeric(
+            _strip_exempt_leaves(payload_a), _strip_exempt_leaves(payload_b),
+            atol=RMS_ATOL, rtol=RMS_RTOL, roots=(root_a, root_b))
+        per_file[filename] = {
+            "verdict": "PASS" if ok else "FAIL",
+            "bytes_sha256_equal": sha_a == sha_b,
+            "exempt_leaves": {
+                path: {"a": exempt_a.get(path), "b": exempt_b.get(path)}
+                for path in sorted(set(exempt_a) | set(exempt_b))
+            },
+            "numeric": numeric,
+        }
+        if filename == "rms_summary.json":
+            checkpoint = {
+                "checkpoint_hash_a": payload_a.get("checkpoint_hash"),
+                "checkpoint_hash_b": payload_b.get("checkpoint_hash"),
+            }
+    verdict = not any_missing and all(
+        per_file[filename]["verdict"] == "PASS" for filename in _RMS_FILES)
+    detail: Dict[str, object] = {"files": per_file}
+    if checkpoint:
+        detail["checkpoint_identity"] = dict(
+            checkpoint,
+            same_model=checkpoint["checkpoint_hash_a"]
+            == checkpoint["checkpoint_hash_b"])
+    return verdict, detail
+
+
+# ---------------------------------------------------------------------------
 # S5 pruning
 # ---------------------------------------------------------------------------
 
@@ -641,17 +754,27 @@ def _compare_key_state(path_a: Path, path_b: Path, *, atol: float,
 
 def run_compare(root_a: Path, root_b: Path, *, gate_mode: str = "cache",
                 ) -> Dict[str, object]:
-    rms_gate_name = (
-        "DISTRIBUTED_RMS_EQUIVALENCE" if gate_mode == "distributed"
-        else "RMS_CACHE_EQUIVALENCE")
-    gates: Dict[str, Tuple[bool, Dict[str, object]]] = {
-        "S1_QUERY_ROWS_EQUIVALENCE": compare_s1_queries(root_a, root_b),
-        "S3_TRAIN_STEPS_EQUIVALENCE": _compare_train_steps(root_a, root_b),
-        rms_gate_name: compare_rms(root_a, root_b),
-        "PRUNING_TRAJECTORY_EQUIVALENCE": compare_pruning_trajectory(
-            root_a, root_b),
-        "COMMIT_STATE_EQUIVALENCE": compare_commit_state(root_a, root_b),
-    }
+    if gate_mode == "distributed-rms":
+        # RMS-only mode: the recompute root carries rms/ outputs of the
+        # same checkpoint, so the other lifecycle stages are not part of
+        # the comparison (their value well-posedness lives in the shared
+        # checkpoint, not in the recompute root).
+        gates: Dict[str, Tuple[bool, Dict[str, object]]] = {
+            "DISTRIBUTED_RMS_EQUIVALENCE": compare_rms_same_checkpoint(
+                root_a, root_b),
+        }
+    else:
+        rms_gate_name = (
+            "DISTRIBUTED_RMS_EQUIVALENCE" if gate_mode == "distributed"
+            else "RMS_CACHE_EQUIVALENCE")
+        gates = {
+            "S1_QUERY_ROWS_EQUIVALENCE": compare_s1_queries(root_a, root_b),
+            "S3_TRAIN_STEPS_EQUIVALENCE": _compare_train_steps(root_a, root_b),
+            rms_gate_name: compare_rms(root_a, root_b),
+            "PRUNING_TRAJECTORY_EQUIVALENCE": compare_pruning_trajectory(
+                root_a, root_b),
+            "COMMIT_STATE_EQUIVALENCE": compare_commit_state(root_a, root_b),
+        }
     audit: Dict[str, object] = {
         "tool": "v7_twin_run_compare",
         "gate_mode": gate_mode,
@@ -682,10 +805,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--label-a", default="a")
     parser.add_argument("--label-b", default="b")
     parser.add_argument(
-        "--gate-mode", choices=("cache", "distributed"), default="cache",
+        "--gate-mode", choices=("cache", "distributed", "distributed-rms"),
+        default="cache",
         help="cache: RMS verdict is RMS_CACHE_EQUIVALENCE (cached-vs-live "
-             "pair); distributed: DISTRIBUTED_RMS_EQUIVALENCE (DDP-vs-single "
-             "pair)",
+             "pair); distributed: DISTRIBUTED_RMS_EQUIVALENCE over the full "
+             "pair (DDP-vs-single roots with value-identical lifecycles); "
+             "distributed-rms: RMS-only DISTRIBUTED_RMS_EQUIVALENCE -- "
+             "root-a is the world-2 RMS recompute of root-b's identical "
+             "checkpoint (execution context leaves exempted informational, "
+             "checkpoint_hash mismatch fails)",
     )
     parser.add_argument("--audit-output", required=True)
     args = parser.parse_args(argv)

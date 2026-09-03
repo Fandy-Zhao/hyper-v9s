@@ -1,5 +1,39 @@
 # Project State
 
+## 2026-09-03 (late, cont.) — DISTRIBUTED_RMS gate redesign + batch32 twin prep (0903 spec §22/§24)
+
+- Comparator fixes + §8a localization committed (`40bc226`/`2c54a41`, tree
+  clean). DDP cache smoke (`v7_gpu01_ddp_cache_smoke_task0_20260903`,
+  world2×batch1×GA32, 09:34, PID 3711301) in late S5 pruning on GPU0;
+  GPU1 currently free.
+- **Empirical finding (spec §24 leg-2)**: the DDP smoke and the single-GPU
+  cache root consume *disjoint* per-step S3 sample windows (single 128 ids
+  vs DDP union 128 ids, overlap 0; consumption is not a seed-42
+  permutation prefix — the length-grouped HF sampler is world-size
+  dependent). Their post-S3 weights therefore legitimately differ (RMS
+  calibration/statistics 0.5–5% rel apart; rms_summary equal except
+  execution.world_size). A value-level 1-vs-2-GPU RMS compare between two
+  independently-smoked roots is NOT well-posed (weight confound), so the
+  DISTRIBUTED_RMS_EQUIVALENCE gate is re-designed (recorded decision):
+  **world-2 recompute of the single-GPU cache root's own RMS** — same
+  model (`task0/training/compose_experts.bin`, sha256 verified
+  `6380bb4d…` == recorded checkpoint_hash), same val rows
+  (`data/val_full.json`), same machinery (`compose.eval.rms_stats`,
+  torchrun 2 × GPU0/1, `sum_all_reduce_fp64` sharded moments) → only
+  world size differs → compare recompute vs recorded rms/ with the
+  comparator's RMS bound (execution.mode/world_size/self-derived
+  calibration_sha256 = informational). Comparator gains `--gate-mode
+  distributed-rms` (single-stage DISTRIBUTED_RMS_EQUIVALENCE).
+- **batch32 live twin rerun** (§8a point 5): after the DDP smoke frees
+  GPUs → original twin relaunched on GPU0 with `--query-features-batch-size
+  32` (new v7_task_run passthrough to the legacy live encoder, default
+  None → byte-identical legacy behavior; formal/cache path untouched)
+  → full lifecycle → re-issue §19/23/25/26 gates on the batch32 pair.
+- In-flight DDP smoke certifies TWO_GPU_DDP_CACHE_TRAIN_SMOKE (§22: rank
+  health, per-rank checksums, coverage, no deadlock) from its own audits.
+- Imminent: DDP smoke end (watcher b9gzcz21a) → world2 RMS recompute →
+  comparator distributed-rms → batch32 twin launch.
+
 ## 2026-09-03 (late) — comparator semantic fixes; batch16-vs-batch32 localization (0903 spec §26/§28)
 
 - 全 root cache-vs-online twin 对比(单卡 cache smoke root vs GPU0 live
