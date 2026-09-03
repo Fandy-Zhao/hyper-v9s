@@ -32,6 +32,7 @@ from compose.eval.query_features import (
     shard_expected_ids,
 )
 from compose.eval.sharding import partial_path
+from compose.v7.cache_to_s1 import emit_s1_payloads_from_cache
 from compose.v7.commit import commit_retained_candidates
 from compose.v7.config import V7Config
 from compose.v7.gpu_plan import (
@@ -328,6 +329,36 @@ def _validate_query_partial(partial, expected_ids):
     return sorted(records) == sorted(expected_ids)
 
 
+def _assert_s1_payload_origin(root):
+    """Cache-mode guard: every query-consuming stage must read the S1
+    payloads emitted from the fixed-query cache, never a live encoder.
+
+    Refuses to run a stage when the S1-from-cache artifacts are missing or
+    when a features payload carries no ``query_origin`` marker (a legacy
+    live-encoder payload would silently change the query source).
+    """
+    for artifact in ("data/query_cache_binding.json", "metrics/query_encoder_calls.json"):
+        if not (root / artifact).is_file():
+            raise ValueError(
+                "cache-mode stage requires {} (S1 did not run from the "
+                "fixed-query cache)".format(artifact)
+            )
+    marker = b'"query_origin"'
+    kind = b"v7_fixed_query_cache_derived"
+    for split in ("train", "val"):
+        payload_path = root / "features" / (split + ".json")
+        if not payload_path.is_file():
+            raise ValueError("cache-mode stage requires features/{}.json".format(split))
+        with payload_path.open("rb") as handle:
+            head = handle.read(8192)
+        if marker not in head or kind not in head:
+            raise ValueError(
+                "features/{}.json is not fixed-query-cache derived (missing "
+                "query_origin marker)".format(split)
+            )
+    return True
+
+
 def run_adaptive_fixed_queries(args, config, root, env, gpu_plan, run_contract_hash):
     """S1 with ``query_world_size`` per-GPU workers per split.
 
@@ -426,6 +457,13 @@ def main():
     parser.add_argument("--vision-tower", required=True)
     parser.add_argument("--projector-path", required=True)
     parser.add_argument("--image-folder", required=True)
+    parser.add_argument(
+        "--query-cache-manifest", default=None,
+        help="precomputed fixed-query cache manifest (0903 spec): S1 emits the "
+             "features payloads from the sample_id-keyed cache and never invokes "
+             "the CLIP query encoder (encoder_calls=0); without it S1 keeps the "
+             "legacy live-encoder behavior exactly",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--training-world-size", type=int, default=1)
     parser.add_argument(
@@ -656,7 +694,52 @@ def main():
         return
 
     if not stage_done(root, "s1_fixed_queries", run_contract_hash):
-        if gpu_plan is not None:
+        if args.query_cache_manifest:
+            # 0903 spec §5-8: S1 emits the byte-compatible features payloads
+            # from the precomputed fixed-query cache (sample_id primary key,
+            # manifest contract validated, fail-closed on any mismatch).  The
+            # CLIP query encoder is never invoked: encoder_calls is 0 by
+            # construction and recorded for the formal gates.
+            import time as _time
+
+            started = _time.perf_counter()
+            emit_audit = emit_s1_payloads_from_cache(
+                args.query_cache_manifest, args.task_index,
+                config.query.path,
+                {"train": str(train_json), "val": str(val_json)},
+                {
+                    "train": str(root / "features" / "train.json"),
+                    "val": str(root / "features" / "val.json"),
+                },
+                backbone_name=config.query.backbone,
+            )
+            emit_audit["wall_seconds"] = round(_time.perf_counter() - started, 3)
+            write_json(root / "data" / "query_cache_binding.json", emit_audit)
+            write_json(root / "metrics" / "query_encoder_calls.json", {
+                "stage": "s1_fixed_queries",
+                "query_source": emit_audit["source"],
+                "manifest_sha256": emit_audit["manifest_sha256"],
+                "encoder_calls": 0,
+                "wall_seconds": emit_audit["wall_seconds"],
+                "splits": {
+                    split["split"]: {
+                        "declared_count": split["declared_count"],
+                        "cached_count": split["cached_count"],
+                        "sequence_matches_cache": split["sequence_matches_cache"],
+                        "encoder_calls": split["encoder_calls"],
+                    }
+                    for split in emit_audit["splits"]
+                },
+            })
+            print(
+                "S1 from fixed-query cache: manifest {} | splits {} | "
+                "encoder_calls=0 | {:.1f}s".format(
+                    args.query_cache_manifest,
+                    ",".join(str(value["split"]) for value in emit_audit["splits"]),
+                    emit_audit["wall_seconds"],
+                )
+            )
+        elif gpu_plan is not None:
             run_adaptive_fixed_queries(
                 args, config, root, env, gpu_plan, run_contract_hash
             )
@@ -699,6 +782,8 @@ def main():
 
     output = root / "training"
     if not stage_done(root, "s3_training", run_contract_hash):
+        if args.query_cache_manifest:
+            _assert_s1_payload_origin(root)
         training_world_size = (
             gpu_plan.training_world_size if gpu_plan is not None
             else args.training_world_size
@@ -781,6 +866,8 @@ def main():
         torch.load(output / "v7_key_pool.pt", weights_only=False)
     )
     if not stage_done(root, "s4_rms", run_contract_hash):
+        if args.query_cache_manifest:
+            _assert_s1_payload_origin(root)
         bin_path = output / "compose_experts.bin"
         rms_base = [
             "--model-path", args.model_path, "--vision-tower", args.vision_tower,
@@ -820,6 +907,8 @@ def main():
         return
 
     if not stage_done(root, "s5_pruning_commit", run_contract_hash):
+        if args.query_cache_manifest:
+            _assert_s1_payload_origin(root)
         train_queries, train_ids = queries_from_cache(
             str(root / "features" / "train.json"), coverage["num_train_samples"]
         )
@@ -1085,6 +1174,46 @@ def main():
     ):
         eval_answers = root / "eval" / "answers.jsonl"
         eval_summary = root / "eval" / "summary.json"
+        selection_manifest = None
+        if args.query_cache_manifest:
+            # S6 cache mode: committed-pool Global Top-2 selections are
+            # precomputed once from the fixed-query cache (no CLIP model, no
+            # query-encoder call) on the worker GPU of the evaluation chunk
+            # plan, then eval_task consumes them via --selection-manifest
+            # (spec §21).  The live CLIP path below is untouched when the
+            # manifest flag is absent.
+            selections_path = root / "eval" / "selections.json"
+            if not selections_path.is_file():
+                selection_job = {
+                    "command": [
+                        args.python, "-m", "compose.v7.cached_selections",
+                        "--cache-manifest", args.query_cache_manifest,
+                        "--key-state", str(root / "committed" / "v7_keys.pt"),
+                        "--questions", args.test_file,
+                        "--question-task-index", str(args.task_index),
+                        "--output", str(selections_path),
+                        "--audit-output", str(root / "eval" / "selections_audit.json"),
+                        "--backbone-path", config.query.path,
+                        "--device", "cuda:0",
+                    ],
+                    "log": str(root / "logs" / "inference_selections.log"),
+                }
+                if gpu_plan is not None and gpu_plan.evaluation_world_size > 1:
+                    selection_job["env"] = make_worker_env(
+                        env, gpu_plan.evaluation_gpu_ids[0]
+                    )
+                else:
+                    selection_job["env"] = env
+                run_worker_batch([selection_job])
+            selection_manifest = str(selections_path)
+        if selection_manifest is not None:
+            routing_args = ["--selection-manifest", selection_manifest]
+        else:
+            routing_args = [
+                "--v7-key-state", str(root / "committed" / "v7_keys.pt"),
+                "--query-vision-model", config.query.path,
+                "--query-backbone-hash", str(query_contract["backbone_hash"]),
+            ]
         if gpu_plan is not None and gpu_plan.evaluation_world_size > 1:
             test_records = _split_records(args.test_file)
             test_ids = [
@@ -1119,9 +1248,7 @@ def main():
                     "--question-file", args.test_file, "--image-folder", args.image_folder,
                     "--answers-file", partial_answers,
                     "--run-summary-file", summaries[chunk_index],
-                    "--v7-key-state", str(root / "committed" / "v7_keys.pt"),
-                    "--query-vision-model", config.query.path,
-                    "--query-backbone-hash", str(query_contract["backbone_hash"]),
+                    *routing_args,
                     "--device", "cuda:0",
                     "--num-chunks", str(chunk_count),
                     "--chunk-idx", str(chunk_index),
@@ -1162,7 +1289,16 @@ def main():
                 "shard_count": chunk_count,
                 "shard_merge": "orchestrator_deterministic",
                 "shard_summaries": [str(value) for value in summaries],
-                "selection_mode": "v7_global_coevolution",
+                "selection_mode": (
+                    "precomputed_global_top2_validation"
+                    if selection_manifest is not None
+                    else "v7_global_coevolution"
+                ),
+                "query_source": (
+                    "v7_fixed_query_cache"
+                    if selection_manifest is not None
+                    else "frozen_clip_l14_336_live"
+                ),
             }
             write_json_atomic(eval_summary, merged_summary)
         else:
@@ -1173,9 +1309,7 @@ def main():
                 "--question-file", args.test_file, "--image-folder", args.image_folder,
                 "--answers-file", str(eval_answers),
                 "--run-summary-file", str(eval_summary),
-                "--v7-key-state", str(root / "committed" / "v7_keys.pt"),
-                "--query-vision-model", config.query.path,
-                "--query-backbone-hash", str(query_contract["backbone_hash"]),
+                *routing_args,
                 "--device", worker_device,
                 "--runtime-contract", str(runtime_contract_path),
             ], env, root / "logs" / "inference.log")
