@@ -1,7 +1,7 @@
 # V7 Query Cache Downstream Adaptation Report (0903 spec Phase B)
 
 Date: 2026-09-03 (evening) · Branch: `feat/0903-v7-throughput-equivalence` ·
-HEAD: `1083eee` · Cache: `v7_fixed_query_cache_gpu01_20260903` (230,780 queries +
+HEAD: `0da6019` · Cache: `v7_fixed_query_cache_gpu01_20260903` (230,780 queries +
 6 task centers, manifest sha256 `0b66f2520db5822002fe618a21b04c9bdc58cf0bb7bef53c0c07815d37004c7e`,
 producer git `c93f51e`).
 
@@ -138,6 +138,13 @@ Blocked at report time by other users' jobs (GPU0: `openpi serve_lerobot`,
 - `6183884` reader + runtime contract (spec commit 1)
 - `af716f0` S1 cache adapter + evaluation reuse + guards (commits 2–6 content)
 - `1083eee` Phase A report + producer tooling (docs)
-- (this report + launcher, pending commit)
+- `0da6019` this report + GPU0/1 cached-query formal launcher
 - formal run records `FORMAL_START_SHA` before Task0 and per-task resumes use
   marker/sha discipline unchanged.
+
+## 10. Conclusion lines
+
+- DOWNSTREAM_CACHE_ADAPTATION=YES
+- FORMAL_TRAINING_READY=NO (GPU0/1 availability gate pending: foreign jobs
+  present at report time; nothing is ever preempted)
+- FORMAL_TRAINING_STARTED=NO

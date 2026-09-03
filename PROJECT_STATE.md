@@ -2,9 +2,11 @@
 
 ## 2026-09-03 (evening) — V7 downstream cache adaptation (0903 spec Phase B)
 
-- 状态：代码改动完成（commit `af716f0` + docs `1083eee`，branch
-  `feat/0903-v7-throughput-equivalence`，HEAD 1083eee）；500/502 CPU 测试通过
-  （2 个失败为既有的 `java` 缺失环境限制，与本次无关）。
+- 状态：代码改动完成（commit `af716f0`、docs `1083eee`、formal launcher +
+  适配报告 `0da6019`，branch `feat/0903-v7-throughput-equivalence`，HEAD
+  0da6019；适配报告结论块 `DOWNSTREAM_CACHE_ADAPTATION=YES` /
+  `FORMAL_TRAINING_READY=NO`）；500/502 CPU 测试通过（2 个失败为既有的
+  `java` 缺失环境限制，与本次无关）。
 - 已完成：S1 cache 适配器（train+val payload 从二进制 cache 直接发出，
   encoder_calls=0、id 序列 fail-closed、backbone/impl 内容绑定、git drift 记录）；
   S3/S4/S5 cache-origin guards；S6 与 21-cell 最终评测改为 cache test rows →
