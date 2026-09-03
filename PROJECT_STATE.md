@@ -24,6 +24,13 @@
   on the batch-32 pair → FORMAL_TRAINING_READY decision.
 - Regression at `9037aa0`: 535/537 (2 env-limited java-less) — report
   §8/§10 updated (HEAD `3cfc2dd`).
+- DDP-vs-single well-posed audits closed 11:00: S1 per-sample_id compare
+  between the two cache roots PASS (train 23,742 + val 256 rows,
+  cosine_min 1.0, id sequence identical — both emitted from the same
+  manifest) and S2 `candidate_keys.pt` sha bit-equal.  The remaining
+  world-size contrast (RMS at world 2) is certified by the recompute
+  above; S3+ pairwise value compare is not well-posed (length-grouped
+  sampler windows) — recorded design decision.
 
 ## 2026-09-03 (late, cont.) — DISTRIBUTED_RMS gate redesign + batch32 twin prep (0903 spec §22/§24)
 
