@@ -2,6 +2,28 @@
 
 ## 2026-09-03
 
+- Added a standalone Fixed-Query full precompute pipeline on GPU0+GPU1
+  (`compose/eval/precompute_v7_queries.py` orchestrator/worker/gate +
+  `compose/v7/query_cache.py` cache library): parity sharding (`index%world`),
+  per-rank tmp partials, 10-point merge audit, tmp->fsync->atomic-rename official
+  writes, contract-hash-bound resume/invalidation, and full-train task centers.
+- Cached all declared V7 queries (230,780 = 211,244 train + 1,536 val + 18,000
+  test across 6 tasks, 1536-D fp32, detached, exact V7 math) plus 6 task centers
+  under `v7_fixed_query_cache_gpu01_20260903/`; main-flow files untouched.
+- Passed a bounded 128-sample single-GPU vs dual-GPU gate bit-exactly
+  (cosine_min 0.99999976 >= 1-1e-6) and a Top-2 route-consistency smoke against
+  the dormant formal 2-GPU run's S2 candidate pool (agreement 1.0, 0 score diff).
+- Fixed a throughput bottleneck (serial PIL resize -> decode-thread pre-resize
+  with identical transformers math, proved bit-identical): ~17 -> ~56-65
+  samples/s per worker (3.5x).
+- Added 28 CPU tests for shard/merge/atomic/contract/audit logic
+  (`tests/compose/test_query_cache_audit.py`), all passing with the 48-test
+  query regression; report in
+  `docs/reports/V7_FIXED_QUERY_CACHE_GPU01_REPORT.md`; machine-readable
+  manifest mirrored to `artifacts/v7_query_cache/query_cache_manifest.json`.
+
+## 2026-09-03
+
 - Added the formal V7 three-rank DDP path on GPU0--2. Only S3 training is
   distributed; six tasks remain strictly sequential with global batch 63
   (`1 x 21 x 3`) and unchanged learning rates.

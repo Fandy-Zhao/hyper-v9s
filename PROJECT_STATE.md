@@ -1,5 +1,23 @@
 # Project State
 
+## 2026-09-03 — V7 fixed-query full precompute cache (GPU0+GPU1)
+
+- Fixed-query (L2Norm(concat(LN(z_v), LN(z_t))), 1536-D fp32, detached) 全量预计算完成：
+  ImageNet-R/ArxivQA/VizWiz/IconQA/CLEVR/Flickr30k × train/val/test = 230,780 条，
+  18 个 split cache + 6 个 full-train task center 落盘
+  `/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_fixed_query_cache_gpu01_20260903/`。
+- 只用 GPU0+GPU1（GPU2--7 他人占用，未触碰）；V7 主流程（训练/Top-2/RMS/Pruning/评测）
+  零改动，仅新增 `compose/v7/query_cache.py`、`compose/eval/precompute_v7_queries.py`、
+  `tests/compose/test_query_cache_audit.py`。
+- 有界门 PASS：128 条真实样本单卡 vs 双卡逐位相同（cosine_min 0.99999976 ≥ 1-1e-6）；
+  Top-2 路由对休眠 formal 2-GPU run 的 S2 候选池一致率 1.0、打分 0 差；task center
+  bit-equal。全量审计：declared=saved=unique、0 dup/miss/unk、1536-D fp32、范数≈1、
+  哈希+契约绑定、原子写、断点续跑幂等（真实 3 次）。
+- 报告 `docs/reports/V7_FIXED_QUERY_CACHE_GPU01_REPORT.md`；manifest 双份
+  （run root + `artifacts/v7_query_cache/query_cache_manifest.json`）。
+- S3 训练缓存化就绪但未执行：唯一改动点 `compose/train/data.py:369` 一行替换 +
+  seed 固定对拍（报告 §29/§35）。
+
 ## 2026-09-03 — V7 formal three-GPU run
 
 - `FORMAL_EXPERIMENT_READY = YES`; GPU0--2 and all declared train,
