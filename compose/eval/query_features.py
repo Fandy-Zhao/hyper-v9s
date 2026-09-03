@@ -23,7 +23,9 @@ import argparse
 import hashlib
 import json
 import os
+import tempfile
 from pathlib import Path
+from typing import Dict, List, Optional, Sequence
 
 import torch
 from PIL import Image
@@ -77,6 +79,148 @@ def _sha256(payload) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def records_feature_hash(records_out: Dict[str, dict]) -> str:
+    return _sha256(
+        {
+            sample_id: (record["visual_feature"], record["text_feature"])
+            for sample_id, record in sorted(records_out.items())
+        }
+    )
+
+
+def records_query_hash(records_out: Dict[str, dict]) -> str:
+    return _sha256(
+        {
+            sample_id: record["query"]
+            for sample_id, record in sorted(records_out.items())
+        }
+    )
+
+
+def assemble_query_payload(
+    records_out: Dict[str, dict],
+    backbone: dict,
+    encoder_provenance: dict,
+    encoder_hash: str,
+    query_mode: str,
+) -> dict:
+    """The canonical V7 feature-cache payload for a record map.
+
+    Shared by the single-GPU writer and the shard-merge writer so the
+    merged artifact reproduces the single-GPU schema exactly (the shard
+    workers hash only their own records; the merge recomputes the hashes
+    over the full union before writing).
+    """
+    return {
+        "schema_version": FEATURE_SCHEMA_VERSION,
+        "feature_source": "frozen_clip_l14_336",
+        "query_backbone_provenance": backbone,
+        "query_mode": query_mode,
+        "query_encoder_provenance": encoder_provenance,
+        "query_encoder_hash": encoder_hash,
+        "feature_hash": records_feature_hash(records_out),
+        "query_hash": records_query_hash(records_out),
+        "records": records_out,
+    }
+
+
+def write_query_payload_atomic(payload: dict, output: str) -> None:
+    target = Path(output)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=target.name + ".", suffix=".tmp", dir=str(target.parent)
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def shard_expected_ids(records: Sequence[dict], num_shards: int, shard_index: int) -> List[str]:
+    """The exact sample ids one query worker must cover (contiguous slice)."""
+    ids = [
+        str(record.get("id", record.get("question_id"))) for record in records
+    ]
+    return shard_records(ids, num_shards, shard_index)
+
+
+def merge_query_shard_payloads(
+    partial_paths: Sequence[str],
+    output: str,
+    expected_ids: Optional[Sequence[str]] = None,
+    expected_count: Optional[int] = None,
+) -> int:
+    """Deterministically merge per-worker feature payloads into ``output``.
+
+    Validates that every partial carries the same backbone provenance /
+    query mode and that the union of sample ids equals ``expected_ids``
+    exactly (no duplicates, no missing samples).  Recomputes the feature
+    and query hashes over the merged records, then atomically writes the
+    canonical payload.  Returns the merged sample count.
+    """
+    if not partial_paths:
+        raise ValueError("query shard merge requires at least one partial")
+    header_keys = (
+        "feature_source", "query_backbone_provenance", "query_mode",
+        "query_encoder_provenance", "query_encoder_hash", "schema_version",
+    )
+    header = None
+    merged: Dict[str, dict] = {}
+    for path in partial_paths:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        observed_header = {key: payload[key] for key in header_keys}
+        if header is None:
+            header = observed_header
+        elif observed_header != header:
+            raise ValueError("query shard headers disagree at {}".format(path))
+        records = payload.get("records") or {}
+        if not isinstance(records, dict) or not records:
+            raise ValueError("query shard {} has no records".format(path))
+        for sample_id, record in records.items():
+            sample_id = str(sample_id)
+            if sample_id in merged:
+                raise ValueError(
+                    "duplicate sample {} across query shards ({} merge)".format(
+                        sample_id, path
+                    )
+                )
+            merged[sample_id] = record
+    expected = [str(value) for value in (expected_ids or [])]
+    if expected_ids is not None:
+        if sorted(merged) != sorted(expected):
+            missing = sorted(set(expected) - set(merged))
+            foreign = sorted(set(merged) - set(expected))
+            raise ValueError(
+                "query shard merge mismatch: {} missing, {} foreign".format(
+                    len(missing), len(foreign)
+                )
+            )
+    if expected_count is not None and len(merged) != int(expected_count):
+        raise ValueError(
+            "query shard merge count mismatch: {} != {}".format(
+                len(merged), expected_count
+            )
+        )
+    payload = assemble_query_payload(
+        merged,
+        header["query_backbone_provenance"],
+        header["query_encoder_provenance"],
+        header["query_encoder_hash"],
+        header["query_mode"],
+    )
+    write_query_payload_atomic(payload, output)
+    return len(merged)
 
 
 def main() -> None:
@@ -166,34 +310,15 @@ def main() -> None:
                     "query": queries[index].cpu().tolist(),
                 }
 
-    payload = {
-        "schema_version": FEATURE_SCHEMA_VERSION,
-        "feature_source": "frozen_clip_l14_336",
-        "query_backbone_provenance": backbone,
-        "query_mode": args.query_mode,
-        "query_encoder_provenance": provenance.to_dict(),
-        "query_encoder_hash": provenance.module_hash,
-        "feature_hash": _sha256(
-            {
-                sample_id: (record["visual_feature"], record["text_feature"])
-                for sample_id, record in sorted(records_out.items())
-            }
-        ),
-        "query_hash": _sha256(
-            {
-                sample_id: record["query"]
-                for sample_id, record in sorted(records_out.items())
-            }
-        ),
-        "records": records_out,
-    }
+    payload = assemble_query_payload(
+        records_out, backbone, provenance.to_dict(), provenance.module_hash,
+        args.query_mode,
+    )
     # A sharded worker writes only its partial payload; the orchestrator
     # merges the partials and recomputes the provenance hashes over the
     # full record set (the shard-level hashes cover only this shard).
     target = partial_path(args.output, args.shard_index) if args.num_shards > 1 else args.output
-    Path(target).parent.mkdir(parents=True, exist_ok=True)
-    with open(target, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True)
+    write_query_payload_atomic(payload, target)
     print(
         "features written to {} ({} samples, query_dim={}, shard {}/{})".format(
             target, len(records_out), encoder.query_dim,
