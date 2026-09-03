@@ -131,6 +131,7 @@ re-audit + GPU gates are now evidenced:
 | S3_QUERY_ENCODER_CALLS=0 | PASS (run audit) | fixed smoke `metrics/query_encoder_calls.json`: encoder_calls=0, 23,742 train + 256 val cache-derived, sequence matches |
 | single-GPU 7B smoke (loss/gradient matrix) | PASS | cache-mode task0 smoke `v7_gpu01_cache_smoke_task0_fixed_20260903` (GPU1, resumed 08:29:10 after external SIGTERM): full S0–S5 lifecycle closed — `s5_pruning_commit.done` 08:40:45, `committed/` 08:40:44 (v7_keys.pt pool selectable (0,1,2,3), compose_experts), pruning job chain complete (job_0 07:43:03 / job_1 08:40:44 / job_2 08:00:17 / job_3 08:11:55 / job_4 08:23:26), 2 training steps finite (train_runtime 204.96 s), resume stdout `resume_20260903.log` clean exit |
 | cached-vs-online full-root compare | FAIL — matched batch size exposed shard-topology remainder (§8b) | batch-32 live twin completed S0–S5; comparator v4: S3/RMS/PRUNING PASS, but S1 FAIL on exactly 32/23,742 train rows (cosine_min 0.999995916, max_abs_diff 4.8937e-4) and COMMIT metadata differs by one selection count. Cache production was two interleaved 11,871-row shards (each final batch 31); live control was one contiguous 23,742-row stream (final batch 30). A matched-topology control is required. |
+| SAME_TOPOLOGY_QUERY_EQUIVALENCE | PASS (§8c) | physical GPU0/GPU1, world 2, index%2 shards, batch 32, tails 31+31, full 23,742 train rows: saved-cache and online-control tensor content hashes both `556b2e79…`; bit-identical, max/mean abs diff 0, num_over_tolerance 0, Top1/Top2 set/order diffs 0, selection-count diff empty |
 | RMS_CACHE_EQUIVALENCE | PASS | twin-run audit, semantic comparator v2: all 3 RMS files numeric-equal (the only structure diff was the per-run `output_dir` machine-path leaf, now root-relatively compared); rms_calibration/rms_statistics byte-identical sha |
 | TWO_GPU_DDP_CACHE_TRAIN_SMOKE | PASS | DDP cache smoke `v7_gpu01_ddp_cache_smoke_task0_20260903` (GPU0+1, world 2 × batch 1 × GA 32 = global 64, 2 steps, started 09:34): lifecycle closed 10:47 — s3/s4/s5 markers, `committed/` (compose_experts + v7_keys.pt), 9 pruning jobs, rank health/per-rank checksums/coverage audits green, clean exit |
 | DISTRIBUTED_RMS_EQUIVALENCE | PASS | world-2 RMS recompute of the single-GPU root's *identical* model (`v7_gpu01_rms_recompute_task0_20260903`, checkpoint_hash `6380bb4d…` == recorded on both sides) vs the recorded single-process RMS; comparator `--gate-mode distributed-rms`, `compare_audit_v3_distributed_rms.json`: rms_calibration 900 leaves + rms_summary 10 leaves bit-identical (only `output_dir` leaf root-relocated), rms_statistics 13,441 leaves max_rel 5.9e-8; execution mode/world_size + calibration_sha256 exempted informational.  (Full-root DDP-vs-single value comparison is not well-posed: the length-grouped sampler consumes disjoint S3 windows per world size → legitimately different weights → the same-checkpoint recompute isolates the world-size contrast — decision recorded in PROJECT_STATE) |
@@ -223,6 +224,34 @@ one different selection (`11847` vs `11848`); committed keys themselves pass
 with max difference 2.72878e-7. This is not waived. A new online control must
 mirror the producer's two interleaved shards and deterministic merge.
 
+## 8c. Same-topology online control (formal-release gate)
+
+The replacement control changed only online recompute versus cache reload. It
+used physical GPU0/GPU1, `CUDA_VISIBLE_DEVICES=0,1`, world size 2, the original
+`index % 2` shard assignment, batch size 32, 11,871 samples per rank and tail
+batches 31+31. Dtype, preprocessing, CLIP backbone, query implementation and
+declared sample order matched cache production. The output was written only to
+`v7_query_gate_same_topology_control_20260903`; the formal cache was not
+overwritten.
+
+Across all 23,742 train samples the merged online tensor and saved cache tensor
+share content hash `556b2e79...` and are bit-identical: max absolute, mean
+absolute and max relative differences are 0; minimum cosine is
+0.9999999999999991, mean cosine is 1.0000000000000002, and
+`num_over_tolerance=0`. Using the same committed pool gives zero Top1, Top2
+set, Top2 order and selection-count differences. Thus the original result is
+reclassified as `CROSS_TOPOLOGY_NUMERICAL_DRIFT`; `CACHE_CORRECTNESS_FAILURE`
+is NO.
+
+The original 32 non-bit-identical IDs are preserved in
+`artifacts/v7_query_gate/failing_query_sample_ids.json`; they exactly match
+declared indices 23680--23711, the set moved between full and partial batches.
+Seventeen crossed the unchanged cosine threshold. A full committed-pool audit
+corrects the earlier first-error shorthand: there are three cross-topology
+boundary route differences (ids 10552, 19227 and 19991), with net selection
+count deltas `{0:+1, 2:+1, 3:-2}`. Their same-topology and cache scores/routes
+are identical; margins are preserved in `routing_flip_sample_id.json`.
+
 ## 9. Commits
 
 - `6183884` reader + runtime contract (spec commit 1)
@@ -271,3 +300,18 @@ mirror the producer's two interleaved shards and deterministic merge.
   a matched-topology online query control; no tolerance was relaxed and formal
   Task0 was not started.
 - FORMAL_TRAINING_STARTED=NO
+
+### Same-topology release addendum
+
+- ORIGINAL_QUERY_GATE=FAIL
+- FAILURE_CAUSE=BATCH_TOPOLOGY (`CROSS_TOPOLOGY_NUMERICAL_DRIFT`)
+- SAME_TOPOLOGY_QUERY_GATE=PASS
+- CACHE_CORRECTNESS=PASS
+- TOP2_EQUIVALENCE=PASS
+- SELECTION_COUNT_EQUIVALENCE=PASS
+- S3=PASS
+- RMS=PASS
+- PRUNING=PASS
+- FORMAL_TRAINING_READY=YES
+- FORMAL start SHA is the commit containing the fast-recovery report and is
+  persisted verbatim by the launcher in the formal run root.

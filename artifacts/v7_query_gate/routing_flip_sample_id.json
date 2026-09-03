@@ -1,0 +1,90 @@
+{
+  "cause": "NUMERICAL_BOUNDARY_UNDER_DIFFERENT_BATCH_TOPOLOGY",
+  "count": 3,
+  "samples": [
+    {
+      "cache": {
+        "margin_2_3": 3.5762786865234375e-07,
+        "top1_expert": 1,
+        "top1_score": 0.858792781829834,
+        "top2_expert": 3,
+        "top2_score": 0.8587137460708618,
+        "top3_score": 0.8587133884429932
+      },
+      "declared_index": 10552,
+      "same_topology_online": {
+        "margin_2_3": 3.5762786865234375e-07,
+        "top1_expert": 1,
+        "top1_score": 0.858792781829834,
+        "top2_expert": 3,
+        "top2_score": 0.8587137460708618,
+        "top3_score": 0.8587133884429932
+      },
+      "sample_id": "v7_t0_train_10552",
+      "single_stream": {
+        "margin_2_3": 1.7881393432617188e-07,
+        "top1_expert": 1,
+        "top1_score": 0.8587927222251892,
+        "top2_expert": 0,
+        "top2_score": 0.858713686466217,
+        "top3_score": 0.8587135076522827
+      }
+    },
+    {
+      "cache": {
+        "margin_2_3": 3.445148468017578e-05,
+        "top1_expert": 3,
+        "top1_score": 0.8294162750244141,
+        "top2_expert": 2,
+        "top2_score": 0.829416036605835,
+        "top3_score": 0.8293815851211548
+      },
+      "declared_index": 19227,
+      "same_topology_online": {
+        "margin_2_3": 3.445148468017578e-05,
+        "top1_expert": 3,
+        "top1_score": 0.8294162750244141,
+        "top2_expert": 2,
+        "top2_score": 0.829416036605835,
+        "top3_score": 0.8293815851211548
+      },
+      "sample_id": "v7_t0_train_19227",
+      "single_stream": {
+        "margin_2_3": 3.457069396972656e-05,
+        "top1_expert": 2,
+        "top1_score": 0.8294161558151245,
+        "top2_expert": 3,
+        "top2_score": 0.829416036605835,
+        "top3_score": 0.8293814659118652
+      }
+    },
+    {
+      "cache": {
+        "margin_2_3": 4.172325134277344e-07,
+        "top1_expert": 0,
+        "top1_score": 0.8475375175476074,
+        "top2_expert": 3,
+        "top2_score": 0.8472778797149658,
+        "top3_score": 0.8472774624824524
+      },
+      "declared_index": 19991,
+      "same_topology_online": {
+        "margin_2_3": 4.172325134277344e-07,
+        "top1_expert": 0,
+        "top1_score": 0.8475375175476074,
+        "top2_expert": 3,
+        "top2_score": 0.8472778797149658,
+        "top3_score": 0.8472774624824524
+      },
+      "sample_id": "v7_t0_train_19991",
+      "single_stream": {
+        "margin_2_3": 1.1920928955078125e-07,
+        "top1_expert": 0,
+        "top1_score": 0.8475374579429626,
+        "top2_expert": 2,
+        "top2_score": 0.8472776412963867,
+        "top3_score": 0.8472775220870972
+      }
+    }
+  ]
+}

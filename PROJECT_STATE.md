@@ -1,5 +1,27 @@
 # Project State
 
+## 2026-09-03 — same-topology query gate PASS; formal release
+
+- Baseline `6c06e62`; the original single-stream control remains recorded as
+  FAIL. Its 32 non-bit-identical rows are exactly declared indices
+  23680--23711, the rows moved between full and partial CLIP batches when
+  comparing one contiguous stream (tail 30) with two interleaved shards
+  (tails 31+31). Seventeen of the 32 crossed the original cosine threshold.
+- The replacement online control exactly reproduced cache-production topology
+  on physical GPU0/GPU1: world size 2, `index % 2` assignment, batch 32,
+  11,871 rows/rank, tails 31+31, unchanged fp16 CLIP/query implementation.
+  Its merged 23,742x1536 fp32 tensor has the same content hash as the saved
+  cache (`556b2e79...`) and is bit-identical: max/mean abs diff 0,
+  num_over_tolerance 0, Top1/Top2 set/order diffs 0, selection-count diff 0.
+- Corrected prior shorthand: the cross-topology committed-pool audit has three
+  boundary route differences (not one unique sample), at train ids 10552,
+  19227 and 19991. Same-topology online and cache routes/scores are identical
+  for all three. This is `CROSS_TOPOLOGY_NUMERICAL_DRIFT`, not cache failure.
+- Reused gates remain PASS: full cache coverage, S3 cache smoke, RMS cache and
+  distributed equivalence, five-job pruning trajectory, two-GPU DDP smoke,
+  evaluation equivalence, and strict global batch 64. Formal is released;
+  the launcher records the immutable start SHA in `formal_start_sha.txt`.
+
 ## 2026-09-03 (late, cont. 3) — batch32 twin v4 gate FAIL; formal blocked
 
 - The batch-32 live twin completed its full S0--S5 lifecycle at 12:14 UTC;
