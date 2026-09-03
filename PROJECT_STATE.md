@@ -1,5 +1,26 @@
 # Project State
 
+## 2026-09-03 (evening) — V7 downstream cache adaptation (0903 spec Phase B)
+
+- 状态：代码改动完成（commit `af716f0` + docs `1083eee`，branch
+  `feat/0903-v7-throughput-equivalence`，HEAD 1083eee）；500/502 CPU 测试通过
+  （2 个失败为既有的 `java` 缺失环境限制，与本次无关）。
+- 已完成：S1 cache 适配器（train+val payload 从二进制 cache 直接发出，
+  encoder_calls=0、id 序列 fail-closed、backbone/impl 内容绑定、git drift 记录）；
+  S3/S4/S5 cache-origin guards；S6 与 21-cell 最终评测改为 cache test rows →
+  committed-pool selection manifests（eval_task --selection-manifest，零 CLIP
+  encoder 调用）；RMS 审计结论 = 不消费 queries（activation RMS），天然复用。
+- 未执行（阻塞）：Phase B GPU 等价 gates + smokes（QUERY_NUMERICAL_EQUIVALENCE、
+  TOP2_ROUTING_EQUIVALENCE、单卡 7B smoke、DDP smoke、cached-vs-online、
+  RMS/PRUNING/EVAL gates、RECIPE_EXACT）与 Phase C formal Task0→Task5。
+  GPU0 被 zangzeh+ 的 openpi serve_lerobot_policy（~8.9 GiB，运行中）占用、
+  GPU1 被 caizhen+ 的 continual_train（~435 MiB）占用 → 按规则不抢占、轮询等待
+  （会话 cron 每 20 分钟探测一次，双卡空闲即继续）。
+- 下一步（GPU 空闲后）：gate 驱动 → 单卡/双卡 smoke → formal launcher
+  （RECIPE_EXACT world2×batch1×GA32=64）→ Task0→Task5 → 21-cell cache 评测 →
+  `docs/reports/V7_QUERY_CACHE_DOWNSTREAM_ADAPTATION_REPORT.md` +
+  `V7_GPU01_CACHED_QUERY_FORMAL_FINAL_REPORT.md` + `artifacts/v7_gpu01_formal/`。
+
 ## 2026-09-03 — V7 fixed-query full precompute cache (GPU0+GPU1)
 
 - Fixed-query (L2Norm(concat(LN(z_v), LN(z_t))), 1536-D fp32, detached) 全量预计算完成：

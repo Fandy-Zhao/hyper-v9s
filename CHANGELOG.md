@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-09-03 (evening) — V7 downstream cache adaptation (0903 spec §4-28)
+
+- Added the S1 cache adapter `compose/v7/cache_to_s1.py`: emits the legacy
+  byte-schema `features/<split>.json` payload straight from the binary cache
+  (streamed, `encoder_calls: 0`, `query_origin` recorded, sample-id sequence
+  enforced fail-closed, content binding on backbone/impl hashes, producer vs
+  runtime git recorded).  Real task0 emission dry-run: 45.9 s for 23,742
+  train + 256 val rows (vs multi-minute dual-GPU live CLIP).
+- `v7_task_run.py`: S1 now switches to cache emission under
+  `--query-cache-manifest`; S3/S4/S5 blocks assert the payloads' cache origin
+  (`_assert_s1_payload_origin`) and refuse live re-encoding; live paths are
+  byte-identical when the flag is absent.
+- Added final-evaluation cache reuse: `compose/v7/cached_selections.py`
+  precomputes committed-pool Global Top-2 selection manifests from cache test
+  rows (same router, same device as the legacy live eval, `encoder_calls: 0`);
+  per-task S6 and the 21-cell evaluator (`v7_formal_ucit_eval.py`) consume
+  them via `eval_task --selection-manifest` with no CLIP query encoder; the
+  exactly-3-GPU restriction relaxes to ≥2 distinct GPUs in cache mode only.
+- RMS (activation RMS, no query consumption) and pruning (consumes the
+  cache-derived payload rows) inherit reuse without method changes.
+- 14 new CPU tests (`test_cache_to_s1.py` 7, `test_cached_selections.py` 7);
+  full `tests/compose` 500 passed (the only 2 failures remain the documented
+  pre-existing `java`-less caption-scorer parity tests).
+- Commits: `af716f0` (adapter + evaluation reuse), `1083eee` (Phase A
+  report + producer tooling).  GPU equivalence gates + smokes are pending an
+  idle GPU0/1 window (blocked by other users' jobs at report time).
+
 ## 2026-09-03
 
 - Added a standalone Fixed-Query full precompute pipeline on GPU0+GPU1
