@@ -33,6 +33,47 @@
   health, per-rank checksums, coverage, no deadlock) from its own audits.
 - Imminent: DDP smoke end (watcher b9gzcz21a) → world2 RMS recompute →
   comparator distributed-rms → batch32 twin launch.
+- Code delivered at `9037aa0` (tree clean; full tests/compose regression
+  rerun in flight): comparator `--gate-mode distributed-rms`
+  (compare_rms_same_checkpoint; execution.mode/world_size +
+  calibration_sha256 exempted informational, checkpoint_hash hard —
+  real-artifact precheck: calibration/statistics files differ only in
+  provenance.checkpoint_hash across the two smoke roots, no world-dependent
+  ordered arrays) + `--query-features-batch-size` passthrough on all three
+  live-encoder sites via `_live_query_features_command` (12 new CPU tests).
+- Recompute command (world2, GPU0/1, ~15-20 min; mirror of the DDP root's
+  recorded rms.log COMMAND with checkpoint-dir/hash/output-dir/runtime-
+  contract pointed at the single-GPU cache root, model sha
+  `6380bb4d…` == recorded):
+  `CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.run --standalone
+  --nproc_per_node 2 -m compose.eval.rms_stats --model-path
+  /data/ckpt/zhaozhuofan/models/llava-v1.5-7b --vision-tower
+  .../clip-vit-large-patch14-336 --projector-path .../mm_projector.bin
+  --checkpoint-dir <single>/task0/training --question-file
+  <single>/task0/data/val_full.json --image-folder
+  /data/dataset/zhaozhuofan/UCIT/datasets --checkpoint-hash
+  6380bb4d62cdc7daff567bdab144ba8b08dbec9ccac32fd2e60df31307d46dd7
+  --composition-config-hash
+  79f21f660f0e17c0f7aced2494a505302b2c12adf9581e685eadbaca0ba112ec
+  --output-dir v7_gpu01_rms_recompute_task0_20260903/task0/rms --device
+  cuda:0 --batch-size 1 --new-expert-ids 0,1,2,3 --runtime-contract
+  <single>/task0/data/runtime_contract.json` →
+  comparator `--gate-mode distributed-rms --root-a <recompute>/task0
+  --root-b <single>/task0` → audit v3 in v7_gpu01_smoke_compare_task0_.
+- Batch32 twin command (GPU0, live mode, new root
+  `v7_gpu01_smoke_task0_live_twin_batch32_20260903`, HEAD `9037aa0`; config
+  sha f99fdad4… == the original twin's recorded config — identical recipe,
+  only `--query-features-batch-size 32` added):
+  `v7_task_run --config configs/v7_global_coevolution.yaml --task-index 0
+  --task-name ImageNet-R --train-file UCIT/v7_train/ImageNet-R/train.json
+  --val-file UCIT/v7_validation/ImageNet-R/validation.json --test-file
+  UCIT/instructions/ImageNet-R/test_3000.json --validation-metric
+  official_ucit --validation-annotation-file
+  UCIT/v7_validation/ImageNet-R/validation.json --model-path/--vision-tower/
+  --projector-path/--image-folder (standard) --gpus 0 --recipe-mode strict
+  --query-features-batch-size 32 --training-dataloader-num-workers 4
+  --smoke-max-steps 2 --skip-eval` → full-root comparator re-issue
+  (batch32 pair) after S5+commit.
 
 ## 2026-09-03 (late) — comparator semantic fixes; batch16-vs-batch32 localization (0903 spec §26/§28)
 
