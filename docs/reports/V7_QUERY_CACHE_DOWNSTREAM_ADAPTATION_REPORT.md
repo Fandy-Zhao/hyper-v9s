@@ -114,24 +114,24 @@ branch (pre-existing), configs, model/recipe parameters, legacy launchers.
   (`java` absent for COCO caption scorers, documented on HEAD).
 - Formal precheck dry-run: 18/18 splits content-bound to the live CLIP dir.
 
-## 8. Gate status (Phase B, GPU-gated — pending idle GPU0/1)
+## 8. Gate status (Phase B)
 
-Blocked at report time by other users' jobs (GPU0: `openpi serve_lerobot`,
-~8.9 GiB; GPU1: `continual_train`, ~435 MiB); nothing is preempted; a
-20-minute poll resumes when both are idle.
+Updated 2026-09-03 (post-GPU0/1 idle, continuation session at HEAD
+`ea816a3`/`b0b9030`).  Phase A re-audit + GPU gates are now evidenced:
 
-| Gate | Status |
-| --- | --- |
-| QUERY_NUMERICAL_EQUIVALENCE | pending (GPU live vs cache rows) |
-| TOP2_ROUTING_EQUIVALENCE (100%) | pending |
-| S3_QUERY_ENCODER_CALLS=0 | design-guaranteed + pending run audit |
-| single-GPU 7B smoke (loss/gradient matrix) | pending |
-| cached-vs-online step compare | pending |
-| RMS_CACHE_EQUIVALENCE / DISTRIBUTED_RMS_EQUIVALENCE | design-guaranteed (no queries) + pending |
-| PRUNING_TRAJECTORY_EQUIVALENCE | pending |
-| EVALUATION_CACHE_EQUIVALENCE | pending |
-| EXISTING_V7_REGRESSION | PASS (500/502, 2 env-limited) |
-| RECIPE_EXACT | plan-verified; formal launcher asserts it |
+| Gate | Status | Evidence |
+| --- | --- | --- |
+| Phase A re-audit (18 splits + 6 centers) | PASS | `compose/eval/v7_cache_precheck.py`; `artifacts/v7_query_cache/reverification_20260903_080136.json` (independent recompute from live declared files: declared==saved==unique, miss/unk=0, hashes rehash-match, source/backbone/impl content binding; centers recomputed bit-identical) |
+| QUERY_NUMERICAL_EQUIVALENCE | PASS | GPU1 original + GPU0 re-run at final HEAD `ea816a3` (`v7_gpu01_cache_live_gate_20260903{,_rerun_head}`): exact_bit_equal, max_abs_diff 0.0, cosine_min 0.99999976, task0/1.train × 128 |
+| TOP2_ROUTING_EQUIVALENCE (100%) | PASS | same evidence: agreement rate 1.0, agreement_exact, max_abs_score_diff 0.0 |
+| S3_QUERY_ENCODER_CALLS=0 | PASS (run audit) | fixed smoke `metrics/query_encoder_calls.json`: encoder_calls=0, 23,742 train + 256 val cache-derived, sequence matches |
+| single-GPU 7B smoke (loss/gradient matrix) | IN PROGRESS | cache-mode task0 smoke (GPU1) s0–s4 done (2 steps finite, selected-current-only grads, checksummed); S5 pruning in flight |
+| cached-vs-online step compare | IN PROGRESS | live twin smoke (GPU0) running; per-sample S1 rows + S3 train_steps.jsonl + S5 trajectory will be diffed |
+| RMS_CACHE_EQUIVALENCE / DISTRIBUTED_RMS_EQUIVALENCE | design-guaranteed (no query consumption); twin-run audit pending |
+| PRUNING_TRAJECTORY_EQUIVALENCE | twin-run audit pending |
+| EVALUATION_CACHE_EQUIVALENCE | pending (bounded test split; manifest selections vs live routing) |
+| EXISTING_V7_REGRESSION | PASS (500/502, 2 env-limited `java`-less caption scorers, at HEAD `ea816a3`) |
+| RECIPE_EXACT | PASS (plan-verified: `V7GPUPlan.build([0,1], strict)` → world 2 × batch 1 × GA 32 = global batch 64; formal launcher asserts it) |
 
 ## 9. Commits
 
@@ -145,6 +145,13 @@ Blocked at report time by other users' jobs (GPU0: `openpi serve_lerobot`,
 ## 10. Conclusion lines
 
 - DOWNSTREAM_CACHE_ADAPTATION=YES
-- FORMAL_TRAINING_READY=NO (GPU0/1 availability gate pending: foreign jobs
-  present at report time; nothing is ever preempted)
+- FULL_SAMPLE_QUERY_COVERAGE=YES (independent Phase A re-audit, 230,780 rows)
+- QUERY_CONTRACT_MATCH=YES (content-bound; producer `c93f51e` vs runtime
+  `ea816a3` git drift recorded by design)
+- QUERY_NUMERICAL_EQUIVALENCE=PASS · TOP2_ROUTING_EQUIVALENCE=PASS
+  (bit-exact; re-anchored at the formal HEAD on GPU0 + original GPU1)
+- EXISTING_V7_REGRESSION=PASS (500/502, 2 `java`-less env-limited)
+- RECIPE_EXACT=YES (world 2 × batch 1 × GA 32 = global batch 64)
+- FORMAL_TRAINING_READY=NO (Phase B single-GPU smoke in S5, twin smoke in
+  S1, DDP smoke + trajectory/eval gates still pending)
 - FORMAL_TRAINING_STARTED=NO
