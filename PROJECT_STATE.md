@@ -1,5 +1,29 @@
 # Project State
 
+## 2026-09-03 (late, cont. 3) — batch32 twin v4 gate FAIL; formal blocked
+
+- The batch-32 live twin completed its full S0--S5 lifecycle at 12:14 UTC;
+  all five pruning jobs completed and the process exited cleanly.
+- Full-root comparator v4 evidence:
+  `/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_gpu01_smoke_compare_task0_20260903/compare_audit_v4_batch32_pair.json`.
+  S3, RMS, and the complete five-job pruning trajectory PASS, but S1 query
+  rows and committed metadata FAIL, so `FORMAL_TRAINING_READY=NO` and formal
+  Task0 was not started.
+- Root cause is the remaining batch-topology mismatch. Cache production used
+  two interleaved ranks (`index % 2`) with batch size 32; each rank ended in
+  a 31-row partial batch because 23,742 / 2 = 11,871. The live control used
+  one contiguous rank with batch size 32 and ended in a 30-row partial batch.
+  Exactly 32 train rows differ (23,710/23,742 bit-equal), matching the rows
+  moved between full and partial CLIP batches; cosine_min 0.999995916 and
+  max_abs_diff 4.89369035e-4. Validation is bit-identical.
+- Propagation is bounded but real: S3 losses/gradients pass within tolerance,
+  all pruning selections/NLL/official metrics are identical, committed keys
+  pass the 2e-4 tolerance (max 2.72878e-7), but one committed
+  `selection_count` differs (11,847 vs 11,848). The strict equivalence gate
+  therefore remains closed. Next action is a matched-topology online control
+  (two interleaved query shards, batch 32, deterministic merge), not a relaxed
+  comparator tolerance and not formal training.
+
 ## 2026-09-03 (late, cont. 2) — DDP smoke closed; DISTRIBUTED_RMS PASS; batch32 twin in flight (0903 spec §22/§24)
 
 - **DDP cache smoke lifecycle CLOSED 10:47** (`v7_gpu01_ddp_cache_smoke_

@@ -130,11 +130,11 @@ re-audit + GPU gates are now evidenced:
 | TOP2_ROUTING_EQUIVALENCE (100%) | PASS | same evidence: agreement rate 1.0, agreement_exact, max_abs_score_diff 0.0 |
 | S3_QUERY_ENCODER_CALLS=0 | PASS (run audit) | fixed smoke `metrics/query_encoder_calls.json`: encoder_calls=0, 23,742 train + 256 val cache-derived, sequence matches |
 | single-GPU 7B smoke (loss/gradient matrix) | PASS | cache-mode task0 smoke `v7_gpu01_cache_smoke_task0_fixed_20260903` (GPU1, resumed 08:29:10 after external SIGTERM): full S0–S5 lifecycle closed — `s5_pruning_commit.done` 08:40:45, `committed/` 08:40:44 (v7_keys.pt pool selectable (0,1,2,3), compose_experts), pruning job chain complete (job_0 07:43:03 / job_1 08:40:44 / job_2 08:00:17 / job_3 08:11:55 / job_4 08:23:26), 2 training steps finite (train_runtime 204.96 s), resume stdout `resume_20260903.log` clean exit |
-| cached-vs-online step compare | FAIL — root-caused (§26), batch-32 twin rerun pending | full-root stage compare rerun with the semantic-fixed comparator (`compare_audit_v2.json`): RMS PASS; S1/S3/PRUNING/COMMIT FAIL with every divergence traced to one located cause (twin S1 encoded at `query_features` default batch 16 vs the cache's batch-32 production → deterministic fp16-kernel differences ≤2e-3 in the visual half, see §8a) |
+| cached-vs-online full-root compare | FAIL — matched batch size exposed shard-topology remainder (§8b) | batch-32 live twin completed S0–S5; comparator v4: S3/RMS/PRUNING PASS, but S1 FAIL on exactly 32/23,742 train rows (cosine_min 0.999995916, max_abs_diff 4.8937e-4) and COMMIT metadata differs by one selection count. Cache production was two interleaved 11,871-row shards (each final batch 31); live control was one contiguous 23,742-row stream (final batch 30). A matched-topology control is required. |
 | RMS_CACHE_EQUIVALENCE | PASS | twin-run audit, semantic comparator v2: all 3 RMS files numeric-equal (the only structure diff was the per-run `output_dir` machine-path leaf, now root-relatively compared); rms_calibration/rms_statistics byte-identical sha |
 | TWO_GPU_DDP_CACHE_TRAIN_SMOKE | PASS | DDP cache smoke `v7_gpu01_ddp_cache_smoke_task0_20260903` (GPU0+1, world 2 × batch 1 × GA 32 = global 64, 2 steps, started 09:34): lifecycle closed 10:47 — s3/s4/s5 markers, `committed/` (compose_experts + v7_keys.pt), 9 pruning jobs, rank health/per-rank checksums/coverage audits green, clean exit |
 | DISTRIBUTED_RMS_EQUIVALENCE | PASS | world-2 RMS recompute of the single-GPU root's *identical* model (`v7_gpu01_rms_recompute_task0_20260903`, checkpoint_hash `6380bb4d…` == recorded on both sides) vs the recorded single-process RMS; comparator `--gate-mode distributed-rms`, `compare_audit_v3_distributed_rms.json`: rms_calibration 900 leaves + rms_summary 10 leaves bit-identical (only `output_dir` leaf root-relocated), rms_statistics 13,441 leaves max_rel 5.9e-8; execution mode/world_size + calibration_sha256 exempted informational.  (Full-root DDP-vs-single value comparison is not well-posed: the length-grouped sampler consumes disjoint S3 windows per world size → legitimately different weights → the same-checkpoint recompute isolates the world-size contrast — decision recorded in PROJECT_STATE) |
-| PRUNING_TRAJECTORY_EQUIVALENCE | FAIL — root-caused (§26) | jobs {0..4} equal; divergences confined to val rows 170/195 (boundary Top-2 flips, NLL diffs ≤0.0174) with the same located cause; batch-32 twin rerun pending |
+| PRUNING_TRAJECTORY_EQUIVALENCE | PASS | comparator v4 on the batch-32 pair: jobs 0..4 all have identical selections, NLL leaves and official metric leaves; no candidate-removal divergence |
 | EVALUATION_CACHE_EQUIVALENCE | PASS | `v7_gpu01_eval_gate_20260903/` (GPU1, HEAD `dab7d38`): `cached_selections_audit.json` — full ImageNet-R test split (3,000 rows) manifest from committed v7_keys.pt, sequence_matches_cache, encoder_calls=0, healthy 6-pair routing histogram; `gate_task0_test.json` — 128 bounded test rows live vs cache: QUERY_NUMERICAL_EQUIVALENCE PASS (exact_bit_equal, max_abs_diff 0.0, cosine_min 0.999999642 ≥ 1−1e−6), TOP2_ROUTING_EQUIVALENCE PASS through the committed pool (rate 1.0, exact, 0 disagreements, max_abs_score_diff 0.0, visible experts [0,1,2,3]) |
 | EXISTING_V7_REGRESSION | PASS (535/537, 2 env-limited `java`-less caption scorers, re-run at HEAD `9037aa0`; 500 → 535 = 35 new tests from the Phase B tooling) |
 | RECIPE_EXACT | PASS (plan-verified: `V7GPUPlan.build([0,1], strict)` → world 2 × batch 1 × GA 32 = global batch 64; formal launcher asserts it) |
@@ -206,6 +206,23 @@ Localization (each step pinned by a controlled comparison, not inferred):
    (correct per-gate truth, with the localization above as the §26
    explanation).
 
+## 8b. Batch-32 full-root re-issue (comparator v4)
+
+The batch-32 live twin completed cleanly at 12:14 UTC. Comparator v4
+(`compare_audit_v4_batch32_pair.json`) closes S3, RMS, and all five pruning
+jobs as PASS, but correctly leaves the overall gate FAIL. Of 23,742 train
+queries, 23,710 are bit-identical and exactly 32 differ; validation is fully
+bit-identical. The cache producer used two `index % 2` shards of 11,871 rows,
+so each shard ended with a 31-row CLIP batch. The live twin used one contiguous
+stream, whose last batch had 30 rows. The 32 differing rows are precisely the
+rows whose full/partial-batch topology changed. Their cosine minimum is
+0.999995916 and max absolute difference is 4.89369035e-4, below the strict
+query gate. S3 loss/gradient comparison and the complete pruning trajectory
+remain within tolerance/identical, but committed validation metadata records
+one different selection (`11847` vs `11848`); committed keys themselves pass
+with max difference 2.72878e-7. This is not waived. A new online control must
+mirror the producer's two interleaved shards and deterministic merge.
+
 ## 9. Commits
 
 - `6183884` reader + runtime contract (spec commit 1)
@@ -244,12 +261,13 @@ Localization (each step pinned by a controlled comparison, not inferred):
   `compare_audit_v3_distributed_rms.json`)
 - TWO_GPU_DDP_CACHE_TRAIN_SMOKE=PASS (world 2 × batch 1 × GA 32 = 64, 2
   steps, full lifecycle closed 10:47 with committed/)
-- S1/S3/PRUNING/COMMIT twin verdicts = FAIL root-caused to one §26-located
-  control-setup defect (live twin encoded at batch 16 vs cache batch 32;
-  see §8a) — batch-32 live twin rerun in flight on GPU0 (PID 3971155,
-  started 10:58) → full-root gate re-issue on the batch-32 pair pending
-- FORMAL_TRAINING_READY=NO (Phase B: single-GPU cache smoke lifecycle
-  closed + eval gate PASS + DDP smoke lifecycle closed + DISTRIBUTED_RMS_
-  EQUIVALENCE PASS; batch-32 twin rerun + S1/S3/PRUNING/COMMIT gate
-  re-issue still pending)
+- Batch-32 full-root comparator v4: S3_TRAIN_STEPS_EQUIVALENCE=PASS,
+  RMS_CACHE_EQUIVALENCE=PASS, PRUNING_TRAJECTORY_EQUIVALENCE=PASS;
+  S1_QUERY_ROWS_EQUIVALENCE=FAIL (32/23,742 train rows differ because the
+  producer's two interleaved partial batches do not match the live control's
+  one contiguous partial batch) and COMMIT_STATE_EQUIVALENCE=FAIL (one
+  selection_count differs; committed keys remain within tolerance).
+- FORMAL_TRAINING_READY=NO. The strict full-root gate remains closed pending
+  a matched-topology online query control; no tolerance was relaxed and formal
+  Task0 was not started.
 - FORMAL_TRAINING_STARTED=NO
