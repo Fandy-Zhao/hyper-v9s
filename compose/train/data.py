@@ -2,6 +2,7 @@ import copy
 import json
 import os
 import random
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Sequence
 
@@ -33,6 +34,12 @@ _KNOWN_MISSING_IMAGES = {
     "OCR-VQA/images/142153990X.jpg",
     "OCR-VQA/images/689852649.jpg",
 }
+
+
+def _split_v1_rounds(conversation: str, conv) -> Sequence[str]:
+    """Split only template separators, not literal ``</s>`` in user text."""
+    boundary = re.escape(conv.sep2) + r"(?=(?:" + re.escape(conv.roles[0]) + r": |$))"
+    return re.split(boundary, conversation)
 
 
 def preprocess_multimodal(sources: Sequence, data_args: DataArguments):
@@ -90,7 +97,7 @@ def preprocess_v1(sources, tokenizer, has_image: bool = False) -> Dict[str, torc
         total_length = int(target.ne(tokenizer.pad_token_id).sum())
         current_length = 1
         target[:current_length] = IGNORE_INDEX
-        for round_text in conversation.split(conv.sep2):
+        for round_text in _split_v1_rounds(conversation, conv):
             if not round_text:
                 break
             parts = round_text.split(separator)

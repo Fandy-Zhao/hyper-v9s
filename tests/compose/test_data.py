@@ -1,8 +1,9 @@
 import unittest
+from types import SimpleNamespace
 
 import torch
 
-from compose.train.data import DataCollatorForSupervisedDataset
+from compose.train.data import DataCollatorForSupervisedDataset, _split_v1_rounds
 from llava.constants import IGNORE_INDEX
 
 
@@ -12,6 +13,20 @@ class DummyTokenizer:
 
 
 class DataCollatorTest(unittest.TestCase):
+    def test_v1_round_split_preserves_literal_eos_in_user_text(self):
+        conv = SimpleNamespace(sep2="</s>", roles=("USER", "ASSISTANT"))
+        prompt = (
+            "system USER: What does </s> represent? ASSISTANT: B</s>"
+            "USER: Next question? ASSISTANT: C</s>"
+        )
+
+        rounds = _split_v1_rounds(prompt, conv)
+
+        self.assertEqual(len(rounds), 3)
+        self.assertIn("What does </s> represent?", rounds[0])
+        self.assertTrue(rounds[1].startswith("USER: Next question?"))
+        self.assertEqual(rounds[2], "")
+
     def test_records_supervised_token_summary_after_truncation(self):
         collator = DataCollatorForSupervisedDataset(DummyTokenizer())
         batch = collator([
