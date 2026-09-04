@@ -317,6 +317,85 @@ def bind_run_contract(root, expected, resume, had_entries):
     return expected["contract_hash"]
 
 
+def rebind_run_contract(root, expected, observed, formal_run):
+    """Operator-sanctioned recovery rebind (--resume-contract-rebind).
+
+    Trigger: a fix commit moved git HEAD between S3 launches of the same task
+    root, so bind_run_contract fail-closed above. Recovery policy (2026-09-04):
+    continue a crashed training from its last checkpoint instead of a full
+    re-run, when the fix provably did not change the training recipe.
+
+    Refuses when the stored recipe differs from the expected one (a real
+    semantic change must use a fresh root) or for smoke/debug launches. On
+    success the root contract is rewritten to the expected value and every
+    stage marker whose hash moved is refreshed, so already-completed stages
+    (S0-S2, or S3 with s3_training.done) stay valid and only the interrupted
+    stage re-runs -- S3 then auto-resumes its last checkpoint-* through
+    train_compose. Every overwrite is appended to data/contract_rebinds.jsonl.
+    """
+    if not formal_run:
+        raise ValueError(
+            "--resume-contract-rebind is formal-run recovery only; "
+            "smoke/debug launches stay fail-closed"
+        )
+    if observed.get("recipe") != expected["recipe"]:
+        raise ValueError(
+            "--resume-contract-rebind refused: stored recipe differs from the "
+            "expected recipe (a real method/hyperparameter change must use a "
+            "fresh root, not a rebind)"
+        )
+    if observed.get("git_sha") == expected["git_sha"]:
+        raise ValueError(
+            "--resume-contract-rebind refused: git HEAD did not move"
+        )
+    audit = [
+        {
+            "ts": __import__("time").strftime("%Y%m%dT%H%M%S"),
+            "old_contract_hash": observed.get("contract_hash"),
+            "new_contract_hash": expected["contract_hash"],
+            "old_git_sha": observed.get("git_sha"),
+            "new_git_sha": expected["git_sha"],
+        }
+    ]
+    write_json_atomic(root / "data" / "run_contract.json", expected)
+    stages_dir = root / "stages"
+    if stages_dir.is_dir():
+        for target in sorted(stages_dir.glob("*.done")):
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            if payload.get("run_contract_hash") != expected["contract_hash"]:
+                audit.append(
+                    {
+                        "stage": payload.get("stage", target.stem),
+                        "old_contract_hash": payload.get("run_contract_hash"),
+                        "new_contract_hash": expected["contract_hash"],
+                    }
+                )
+                write_json_atomic(
+                    target,
+                    {
+                        "stage": payload.get("stage", target.stem),
+                        "run_contract_hash": expected["contract_hash"],
+                    },
+                )
+    rebind_log = root / "data" / "contract_rebinds.jsonl"
+    with rebind_log.open("a", encoding="utf-8") as handle:
+        for entry in audit:
+            handle.write(json.dumps(entry, sort_keys=True) + "\n")
+    print(
+        "V7 CONTRACT REBIND (operator recovery): {} -> {} on git {} -> {}; "
+        "{} stage marker(s) refreshed; audit -> {}".format(
+            observed.get("contract_hash"),
+            expected["contract_hash"],
+            observed.get("git_sha"),
+            expected["git_sha"],
+            max(0, len(audit) - 1),
+            rebind_log,
+        ),
+        flush=True,
+    )
+    return expected["contract_hash"]
+
+
 def _split_records(records_json):
     return json.loads(Path(records_json).read_text(encoding="utf-8"))
 
@@ -543,6 +622,14 @@ def main():
         help="explicit smoke-only accumulation override; formal runs use the recipe",
     )
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--resume-contract-rebind", action="store_true",
+        help="operator-sanctioned recovery: when a fix commit moved git HEAD "
+             "mid-run but the stored training recipe is unchanged, rebind the "
+             "root contract and refresh stage markers so a crashed S3 "
+             "continues from its last checkpoint (see rebind_run_contract; "
+             "every overwrite is audited to data/contract_rebinds.jsonl)",
+    )
     parser.add_argument("--skip-eval", action="store_true")
     parser.add_argument(
         "--stop-after",
@@ -667,7 +754,20 @@ def main():
         args, config, formal_run, gradient_accumulation_steps,
         gpu_plan=gpu_plan,
     )
-    run_contract_hash = bind_run_contract(root, run_contract, args.resume, had_entries)
+    try:
+        run_contract_hash = bind_run_contract(root, run_contract, args.resume, had_entries)
+    except ValueError as error:
+        if not args.resume_contract_rebind:
+            raise
+        stored_path = root / "data" / "run_contract.json"
+        if not stored_path.is_file():
+            raise ValueError(
+                "non-empty V7 resume root has no bound run contract to rebind"
+            ) from error
+        observed_contract = json.loads(stored_path.read_text(encoding="utf-8"))
+        run_contract_hash = rebind_run_contract(
+            root, run_contract, observed_contract, formal_run
+        )
     write_json_atomic(root / "data" / "formal_recipe.json", run_contract["recipe"])
     print(
         "V7 recipe: world_size={world_size} per_device_batch={per_device_train_batch_size} "
