@@ -11,6 +11,7 @@ import torch
 
 from compose.adapters.types import pad_selection
 from compose.train.trainer import ComposeTrainer
+from llava.train.llava_trainer import LengthGroupedSampler
 
 from .checkpoint import load_v7_checkpoint, save_v7_checkpoint
 from .pool import V7ExpertKeyPool, tensor_checksum
@@ -162,6 +163,17 @@ def mean_sync_accumulated_gradients(parameters):
 
 
 class V7ComposeTrainer(ComposeTrainer):
+    def _get_train_sampler(self):
+        sampler = super()._get_train_sampler()
+        if self.v7_require_full_coverage and isinstance(
+            sampler, LengthGroupedSampler
+        ):
+            # HF Trainer derives optimizer steps from each rank's dataloader
+            # length.  Pad the global sampler to a complete global optimizer
+            # window so a short final accumulation window cannot be dropped.
+            sampler.pad_to_multiple = sampler.batch_size * sampler.world_size
+        return sampler
+
     def __init__(
         self,
         *args,

@@ -151,38 +151,6 @@ def _evaluate_gpu_queue(gpu, cells, root, formal, method, python,
     return results
 
 
-def _evaluate_gpu_queue(gpu, cells, root, formal, method, python):
-    results = []
-    for stage, task in cells:
-        metric_path = (
-            root / "evaluation" / "scores" / "t{}".format(stage)
-            / "task{}".format(task) / "metric.json"
-        )
-        if metric_path.is_file():
-            results.append((stage, json.loads(metric_path.read_text(encoding="utf-8"))))
-            continue
-        answers, command = generation_command(
-            root, formal, method, stage, task, python
-        )
-        answers.parent.mkdir(parents=True, exist_ok=True)
-        log_path = answers.with_name("generation.log")
-        if not answers.is_file():
-            env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu)
-            with log_path.open("a", encoding="utf-8") as log:
-                completed = subprocess.run(
-                    command, env=env, stdout=log, stderr=subprocess.STDOUT
-                )
-            if completed.returncode != 0:
-                raise RuntimeError(
-                    "V7 generation A[{}][{}] failed on GPU{}; see {}".format(
-                        stage, task, gpu, log_path
-                    )
-                )
-        metric = _score_answers(root, stage, task, answers)
-        results.append((stage, metric))
-    return results
-
-
 def _write_markdown(root, matrix):
     names = ["ImgNetR", "ArxivQA", "VizWiz", "IconQA", "CLEVR", "Flickr"]
     lines = ["# V7 UCIT Continual Matrix", "", "| Stage | " + " | ".join(names) + " |", "|---|" + "---|" * 6]

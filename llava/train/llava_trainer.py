@@ -115,6 +115,7 @@ class LengthGroupedSampler(Sampler):
         lengths: Optional[List[int]] = None,
         generator=None,
         group_by_modality: bool = False,
+        pad_to_multiple: Optional[int] = None,
     ):
         """作用：初始化对象状态、保存配置参数，并构建后续方法需要使用的成员变量。"""
         if lengths is None:
@@ -125,10 +126,19 @@ class LengthGroupedSampler(Sampler):
         self.lengths = lengths
         self.generator = generator
         self.group_by_modality = group_by_modality
+        if pad_to_multiple is not None and int(pad_to_multiple) <= 0:
+            raise ValueError("pad_to_multiple must be positive")
+        self.pad_to_multiple = (
+            int(pad_to_multiple) if pad_to_multiple is not None else None
+        )
 
     def __len__(self):
         """作用：实现 Python 特殊方法 __len__，用于配合对象协议或框架调用。"""
-        return len(self.lengths)
+        length = len(self.lengths)
+        if self.pad_to_multiple is None or length == 0:
+            return length
+        remainder = length % self.pad_to_multiple
+        return length if remainder == 0 else length + self.pad_to_multiple - remainder
 
     def __iter__(self):
         """作用：实现 Python 特殊方法 __iter__，用于配合对象协议或框架调用。"""
@@ -136,6 +146,13 @@ class LengthGroupedSampler(Sampler):
             indices = get_modality_length_grouped_indices(self.lengths, self.batch_size, self.world_size, generator=self.generator)
         else:
             indices = get_length_grouped_indices(self.lengths, self.batch_size, self.world_size, generator=self.generator)
+        padding = len(self) - len(indices)
+        if padding:
+            # Repeat the leading shuffled indices deterministically.  This is
+            # equivalent to DistributedSampler's conventional tail padding,
+            # while retaining every original sample in the epoch.
+            repeats = (padding + len(indices) - 1) // len(indices)
+            indices.extend((indices * repeats)[:padding])
         return iter(indices)
 
 
