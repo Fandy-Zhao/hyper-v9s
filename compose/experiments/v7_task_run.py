@@ -41,6 +41,12 @@ from compose.v7.gpu_plan import (
     V7GPUPlan,
     resolve_available_gpu_ids,
 )
+
+# Formal adaptive S3 saves an intermediate checkpoint every this many optimizer
+# steps (crash-resilience infra; train_compose auto-resumes the latest
+# checkpoint-* on relaunch). Cadence never touches the recipe/contract math,
+# and the legacy (no --gpus) path stays epoch-only and byte-identical.
+ADAPTIVE_FORMAL_SAVE_STEPS = 100
 from compose.v7.pool import V7ExpertKeyPool
 from compose.v7.provenance import (
     audit_split_isolation,
@@ -510,6 +516,14 @@ def main():
     parser.add_argument("--training-per-device-batch-size", type=int)
     parser.add_argument("--training-dataloader-num-workers", type=int)
     parser.add_argument(
+        "--training-save-steps", type=int, default=None,
+        help="formal-adaptive S3 intermediate-checkpoint cadence in optimizer "
+             "steps (default {} for adaptive formal runs; 0 disables and keeps "
+             "epoch-only saves); makes a crashed S3 auto-resumable".format(
+                 ADAPTIVE_FORMAL_SAVE_STEPS
+             ),
+    )
+    parser.add_argument(
         "--gpus",
         help="unified physical GPU entry for adaptive execution "
              "(CLI --gpus > $V7_GPUS > $CUDA_VISIBLE_DEVICES > idle probe)",
@@ -617,6 +631,18 @@ def main():
             )
     if gradient_accumulation_steps <= 0:
         raise ValueError("training gradient accumulation must be positive")
+
+    # S3 crash-resilience cadence (2026-09-04 recovery policy: continue a
+    # crashed training from its last checkpoint instead of a full re-run).
+    # Purely infra: no recipe/hyperparameter effect; legacy (no --gpus) path
+    # unchanged and byte-identical. Smoke runs keep their fixed cadence.
+    training_save_steps = args.training_save_steps
+    if training_save_steps == 0:
+        training_save_steps = None
+    if training_save_steps is None and formal_run and gpu_plan is not None:
+        training_save_steps = ADAPTIVE_FORMAL_SAVE_STEPS
+    if training_save_steps is not None and training_save_steps < 0:
+        raise ValueError("--training-save-steps must be non-negative")
 
     # S3 resume policy: changing the DDP world size mid-run is forbidden
     # (spec 0903 §19) unless the whole S3 recipe is equal.
@@ -867,7 +893,12 @@ def main():
             "--weight_decay", str(config.training.weight_decay),
             "--warmup_ratio", str(config.training.warmup_ratio),
             "--lr_scheduler_type", config.training.lr_scheduler_type,
-            "--save_strategy", config.training.save_strategy,
+            "--save_strategy",
+            (
+                "steps"
+                if training_save_steps is not None
+                else config.training.save_strategy
+            ),
             "--logging_steps", str(config.training.logging_steps),
             "--bf16", str(config.training.bf16), "--tf32", str(config.training.tf32),
             "--gradient_checkpointing", str(config.training.gradient_checkpointing),
@@ -882,6 +913,8 @@ def main():
         ]
         if args.smoke_max_steps is not None:
             command += ["--max_steps", str(args.smoke_max_steps), "--save_steps", "10"]
+        elif training_save_steps is not None:
+            command += ["--save_steps", str(training_save_steps)]
         if args.previous_checkpoint:
             command += ["--compose_checkpoint", args.previous_checkpoint]
             origins = [
