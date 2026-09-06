@@ -13,6 +13,7 @@ from compose.v7.gpu_plan import (
     V7GPUPlan,
     allocate_stage_gpus,
     detect_idle_gpu_ids,
+    idle_gpu_subset,
     parse_gpu_ids,
     plan_training_recipe,
     resolve_available_gpu_ids,
@@ -85,6 +86,30 @@ def test_detect_idle_fails_when_all_busy(monkeypatch):
     )
     with pytest.raises(GpuPlanError, match="no idle GPU"):
         detect_idle_gpu_ids()
+
+
+def test_idle_gpu_subset_filters_busy_devices_keeping_plan_order(monkeypatch):
+    monkeypatch.setattr(
+        "compose.v7.gpu_plan.probe_gpu_state",
+        lambda: {
+            0: (4, 0),          # free
+            1: (11188, 0),      # busy: tenant memory
+            2: (20812, 31),     # busy: tenant memory + utilization
+            3: (4, 61),         # busy: utilization
+        },
+    )
+    # Plan was built while all four were free; only GPU0 is still idle.
+    assert idle_gpu_subset([0, 1, 2, 3]) == [0]
+    # Request order is preserved for the surviving devices.
+    assert idle_gpu_subset([3, 0, 2]) == [0]
+
+
+def test_idle_gpu_subset_empty_when_plan_fully_busy(monkeypatch):
+    monkeypatch.setattr(
+        "compose.v7.gpu_plan.probe_gpu_state",
+        lambda: {0: (20000, 100), 1: (11188, 0)},
+    )
+    assert idle_gpu_subset([0, 1]) == []
 
 
 # ---------------------------------------------------------------------------

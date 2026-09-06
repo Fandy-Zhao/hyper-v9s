@@ -127,6 +127,28 @@ def detect_idle_gpu_ids(
     return idle
 
 
+def idle_gpu_subset(
+    gpu_ids: Sequence[int],
+    idle_memory_threshold_mib: int = 1024,
+) -> List[int]:
+    """Ordered subset of ``gpu_ids`` currently idle per the live probe.
+
+    Scheduling-only filter (spec 0903: GPU count changes scheduling, never
+    the method or the recipe).  A stage pool can shrink to the still-idle
+    devices when another user's process took a planned GPU after the plan
+    was built, instead of OOM-crashing its model load.  Returns ``[]`` when
+    nothing in ``gpu_ids`` is idle; the caller decides whether to fall back
+    or fail closed.  The probe never touches busy devices.
+    """
+    state = probe_gpu_state()
+    idle = {
+        index
+        for index, (memory, utilization) in state.items()
+        if memory < idle_memory_threshold_mib and utilization == 0
+    }
+    return [int(value) for value in gpu_ids if int(value) in idle]
+
+
 def resolve_available_gpu_ids(
     cli_ids: Optional[str] = None,
     env_var: str = "V7_GPUS",

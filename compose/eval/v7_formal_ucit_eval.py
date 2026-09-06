@@ -194,8 +194,8 @@ def main():
     gpus = [value.strip() for value in args.gpus.split(",") if value.strip()]
     if len(gpus) != len(set(gpus)):
         raise ValueError("formal V7 evaluation requires distinct GPUs")
-    if args.cache_manifest is not None and len(gpus) < 2:
-        raise ValueError("cached formal evaluation requires at least two distinct GPUs")
+    if args.cache_manifest is not None and not gpus:
+        raise ValueError("cached formal evaluation requires at least one GPU")
     if args.cache_manifest is None and len(gpus) != 3:
         raise ValueError("formal V7 evaluation requires exactly three distinct GPUs")
     for stage in range(6):

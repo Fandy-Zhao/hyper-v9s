@@ -38,7 +38,10 @@ from compose.v7.config import V7Config
 from compose.v7.gpu_plan import (
     DEFAULT_PER_DEVICE_BATCH,
     DEFAULT_TARGET_GLOBAL_BATCH,
+    GpuPlanError,
     V7GPUPlan,
+    idle_gpu_subset,
+    probe_gpu_state,
     resolve_available_gpu_ids,
 )
 
@@ -1106,8 +1109,29 @@ def main():
             # ---- adaptive S5: candidate hypotheses of one remove-and-reroute
             # iteration execute concurrently, one GPU each, while the serial
             # trajectory logic (score -> remove one -> reroute) stays exact.
+            # The plan is built once at launch; another user may have taken a
+            # planned GPU since (2026-09-06 task5: 4/5 scoring jobs OOM-crashed
+            # against a tenant on GPU1-3).  Scheduling-only narrowing (spec
+            # 0903: GPU count changes scheduling, never the method/recipe):
+            # shrink the job pool to the currently-idle subset of the plan,
+            # fail closed when every planned GPU is busy.
+            pruning_pool = idle_gpu_subset(gpu_plan.pruning_gpu_ids)
+            if not pruning_pool:
+                raise GpuPlanError(
+                    "S5 pruning pool empty: every planned pruning GPU {} is "
+                    "busy (live state {}); relaunch the task when one of them "
+                    "is idle".format(gpu_plan.pruning_gpu_ids, probe_gpu_state())
+                )
+            if len(pruning_pool) != len(gpu_plan.pruning_gpu_ids):
+                print(
+                    "S5 pruning pool narrowed by idle probe: {} -> {} "
+                    "(planned GPUs busy)".format(
+                        gpu_plan.pruning_gpu_ids, pruning_pool
+                    ),
+                    flush=True,
+                )
             runner = PooledJobRunner(
-                gpu_plan.pruning_gpu_ids,
+                pruning_pool,
                 usage_log_path=str(root / "data" / "stage_gpu_usage.jsonl"),
             )
 
