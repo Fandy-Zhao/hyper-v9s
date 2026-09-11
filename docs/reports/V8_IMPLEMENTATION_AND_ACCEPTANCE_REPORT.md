@@ -362,20 +362,33 @@ are spec violations:
   and was recorded `negative`. One mismatch in 3 Reuse1 samples
   (`samples_with_out_of_recall_solver: 1`) — the forbidden label occurred, it
   was not merely latent.
+* **Measured on the formal Task 4 run** (`0911_v8a_all/task4`, 256 samples,
+  `v8a_label_audit.py`): **33 mismatched labels**; **28 samples** where an
+  expert outside that sample's Top-8 solved it; and **3 samples where the
+  *selected* expert was outside the sample's own recall** — the case that was
+  hypothetical when this section was first written. Those 3 lost the `POSITIVE`
+  label of the expert the teacher had actually selected, so any label-based
+  consumer (the runner's own recall curve, the alias-key positive support) sees
+  two of them as having no solved expert at all. The routing decision itself is
+  untouched, and the solver set is now read from `single_values` in
+  `v8a_recall_audit.py` precisely so the reported recall numbers do not inherit
+  the mislabelling.
 * **Fix.** The rule now runs over `sorted(tested_singles ∪ recall)`, which is
   total over everything that was scored. `test_01`–`test_30` are unchanged
   (in those fixtures `tested_singles == recall`); the new guard
   `test_reuse1_targets_are_total_over_every_scored_expert_not_just_the_recall`
   pins both edge cases — the out-of-recall solver becoming `IGNORE`, and the
   out-of-recall *selected* expert keeping its `POSITIVE`.
-* **Blast radius.** `key_targets` feeds alias-key training only. It does not
-  enter `_decide`'s state, the selected set, the achieved metric or any V8-A
-  routing number, so the campaign's V8-A results are unaffected in either
-  direction. What it *does* touch is the key objective's IGNORE/NEGATIVE sets
-  and, if a selection ever fell outside the recall, the alias support counts in
-  §17. `compose/experiments/v8a_label_audit.py` recomputes the rule from each
-  record's stored evidence and reports mismatches per run, so the campaign's
-  runs can be checked one by one instead of argued about.
+* **Blast radius.** `key_targets` is written *after* `_decide` has chosen the
+  state and the route, so it does not enter the state, the selected set, the
+  achieved metric or any V8-A routing number: the campaign's V8-A metrics are
+  unaffected in either direction. What it does touch is (i) the key objective's
+  IGNORE/NEGATIVE sets, and (ii) POSITIVE-derived summaries — the runner's
+  `teacher_expert_recall_at_k` and alias-key support counts. Both are now
+  computed in the report from primary evidence instead of labels:
+  `v8a_recall_audit.py` reads `single_values` + `selected_experts`, and
+  `v8a_label_audit.py` reports the mismatches per run, so every affected number
+  is re-derived by a documented rule from stored evidence rather than patched.
 
 Note on artifact provenance: run 1 of the formal campaign was already in flight
 when this fix landed, so its `teacher_result.json` was written by the pre-fix

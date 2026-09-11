@@ -13,16 +13,25 @@ not find it" (PART 16):
 
 * ``selected``  -- the expert(s) the teacher actually selected (the runner's
   metric, recomputed here as a cross-check);
-* ``solver``    -- every expert the record shows solving the sample, i.e.
-  POSITIVE plus, on a non-BaseOnly record, the IGNORE set (those are exactly the
-  alternative solvers; on a BaseOnly record IGNORE means "never scored" and is
-  excluded);
-* ``oracle``    -- the same solvers ranked inside the full visible order rather
-  than the Top-M window: the ceiling the recall step could have reached.
+* ``solver``    -- every expert the record shows solving the sample: the scored
+  experts whose metric met ``solved_threshold``, unioned with the selected
+  route.
 
-Every number is a lower bound on the true solver set, because only recalled
-experts are ever scored.  The audit says so in its own output rather than
-leaving the reader to assume otherwise.
+Capability failure and retrieval failure are then separated by
+``capability_present_but_outside_recall_window``: solvers that exist in the full
+visible order but fall outside the Top-M window the router is allowed to see.
+(No separate "oracle recall" curve is reported: the recall window *is*
+``full_order[:M]``, so such a curve would be identical to the recall curve for
+every k <= M, which is the only range this experiment measures.)
+
+The solver set is read from ``single_values`` and ``solved_threshold`` --
+primary evidence -- rather than from the three-valued ``key_targets``.  That
+matters: for a sample whose selected expert fell outside its own Top-M recall,
+the pre-fix rule emitted no POSITIVE label at all, so a label-based solver set
+would silently drop the very sample it is meant to measure.  Every number
+remains a lower bound on the true solver set, because only recalled experts are
+ever scored; the audit says so in its own output rather than leaving the reader
+to assume otherwise.
 """
 from __future__ import annotations
 
@@ -37,12 +46,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from compose.v8.config import (  # noqa: E402
-    STATE_BASE_ONLY,
-    STATE_RESIDUAL,
-    TARGET_IGNORE,
-    TARGET_POSITIVE,
-)
+from compose.v8.config import STATE_BASE_ONLY  # noqa: E402
 
 
 def _read(path: Path) -> Any:
@@ -85,7 +89,6 @@ def audit(run_root: Path, task: int, ks: Sequence[int] = (1, 2, 4, 8)) -> Dict[s
 
     selected_hits: List[int | None] = []
     solver_hits: List[int | None] = []
-    oracle_hits: List[int | None] = []
     capability_present_not_recalled = 0
     residual = 0
     base_solved = 0
@@ -97,14 +100,14 @@ def audit(run_root: Path, task: int, ks: Sequence[int] = (1, 2, 4, 8)) -> Dict[s
         if state == STATE_BASE_ONLY:
             base_solved += 1
             continue
-        targets = {int(expert): target for expert, target in record["key_targets"].items()}
+        threshold = float(record.get("solved_threshold") or 1.0)
         selected = [int(value) for value in record.get("selected_experts") or []]
-        solvers = [expert for expert, target in targets.items() if target == TARGET_POSITIVE]
-        # IGNORE on a scored record means "solved, but another expert was
-        # selected" -- an alternative solver.  A BaseOnly record was never
-        # scored, so it never reaches this branch.
-        solvers += [expert for expert, target in targets.items() if target == TARGET_IGNORE]
-        if state == STATE_RESIDUAL or not solvers:
+        solvers = sorted({
+            int(expert)
+            for expert, value in (record.get("single_values") or {}).items()
+            if float(value) >= threshold
+        } | set(selected))
+        if not solvers:
             residual += 1
             continue
 
@@ -112,7 +115,6 @@ def audit(run_root: Path, task: int, ks: Sequence[int] = (1, 2, 4, 8)) -> Dict[s
         visible = full_order.get(sample_id, [])
         selected_hits.append(_best_rank(selected, order))
         solver_hits.append(_best_rank(solvers, order))
-        oracle_hits.append(_best_rank(solvers, visible))
 
         if _best_rank(solvers, order) is None:
             if _best_rank(solvers, visible) is not None:
@@ -139,7 +141,6 @@ def audit(run_root: Path, task: int, ks: Sequence[int] = (1, 2, 4, 8)) -> Dict[s
         "residual_no_solver_found": residual,
         "selected_recall_at_k": _curve(selected_hits, ks),
         "solver_recall_at_k": _curve(solver_hits, ks),
-        "oracle_solver_recall_at_k": _curve(oracle_hits, ks),
         "capability_present_but_outside_recall_window": capability_present_not_recalled,
         "examples_of_retrieval_miss": examples,
         "note": (
