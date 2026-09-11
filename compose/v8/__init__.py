@@ -24,6 +24,11 @@ Package layout:
 ``key_learning``    alias-key initialisation and the positive/ranking losses
 ``gating``          per-sample gradient gating (``L_answer_residual``)
 ``audit``           candidate recall and full-pool capability audits
+``pruning``         alias-key and candidate retirement rules
+``commit``          end-of-task freeze, V7-compatible key export
+``query``           the fixed V7 query, re-exported with a contract check
+``inference``       query-only routing, AST-verified free of supervision
+``checkpoint``      resume with the full expert/key id mapping
 """
 
 from compose.v8.config import (  # noqa: F401
@@ -35,8 +40,10 @@ from compose.v8.config import (  # noqa: F401
     V8Config,
     assert_frozen_contract,
 )
+from compose.v8.commit import commit_task, write_v7_compatible_keys  # noqa: F401
 from compose.v8.metric_adapter import TaskMetricAdapter  # noqa: F401
 from compose.v8.pool import MultiKeyExpertPool, alias_key_init  # noqa: F401
+from compose.v8.pruning import apply_pruning, plan_key_pruning  # noqa: F401
 from compose.v8.routing import MultiKeyRouter  # noqa: F401
 from compose.v8.selection import build_selection, uniform_selection  # noqa: F401
 from compose.v8.teacher import AnswerSupervisedTeacher  # noqa: F401
@@ -53,7 +60,11 @@ __all__ = [
     "TaskMetricAdapter",
     "V8Config",
     "alias_key_init",
+    "apply_pruning",
     "assert_frozen_contract",
     "build_selection",
+    "commit_task",
+    "plan_key_pruning",
     "uniform_selection",
+    "write_v7_compatible_keys",
 ]

@@ -1103,3 +1103,135 @@ def test_pool_rejects_illegal_states():
     pool2.add_key(expert_id=0, task_id=0, key_type="task_alias", value=unit(3))
     with pytest.raises(MultiKeyPoolError):
         pool2.validate()
+
+
+# ---------------------------------------------------------------------------
+# pruning and commit: the end-of-task path
+# ---------------------------------------------------------------------------
+def test_pruning_retires_zero_support_alias_but_never_strands_an_expert():
+    from compose.v8.pruning import (
+        PruningError,
+        apply_pruning,
+        plan_key_pruning,
+    )
+
+    pool = make_pool(num_experts=2, per_task=2, seed=31)
+    pool.add_key(expert_id=0, task_id=1, key_type="task_alias", value=unit(2),
+                 lifecycle="candidate", trainable=True, support_count=40)
+    pool.add_key(expert_id=1, task_id=1, key_type="task_alias", value=unit(3),
+                 lifecycle="candidate", trainable=True, support_count=0)
+
+    decisions = plan_key_pruning(pool)
+    targets = {decision.key_id: decision for decision in decisions}
+    assert "e1_t1_task_alias" in targets
+    assert "support 0 below threshold 1" in targets["e1_t1_task_alias"].reason
+    # the supported key is kept
+    assert "e0_t1_task_alias" not in targets
+    # origin keys are never proposed: they are the expert's identity
+    assert not any(decision.key_type == "origin" for decision in decisions)
+
+    report = apply_pruning(pool, decisions)
+    assert report["pruned"] == ["e1_t1_task_alias"]
+    assert pool.key_records["e1_t1_task_alias"]["lifecycle"] == "pruned"
+    assert pool.key_records["e1_t1_task_alias"]["trainable"] is False
+    assert pool.keys["e1_t1_task_alias"].requires_grad is False
+    assert "e1_t1_task_alias" not in pool.active_key_ids()
+    # the expert keeps its origin key, so it is still reachable
+    assert pool.active_key_ids_for_expert(1) == ["e1_t0_origin"]
+    assert pool.live_expert_ids() == [0, 1]
+
+    # a redundant alias key (nearly identical to its sibling) is also retired
+    pool2 = make_pool(num_experts=1, per_task=1, seed=32)
+    twin = pool2.keys["e0_t0_origin"].detach().clone()
+    pool2.add_key(expert_id=0, task_id=1, key_type="task_alias", value=twin,
+                  lifecycle="candidate", support_count=10)
+    redundant = plan_key_pruning(pool2)
+    assert [decision.key_id for decision in redundant] == ["e0_t1_task_alias"]
+    assert "redundant with a sibling key" in redundant[0].reason
+    assert redundant[0].max_similarity_to_sibling > 0.99
+
+    # An expert can never be stranded *by this planner*: every expert must own
+    # an origin key (pool.validate), and origin keys are never proposed.  The
+    # guard exists for any other caller, so it is exercised directly.
+    from compose.v8.pool import LIFECYCLE_PRUNED
+    from compose.v8.pruning import assert_pool_not_emptied
+
+    pool3 = make_pool(num_experts=2, per_task=2, seed=33)
+    with pytest.raises(PruningError):
+        pool3.set_key_lifecycle("e0_t0_origin", LIFECYCLE_PRUNED)
+        assert_pool_not_emptied(pool3)
+    assert_pool_not_emptied(pool)       # the healthy pool passes
+
+    # what a redundant sibling looks like from the candidate side
+    from compose.v8.pruning import plan_candidate_pruning
+    duplicated = plan_candidate_pruning({"new": unit(0)}, {"old": unit(0)})
+    assert duplicated["num_redundant"] == 1
+    assert duplicated["redundant"]["new"]["duplicates"] == "old"
+    distinct = plan_candidate_pruning({"new": unit(5)}, {"old": unit(0)})
+    assert distinct["num_redundant"] == 0
+
+
+def test_commit_freezes_the_task_and_exports_v7_compatible_keys():
+    from compose.v8.commit import (
+        CommitError,
+        assert_commit_immutable,
+        commit_task,
+        validate_precommit,
+        write_v7_compatible_keys,
+    )
+
+    # A task starts with only earlier tasks' keys: both experts originate on
+    # task 0, and task 1 is what creates new state.
+    pool = make_pool(num_experts=2, per_task=2, seed=41)
+    # task 1 creates a candidate expert (2) with its origin key plus an alias
+    # key on the historical expert 0
+    pool.add_expert(expert_id=2, origin_task=1, lifecycle="candidate")
+    pool.add_key(expert_id=2, task_id=1, key_type="origin", value=unit(20),
+                 lifecycle="candidate", trainable=True)
+    pool.add_key(expert_id=0, task_id=1, key_type="task_alias", value=unit(21),
+                 lifecycle="candidate", trainable=True, support_count=7)
+    assert set(pool.trainable_key_ids()) == {"e2_t1_origin", "e0_t1_task_alias"}
+
+    assert validate_precommit(pool, 1, [2])["ok"] is True
+    # a candidate with no origin key cannot be committed
+    pool.add_expert(expert_id=3, origin_task=1, lifecycle="candidate")
+    with pytest.raises(CommitError):
+        validate_precommit(pool, 1, [2, 3])
+    del pool.expert_records[3]
+
+    report = commit_task(pool, task_id=1, candidate_expert_ids=[2])
+    assert report.committed_experts == [2]
+    assert report.committed_alias_keys == ["e0_t1_task_alias"]
+    assert report.committed_origin_keys == ["e2_t1_origin"]
+    assert set(report.frozen_keys) == {"e0_t0_origin", "e1_t0_origin"}
+    assert report.num_experts_after == 3
+    assert report.num_keys_after == 4
+
+    # everything from task 1 is now frozen history
+    assert pool.trainable_key_ids() == []
+    assert pool.expert_records[2]["lifecycle"] == "historical"
+    assert pool.expert_records[2]["creation_task"] == 1
+    assert pool.key_records["e2_t1_origin"]["trainable"] is False
+    assert pool.keys["e0_t1_task_alias"].requires_grad is False
+    # the alias key survived the commit: 1 Expert : N Keys
+    assert pool.active_key_ids_for_expert(0) == ["e0_t0_origin", "e0_t1_task_alias"]
+    assert assert_commit_immutable(report, pool)["status"] == "IMMUTABLE"
+    with pytest.raises(CommitError):
+        pool.keys["e0_t1_task_alias"].data.add_(1.0)
+        assert_commit_immutable(report, pool)
+    pool.keys["e0_t1_task_alias"].data.add_(-1.0)
+
+    # a V7 store carries origin keys only: the evaluator assumes 1 key per expert
+    v7_path = REPO / "experiments" / "runs" / "0911_v8" / "commit_test" / "v7_keys.pt"
+    summary = write_v7_compatible_keys(pool, v7_path)
+    assert summary["experts"] == 3
+    assert summary["alias_keys_written"] == 0
+    reloaded = torch.load(v7_path, map_location="cpu")
+    assert sorted(reloaded["keys"]) == ["0", "1", "2"]
+    assert reloaded["metadata"]["0"]["origin_task"] == 0
+    assert reloaded["metadata"]["2"]["origin_task"] == 1
+    assert torch.equal(reloaded["keys"]["2"], pool.keys["e2_t1_origin"])
+    # and the migrated store reads back as the same pool minus the alias keys
+    migrated = MultiKeyExpertPool.load_v7_pool(reloaded)
+    assert migrated.expert_ids() == pool.expert_ids()
+    assert migrated.audit()["num_alias_keys"] == 0

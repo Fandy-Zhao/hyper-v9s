@@ -316,6 +316,17 @@ class MultiKeyExpertPool(nn.Module):
         record["trainable"] = bool(trainable)
         self.keys[key_id].requires_grad = bool(trainable)
 
+    def set_key_lifecycle(self, key_id: str, lifecycle: str) -> None:
+        """Move a key between lifecycles (e.g. retire a redundant alias key).
+
+        Pruning is a routing decision, not a training one, so this deliberately
+        does not touch ``requires_grad``; callers that want both should call
+        :meth:`set_key_trainable` as well.
+        """
+        if lifecycle not in LIFECYCLES:
+            raise MultiKeyPoolError(f"unknown lifecycle {lifecycle!r}")
+        self.key_record(key_id)["lifecycle"] = str(lifecycle)
+
     def freeze_historical(self, current_task: Optional[int] = None) -> List[str]:
         """Freeze every key that does not belong to the current task.
 
@@ -381,6 +392,11 @@ class MultiKeyExpertPool(nn.Module):
             },
             "lifecycle_counts": {
                 state: sum(1 for record in self.expert_records.values()
+                           if record["lifecycle"] == state)
+                for state in LIFECYCLES
+            },
+            "key_lifecycle_counts": {
+                state: sum(1 for record in self.key_records.values()
                            if record["lifecycle"] == state)
                 for state in LIFECYCLES
             },
