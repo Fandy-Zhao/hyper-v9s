@@ -156,8 +156,11 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
   `v8a_cases.py:97`). `_jsonl()` returns `[]` for a missing file, so the empty
   dict surfaced 30 lines later as `KeyError: 'v7_t0_val_0'`. Fixed, and the
   missing-file and zero-overlap cases now raise with the path in the message.
-  **The fix has not been executed end to end** — the retry is queued behind the
-  exclusive-GPU gate in `experiments/runs/0911_v8a_formal/run_parity_retry.sh`.
+  **Re-run end to end on 2026-09-11: MATCH** — 256/256 identical answers,
+  `metric_equal: true`, byte-identical official result text on both branches
+  (`result_text_sha256 d1ab9369…`, `83.2`), over the same 256-sample route
+  multiset (`{0,1}: 2, {0,3}: 135, {1,2}: 109, {2,3}: 10`). No open items remain
+  in the code verdict.
 - Campaign: all four V8-A teacher runs complete (Tasks 3 and 4, all-experts and
   history-only scopes), 256 samples each, 7.02 GPU-hours total, seed verification
   `MATCH` on all four. Post-campaign audits (label / recall / scope-gap / cases /
@@ -172,7 +175,13 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
   (`audit_plan`) are now separate and covered by
   `test_22c_full_pool_audit_honours_the_history_only_scope`; output carries
   `schema_version: 2`. The v1 artefact is kept as evidence and the re-run writes
-  `_v2`. Corrected Task-4 split: 1 retrieval / 29 capability of 30 audited.
+  `_v2`. **Corrected Task-4 result: 1 retrieval / 29 capability of 30 audited**
+  (240 generations against the 8 untested visible experts), Wilson 95 % upper
+  bound 16.7 % of the 141 Residual. **Task 3's audit is vacuous**: all 170
+  Residual samples had already been scored against all 12 visible experts, so
+  the plan is empty for every sample; the script now detects this before loading
+  the model (`vacuous: true`, `generated: 0`, zero GPU seconds) instead of
+  emitting a vacuous "0 retrieval failures".
 - Tests: `tests/` 609 passed (V8 61, V7 regression 548). Report §1 and §25 added;
   §12.1, §14–§18, §20–§21, §23 rewritten with two-task data.
 - Headline correction recorded in report §14/§25: the all-experts V8-A numbers

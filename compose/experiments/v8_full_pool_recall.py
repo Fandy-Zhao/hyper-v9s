@@ -25,6 +25,7 @@ import argparse
 import json
 import os
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
@@ -134,6 +135,43 @@ def main() -> None:
         for record in audited
     }
 
+    # Nothing left to test is a *result*, not an error, and it must be reported
+    # before the model is loaded rather than after an hour of generation.  It
+    # happens when the teacher's STEP C already covered the whole visible pool
+    # for every Residual sample -- which is exactly the case that makes a
+    # Residual set a certified capability gap rather than an upper bound.  Task
+    # 3's history-only run is that case: all 170 Residual samples carry
+    # ``tested_singles`` of size 12, the full visible pool.  Emitting
+    # "0 retrieval / 30 capability" here would be a vacuous truth dressed as a
+    # finding, so it is emitted as vacuity instead.
+    if not any(plan.values()):
+        payload = {
+            "schema_version": 2,
+            "task": args.task,
+            "run_root": str(args.run_root),
+            "residual_samples_total": len(residual),
+            "residual_samples_audited": len(audited),
+            "declared_sample_limit": int(args.sample_limit),
+            "visible_expert_ids": visible,
+            "pool_expert_ids": pool_order,
+            "excluded_expert_ids": excluded,
+            "vacuous": True,
+            "vacuous_reason": (
+                "every audited Residual sample had already been tested against "
+                "every expert in the run's visible pool, so there is no untested "
+                "expert left to blame: the Residual set is a certified capability "
+                "gap for this scope, not a retrieval artefact"
+            ),
+            "samples_with_empty_plan": len(plan),
+            "generated": 0,
+            "findings": [],
+        }
+        _write_json(Path(args.out), payload)
+        print(json.dumps({key: payload[key] for key in
+                          ("residual_samples_audited", "vacuous", "generated")},
+                         indent=1, sort_keys=True))
+        return
+
     engine = GenerationEngine(
         _load_bundle(checkpoint_dir, args.device),
         image_folder=IMAGES,
@@ -175,6 +213,17 @@ def main() -> None:
         "visible_expert_ids": visible,
         "pool_expert_ids": pool_order,
         "excluded_expert_ids": excluded,
+        "vacuous": False,
+        "samples_with_empty_plan": sum(1 for experts in plan.values() if not experts),
+        "visible_pool_size": len(visible),
+        # how many of the visible experts the teacher had already scored, per
+        # sample: the audit's coverage, so a reader can tell how much of the
+        # Residual set is certified rather than sampled
+        "tested_singles_size_distribution": {
+            str(size): count for size, count in sorted(
+                Counter(len(record.get("tested_singles", []))
+                        for record in audited).items())
+        },
         "retrieval_failure": sum(1 for row in findings if row["verdict"] == "retrieval_failure"),
         "capability_failure": sum(1 for row in findings if row["verdict"] == "capability_failure"),
         "generated": engine.generated_count,

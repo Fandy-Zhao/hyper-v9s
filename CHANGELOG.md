@@ -18,7 +18,12 @@
   returns `[]` for a missing file, the empty result surfaced as
   `KeyError: 'v7_t0_val_0'` thirty lines later instead of naming the missing
   file. The path is fixed and both the missing-file and zero-overlap cases now
-  raise with the path in the message. **Not yet re-run end to end.**
+  raise with the path in the message. **Re-run end to end on 2026-09-11 and it is
+  a MATCH**: 256/256 identical answers, `metric_equal: true`, and both branches
+  producing a byte-identical official result text
+  (`result_text_sha256 d1ab9369…`, `83.2` on both sides) over the same 256-sample
+  route multiset. §5's engine-equivalence claim is verified by execution now, not
+  by argument, and §25.1 has no open items.
 - **Fixed the full-pool Residual audit ignoring the run's scope.**
   `v8_full_pool_recall.py` read `recall.json`'s `visible_expert_ids` as the set of
   experts the run could use. That field actually holds the **full committed
@@ -34,6 +39,16 @@
   separate functions with `test_22c_full_pool_audit_honours_the_history_only_scope`;
   the output gains a `schema_version` so v1 artefacts cannot be confused with v2.
   The buggy artefact is kept as the defect's evidence; the re-run writes `_v2`.
+  **Re-run (Task 4): 1 retrieval / 29 capability** of 30 audited, 240 generations
+  against the 8 visible experts the teacher had not scored; Wilson 95 % upper
+  bound 16.7 % of the 141 Residual. **Task 3's audit is vacuous** — all 170
+  Residual samples had already been scored against all 12 visible experts, so the
+  plan is empty for every sample. The script now detects that *before* loading the
+  model (`vacuous: true`, `generated: 0`) instead of reporting a vacuous
+  "0 retrieval failures", so Task 3 cost zero GPU seconds and its artefact was
+  produced on CPU. Together the two tasks establish the Residual set as missing
+  capability rather than a routing miss — by exhaustion on Task 3 and by direct
+  test on Task 4.
 - **V8-A campaign complete on two tasks and two scopes.** Four teacher runs over
   the frozen 23-expert pool, 256 validation samples each, 7.02 GPU-hours, all
   seed verifications `MATCH` (`max_abs_diff 0.0` over 64,768 seeded pair NLLs per

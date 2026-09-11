@@ -29,9 +29,9 @@ metric adapters, lazy alias-key creation, the gradient gating, the freeze ledger
 the trainer, the inference router — 18 modules under `compose/v8/`, plus 10
 drivers under `compose/experiments/v8*`, all new files
 beside V7 rather than edits to it. `git diff --stat 9ff2b28..HEAD` is **34 files,
-11,874 insertions, 0 deletions**, and **zero** of those files are under
-`compose/v7/`, `compose/adapters/`, `compose/eval/` or `llava/`. The suite is
-**609 tests passing** (75.32 s), 548 of them pre-dating this work.
+12,784 insertions, 0 deletions** at `a6d3e4b`, and **zero** of those files are
+under `compose/v7/`, `compose/adapters/`, `compose/eval/` or `llava/`. The suite
+is **609 tests passing** (75.32 s), 548 of them pre-dating this work.
 
 **What was measured.** Four full teacher runs — Task 3 (IconQA) and Task 4
 (CLEVR-Math), each in an all-experts and a history-only scope — over the frozen
@@ -65,27 +65,37 @@ any training.
 gradient gating on real data — is **NOT RUN**. §19 sizes it from §21's measured
 costs and recommends a one-task pilot over a 500-sample teacher (~3 h) rather
 than a full six-task loop. The 311 samples that both tasks' history-only runs
-could not solve are the worklist such a pilot would be judged against, and on
-Task 3 that set is *certified*: all 12 visible historical experts were scored
-against all 170 of them.
+could not solve are the worklist such a pilot would be judged against, and §16.1
+has now tested what they are: scoring the experts the router never tried against
+a declared 30-sample audit of Task 4's Residual set yields **1 retrieval failure
+in 30**, so at most about 24 of its 141 samples could be a routing miss; Task 3
+turned out to need no audit at all, because its teacher had already scored all
+170 samples against all 12 visible experts. **The Residual set is capability, not
+retrieval, on both tasks by two different tests** — which is the claim that
+decides whether the fix is better keys or a new expert.
 
 **Two verdicts, reported separately (PART 37).**
 
-* **Code acceptance: PASS.** The specification's mechanisms are implemented,
-  tested and enforced — the freeze by an optimizer whitelist plus a checksum
-  ledger, the teacher's `M`/`L` separation by construction and by a rejection
-  test, inference purity by an AST scan with negative controls. V7 is untouched
-  and its tests pass by construction. Two real defects were found *during* the
-  campaign and fixed with regression tests (the key-target rule was not total;
-  `create_alias_keys` built a key the pool rejects), and a third — a path bug in
-  the Task-0 parity harness — is fixed but not yet re-run. None of the three was
-  hidden, and none is a violation of the specified method.
+* **Code acceptance: PASS, no open items.** The specification's mechanisms are
+  implemented, tested and enforced — the freeze by an optimizer whitelist plus a
+  checksum ledger, the teacher's `M`/`L` separation by construction and by a
+  rejection test, inference purity by an AST scan with negative controls. V7 is
+  untouched and its tests pass by construction. **Four** real defects were found
+  *during* the campaign and all four are fixed: the key-target rule was not
+  total; `create_alias_keys` built a key the pool rejects; the Task-0 parity
+  harness composed V7's answer path with a duplicated `task0`; and the Residual
+  audit read `recall.json`'s pool field as the run's scope, scoring self-reuse as
+  cross-task reuse. Three carry regression tests and the parity fix is verified
+  by execution — 256/256 identical answers (§12.1). None was hidden, and none is
+  a violation of the specified method.
 * **Method acceptance: PARTIALLY VERIFIED — the retrieval half holds, the reuse
   half is smaller than the headline and the training half is unmeasured.** V8-A's
-  teacher does identify samples historical experts solve, and §17 shows a second
-  key substantially fixes the retrieval failure. But a history-only V8 policy
-  does **not** beat V7 on either task, genuine cross-task reuse is 28.5 % / 15.6 %,
-  and V8-B — the part that would make the pool grow more slowly — was never run.
+  teacher does identify samples historical experts solve, §17 shows a second
+  key substantially fixes the retrieval failure, and §16.1 shows the residual
+  really is missing capability rather than a routing miss. But a history-only V8
+  policy does **not** beat V7 on either task, genuine cross-task reuse is 28.5 % /
+  15.6 %, and V8-B — the part that would make the pool grow more slowly — was
+  never run.
   This is **not** an implementation failure, and PART 46 item 20 is honoured: the
   failures above are reported rather than dropped.
 
@@ -666,14 +676,23 @@ rule, and 16–19 plus 30 are the four gating states and their interaction.
 ## 12. V7 Regression and Task 0 Parity
 
 **V7 regression**: 548 tests under `tests/compose/` that predate this work still
-pass. `git diff --stat 9ff2b28..HEAD` reports **34 files changed, 11,347
-insertions(+), 0 deletions(-)** — every change is a new file (`compose/v8/*`,
-`compose/experiments/v8*.py`, the two new test files) plus additive edits to
-`CHANGELOG.md` and `docs/module_status.md`. Nothing under `compose/v7/`,
-`compose/adapters/`, `compose/eval/` or `llava/` was modified, which is why
-`test_29_v7_original_tests_still_pass` passes by construction. Zero deleted
-lines is the mechanical statement of "V8 does not break V7": no V7 code path was
-edited, only new modules were added beside it.
+pass. `git diff --stat 9ff2b28..HEAD` reports **34 files changed, 12,784
+insertions(+), 0 deletions(-)** at `a6d3e4b` — every change is a new file
+(`compose/v8/*`, `compose/experiments/v8*.py`, the two new test files) plus
+additive edits to `CHANGELOG.md` and `docs/module_status.md`. Nothing under
+`compose/v7/`, `compose/adapters/`, `compose/eval/` or `llava/` was modified,
+which is why `test_29_v7_original_tests_still_pass` passes by construction. Zero
+deleted lines is the mechanical statement of "V8 does not break V7": no V7 code
+path was edited, only new modules were added beside it.
+
+The insertion count is quoted against a named commit because it is the one number
+here that *moves*: it was 11,347 when §12.1 was first drafted and 11,874 when §1
+was written, and neither is a fact about the branch, only about a moment in it.
+The two load-bearing numbers do not move at all — **0 deletions** and **0 files
+under the four protected directories** hold at every commit from `9ff2b28` to
+`HEAD`, and both are re-checkable with
+`git diff --numstat 9ff2b28..HEAD | awk '$2 != 0'` (empty) and
+`git diff --name-only 9ff2b28..HEAD | grep -E '^(compose/v7/|compose/adapters/|compose/eval/|llava/)'` (empty).
 
 **Task 0 parity** (`compose/experiments/v8_task0_parity.py`). Task 0 is the one
 place where V7 and V8 are *supposed* to agree: there is no history to reuse, the
@@ -692,7 +711,7 @@ and compares against the routing V7 recorded in its own
 
 **Route multiset identical — MATCH.**
 
-### 12.1 Answer parity: two crashes, one real defect, retry queued
+### 12.1 Answer parity: two crashes, one real defect, MATCH on retry
 
 The route check needs no generation, so it stands on its own. The *answer*
 check — regenerate each sample through V8's engine under the identical route and
@@ -773,15 +792,36 @@ The measured headroom makes the condition workable rather than a demand for an
 empty machine: §21.1 puts peak allocator memory at 14.83 GiB and resident VRAM at
 16,910 MiB.
 
-**Status.** §12.1's conclusion remains "route parity verified, answer parity
-pending" until `task0_parity.json` acquires an `answer_parity` key. This is a
-**BLOCKER-class gap in evidence**, and since attempt 3 it is also a
-**fixed-and-unverified code change**: the parity harness's path bug is repaired
-and the repair is verified structurally (the path exists, the guards raise), but
-no run has yet executed the repaired code end to end. No claim in this report
-depends on answer parity — it is a cross-check on §5's claim that V8's engine
-reproduces V7's answers under V7's route — and the report will say so either way
-once the run lands.
+#### Retry 3, result: MATCH
+
+The retry ran on 2026-09-11, picking GPU 3 at 15:11:46 and exiting **0** at
+15:20:19 — the repaired path executed end to end for the first time, and
+`task0_parity.json` now carries an `answer_parity` key:
+
+| Quantity | Value |
+| --- | --- |
+| samples compared | 256 |
+| answers generated | 256 |
+| **identical answers** | **256** |
+| identical rate | **1.000** |
+| metric equal | **true** |
+
+The comparison is stronger than a value match. Both branches scored the *same*
+prediction file with the official `llava.eval.eval_deepseek_r1` scorer and
+produced a byte-identical result text — `result_text_sha256
+d1ab9369bc445c5117ef18b648d9c8e3678d9ad47b0e987e9780c81f09c47f2f` on both
+sides, both reporting `83.2`. The adapter's own value, `83.203125`, agrees with
+that within the tolerance §15 uses. The route multiset matched on all 256 samples
+as well, with identical pair counts (`{0,1}: 2`, `{0,3}: 135`, `{1,2}: 109`,
+`{2,3}: 10`) on both sides.
+
+**Status: route parity MATCH, answer parity MATCH.** §5's claim that V8's engine
+reproduces V7's answers under V7's route is now verified end to end rather than
+argued structurally, and §25.1's one open item is closed. This was the fourth of
+§25.4's falsification branches; it resolved in the direction that keeps §15's
+metrics trustworthy. The three attempts together cost roughly two hours of wall
+clock, one cuDNN crash and one real defect, and the defect is the reason the
+harness now fails loudly on a missing or non-overlapping answers file.
 
 ---
 
@@ -1074,6 +1114,74 @@ audit's own caveat — "an expert that was never recalled was never tried" — d
 not apply. Task 4 is the opposite case: 8 of 16 visible experts were recalled, so
 its 141 Residual is a bound. §23 develops the distinction.
 
+#### 16.1 The direct test: every untested expert, scored
+
+The table above bounds the retrieval share of a Residual set by what the router
+chose to recall. `compose/experiments/v8_full_pool_recall.py` measures it
+directly instead of bounding it: take a declared sample of Residual samples, and
+score each of them against **every expert the run's scope makes visible and the
+teacher did not already score**. Whatever solves after that is a retrieval
+failure by construction — the expert was there, the router did not look at it.
+
+The two tasks land in opposite regimes, and the difference is itself the result.
+
+**Task 3 — the audit is vacuous, and that is the finding.** Every one of its 170
+Residual samples had already been scored against all 12 visible experts, so the
+audit's plan is empty for every sample and there is nothing left to test. The
+script now detects this *before* loading the model and returns
+`vacuous: true` with the reason, taking zero GPU seconds; reporting "0 retrieval
+failures" here would have been a vacuous truth dressed as a measurement. So
+§16's exactness claim for Task 3 does not rest on the reasoning about
+`tested_singles` alone — a second, independent code path re-derives it:
+
+```json
+{"task": 3, "residual_samples_total": 170, "residual_samples_audited": 30,
+ "samples_with_empty_plan": 30, "vacuous": true, "generated": 0}
+```
+
+**Task 4 — the bound is real, and it is small.** Here the teacher scored 8 of the
+16 visible experts per Residual sample, so 8 remained, and the audit spent 240
+generations scoring them on 30 of the 141 Residual samples
+(`full_pool_recall_task4_v2.json`, `schema_version: 2`):
+
+| Outcome | Samples | Rate |
+| --- | --- | --- |
+| retrieval failure — some untested visible expert solves it | **1** | 3.3 % |
+| capability failure — no visible expert solves it | **29** | 96.7 % |
+
+The one retrieval failure is `v7_t4_val_108`, solved by experts `[7, 8, 9, 10,
+11]` while its own Top-8 window was `[15, 14, 0, 3, 1, 2, 13, 12]` — five
+solutions the router had, in the visible pool, and never surfaced.
+
+**What this does and does not establish.** 29 of 30 audited samples had no
+solution anywhere in the visible pool, and a Wilson 95 % interval on 1/30 puts
+the retrieval share of Task 4's 141 Residual samples at **[0.6 %, 16.7 %]** —
+i.e. **at most about 24 of the 141** could be retrieval failures, against the 141
+the bound admitted before. This is a declared 30-sample audit, not a census, and
+it is reported as a rate with an interval rather than as a count. Two independent
+routes agree on it: the live re-run reports 1/29, and filtering the recorded
+v1 artefact's own solve sets by the scope gives 1/29 as well.
+
+Together the two tasks now say the same thing from opposite directions — Task 3
+by exhaustion, Task 4 by direct test — and it is the claim this section opened
+with: **the Residual set is what the pool cannot do, not what the router failed
+to find.** That is precisely the set a V8-B Candidate Expert would be trained on
+(§23), and it is why "just widen M" is not the fix.
+
+**The defect this measurement found first.** The initial version of the audit
+read `recall.json`'s `visible_expert_ids` as the run's scope. That field holds
+the full committed pool (`v8_task_run.py:585`); the scope is in
+`excluded_expert_ids`, which every other consumer reads (`v8a_alias_keys.py:98`,
+`v8a_scope_gap.py:87`, `v8a_recall_audit.py:87`). It therefore tested Task 4's
+own experts 16–19 and the future-task experts 20/21/23 and counted their
+solutions as retrieval failures, reporting **22 / 8** where the answer is **1 /
+29**. 21 of those 22 verdicts were samples solved *only* by an excluded expert.
+Had it been published, this section's conclusion would have been "supported" by
+evidence built from the self-reuse confound §14 exists to remove — a wrong
+number pointing at a right conclusion, which is the most dangerous kind. It was
+caught by reading the artefact, not by a test; §25.1 records it, `test_22c` now
+guards it, and the v1 artefact is kept as evidence rather than deleted.
+
 Three readings, in order of how much they matter. The first is the one that
 changed when the history-only runs finished: **the all-experts rows flatter the
 router, because the experts that dominate their top ranks are the task's own.**
@@ -1107,14 +1215,18 @@ router, because the experts that dominate their top ranks are the task's own.**
    only the historical pool** — samples no recalled expert solved at all. Those
    are lower bounds: an expert that was never recalled was never tried, which is
    exactly what a wider M or a better key could change — the audit states this in
-   its own output rather than leaving it to be assumed.
+   its own output rather than leaving it to be assumed. **§16.1 then tests the
+   bound instead of leaving it standing**, and it does not bind: the untested
+   experts of Task 4 were scored directly (1 retrieval in 30) and Task 3's turn
+   out to be nonexistent (the teacher had already tried all 12).
 
 The 141 and 170 history-only Residual samples are the load-bearing numbers for
 V8's second half: together 311 of 512 samples are simultaneously the evidence
 that historical reuse alone is insufficient and the precise worklist a V8-B
 Candidate Expert would be trained on. V8-A cannot say whether such an expert
 would learn them; it can say how many there are, that Task 3's set is larger, and
-that they are not a retrieval artefact.
+— §16.1 — that they are not a retrieval artefact, on both tasks, by two
+different tests.
 ---
 
 ## 17. Alias Key Analysis
@@ -1817,22 +1929,36 @@ treating a poor final number as evidence about any one of them.
 **The 311-sample worklist.** Task 4's 141 and Task 3's 170 history-only Residual
 sets are disjoint in the sense that matters: they are different samples of
 different tasks, and together 311 of the two tasks' 512 samples describe capability
-that the frozen pool does not have. On Task 3 that set is *certified* complete
-with respect to the visible pool; on Task 4 it is bounded above by what 8
-untried experts could add. If a V8-B pilot is run, this is the set it has to
-move, and §19.5 scopes it accordingly.
+that the frozen pool does not have. Both sets are now measured rather than
+bounded. On Task 3 the set is *certified* complete: the teacher scored all 170
+samples against all 12 visible experts, and §16.1's audit re-derives that by a
+second route (empty plan, `generated: 0`). On Task 4 the audit spent 240
+generations scoring the 8 experts the teacher had left untested and found
+**1 retrieval failure in 30**, an upper bound of about 24 of the 141 (§16.1).
+So the worklist is not "the samples we happened to look at" — it is a set whose
+capability-gap status has been tested directly on one task and exhausted on the
+other. If a V8-B pilot is run, this is the set it has to move, and §19.5 scopes
+it accordingly.
 
-**Failures that occurred, and are reported as such (PART 46 item 20).** Three
+**Failures that occurred, and are reported as such (PART 46 item 20).** Four
 things in this campaign went wrong rather than merely underperforming, and all
-three are recorded above instead of omitted: the three-valued key-target rule was
+four are recorded above instead of omitted: the three-valued key-target rule was
 not total, and it had already written 33 mislabelled key targets into the pre-fix
 run's artefact (§9.2, quantified by `v8a_label_audit.py`); `create_alias_keys`
 created an alias key on an expert's own origin task, which the pool's
 `validate()` then rejected — a real defect, exposed only by the all-experts scope
-and fixed with a regression test (§17); and the Task 0 answer-parity check
-crashed on a contended GPU and, at the time of writing, has produced no result
-(§12.1). No run was re-run to make those disappear, and no artefact was
-rewritten.
+and fixed with a regression test (§17); the Task 0 answer-parity check crashed on
+a contended GPU and then on a path defect, costing two attempts before it ran
+(§12.1); and the full-pool Residual audit of this section's own evidence ignored
+the run's scope, so 21 of its 22 Task-4 retrieval-failure verdicts were samples
+solved only by Task 4's own experts (§16, §25.1). The fourth is the sharpest of
+them, because it produced a number that agreed with this section's conclusion
+while resting on the confound the section exists to refute. It was caught by
+reading the artefact, not by a test, and it is why `test_22c` now exists.
+
+No run was re-run to make those disappear, and no artefact was rewritten: the
+pre-fix key targets, the pre-fix run 1, the buggy audit and the parity crashes
+all remain on disk as they were produced.
 
 ---
 ## 24. Acceptance Checklist
@@ -1910,9 +2036,11 @@ scored their solutions as retrieval failures (§16).
 
 The first, second and fourth are fixed with regression tests — the fourth's is
 `test_22c`, which asserts that no excluded id can reach a test target. The third
-is fixed and **its fix has not yet been executed end to end** — that is the one
-open item in this verdict, and it is a *cross-check*, not a result: no claim in
-this report depends on it.
+is fixed and its fix has since executed end to end: retry 3 scored **256/256
+identical answers** with a byte-identical official result text (§12.1). At the
+time this section was first drafted that fix was unexecuted, and it was recorded
+here as the verdict's one open item; it is now closed, and the closure is a
+result rather than the removal of a caveat.
 
 The fourth defect deserves its own sentence, because of how it was caught and
 what it would have cost. It was found by reading the artefact it had already
@@ -1928,8 +2056,9 @@ memory. The buggy artefact is kept at
 evidence, and the corrected re-run writes to a `_v2` path with a
 `schema_version` field so the two cannot be confused.
 
-**Code acceptance: PASS**, with one declared open item (§12.1, answer parity
-pending) that does not gate any other claim.
+**Code acceptance: PASS, with no open items.** The one that stood — answer parity
+— closed with a MATCH (§12.1), and it closed on a run of the *repaired* code, so
+the repair is verified by execution and not only structurally.
 
 ### 25.2 Method acceptance — PARTIALLY VERIFIED
 
@@ -1978,7 +2107,7 @@ campaign's artefacts rather than from expectation:
 | Q1 | Can the old experts be reused at all? | **Yes, but less than the all-experts number suggests** — 73 and 40 samples of 256 are reached by a genuinely historical expert route; 42 and 46 more need no expert at all | §14 |
 | Q2 | Does a V8 policy beat the baselines on the official metric? | **Against the NLL-oracle ceiling, yes** (94.14 / 87.11, gap closed 0.957 / 1.065). **Against V7 under a history-only scope, no** (44.92 / 33.59 vs 67.97). **Against the frozen base, yes** (+28.51 / +15.62) | §15 |
 | Q3 | Would giving a historical expert a second key on the current task help? | **Yes, substantially** — historical recall@1 0.164 → 0.603 and 0.100 → 0.800, every winning key an alias | §17 |
-| Q4 | When a sample is not solved, is it capability or retrieval? | **Capability, and on Task 3 this is certified** — all 12 visible historical experts were scored on all 170 Residual samples. On Task 4 it is a bound: only 8 of 16 were recalled | §16, §23 |
+| Q4 | When a sample is not solved, is it capability or retrieval? | **Capability, on both tasks, by two different routes** — Task 3 by exhaustion (all 12 visible experts scored on all 170 Residual samples; the audit has an empty plan), Task 4 by direct test (240 generations against the 8 untested experts of 30 Residual samples: **1 retrieval / 29 capability**, upper bound ≈24 of 141) | §16, §16.1, §23 |
 | Q5 | What would the pool-efficiency benefit be? | **Not measured.** V8-A trains nothing; §20 measures the opportunity and the router deficit, and leaves the reduction to V8-B | §20 |
 | Q6 | What would it cost to find out? | **~3 h for a Task-1 pilot** with a 500-sample teacher, on §21's measured 1.02–1.74 s/route; 6.2–10.6 h for a 2,000-sample teacher | §19, §21 |
 
@@ -2002,7 +2131,9 @@ results that would overturn it:
 * **If answer parity (§12.1) comes back DIFFER rather than MATCH**, then §5's
   claim that V8's engine reproduces V7's answers under V7's route is false, and
   every V8 metric in §15 becomes suspect → the verdict would have to be revisited
-  before any V8-B work.
+  before any V8-B work. **This has now been tested and did not fire**: retry 3
+  returned 256/256 identical answers with a byte-identical official result text
+  (§12.1), so the branch is closed rather than merely dormant.
 
 None of these has been observed. The first three require V8-B, which is why the
 recommendation is a pilot and not a conclusion.
