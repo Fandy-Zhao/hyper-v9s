@@ -1235,3 +1235,250 @@ def test_commit_freezes_the_task_and_exports_v7_compatible_keys():
     migrated = MultiKeyExpertPool.load_v7_pool(reloaded)
     assert migrated.expert_ids() == pool.expert_ids()
     assert migrated.audit()["num_alias_keys"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Pipeline integration: teacher -> cache -> alias keys -> gated step -> commit
+#
+# The tests above pin each stage in isolation.  This one pins the *wiring*,
+# which no stage-local test can see: a teacher verdict has to survive the
+# canonical cache, become a trainable alias key, drive a gated training step
+# that reaches the candidate expert and nothing else, survive pruning, and end
+# up frozen in a committed pool with every historical tensor byte-identical.
+# ---------------------------------------------------------------------------
+def test_v8_pipeline_chains_teacher_verdicts_to_a_committed_pool(tmp_path):
+    from compose.v8.commit import (
+        assert_commit_immutable,
+        commit_task,
+        write_v7_compatible_keys,
+    )
+    from compose.v8.pruning import apply_pruning, plan_key_pruning
+
+    sample_ids = ["s0", "s1", "s2", "s3", "s4"]
+    recall = {sample_id: [0, 1, 2] for sample_id in sample_ids}
+
+    # Declared capability: expert 0 solves s0/s1 alone, expert 1 *also* solves
+    # s0, the (0,1) pair solves s3 (with no single solving it), the base solves
+    # s2, and nothing the pool has solves s4.  Expert 2 is recalled everywhere
+    # and solves nothing -- the zero-support case.
+    task = FakeTeacherTask(
+        base_solved=["s2"],
+        singles={0: ["s0", "s1"], 1: ["s0"]},
+        pairs={(0, 1): ["s3"]},
+    )
+    teacher = AnswerSupervisedTeacher(TaskMetricAdapter(), V8TeacherConfig())
+    result = teacher.run(
+        task_id=1,
+        sample_ids=sample_ids,
+        recall_map=recall,
+        scorer=task.scorer,
+        nll_scorer=task.nll_scorer,
+    )
+
+    # -- the teacher's four states, and its three target states -------------
+    assert result.state_counts() == {
+        STATE_BASE_ONLY: 1,
+        STATE_REUSE1: 2,
+        STATE_REUSE2: 1,
+        STATE_RESIDUAL: 1,
+    }
+    by_sample = result.by_sample()
+    assert by_sample["s0"].key_targets[0] == TARGET_POSITIVE
+    assert by_sample["s0"].key_targets[1] == TARGET_IGNORE      # also recalls, solved elsewhere
+    assert by_sample["s0"].key_targets[2] == TARGET_NEGATIVE    # never solved it
+    assert by_sample["s3"].key_targets[0] == TARGET_POSITIVE    # both members of the winning pair
+    assert by_sample["s3"].key_targets[1] == TARGET_POSITIVE
+    assert by_sample["s4"].state == STATE_RESIDUAL
+    assert by_sample["s4"].residual_context, "Residual keeps a historical context"
+
+    # -- 1. canonical cache: write, reload, digest-checked -------------------
+    cache = tmp_path / "teacher_cache"
+    manifest = write_teacher_result(cache, result, provenance={"test": "pipeline"})
+    assert manifest["stores_ground_truth"] is False
+    restored = read_teacher_result(cache)
+    assert restored.state_counts() == result.state_counts()
+    assert sorted(restored.by_sample()) == sorted(sample_ids)
+    assert restored.positive_counts() == result.positive_counts()
+
+    # -- 2. lazy alias creation ---------------------------------------------
+    pool = make_pool(num_experts=3, per_task=3, seed=51)
+    queries_by_sample = {
+        sample_id: torch.nn.functional.normalize(unit(100 + index), dim=-1)
+        for index, sample_id in enumerate(sample_ids)
+    }
+    created = create_alias_keys(
+        restored, pool, task_id=1, queries_by_sample=queries_by_sample
+    )
+    # expert 0 solved s0, s1 and the pair with 1 on s3 -> support 3
+    # expert 1 solved s3 -> support 1
+    # expert 2 solved nothing -> no key at all
+    assert created["num_created"] == 2, created
+    assert created["created"]["e0_t1_task_alias"]["support"] == 3
+    assert created["created"]["e1_t1_task_alias"]["support"] == 1
+    assert not pool.has_alias(2, 1), "zero support must not create an alias key"
+    assert pool.active_key_ids_for_expert(0) == ["e0_t0_origin", "e0_t1_task_alias"]
+
+    # a key that ended with no support (the pruning path) and a candidate expert
+    pool.add_key(expert_id=2, task_id=1, key_type="task_alias", value=unit(2),
+                 lifecycle="candidate", trainable=True, support_count=0)
+    pool.add_expert(expert_id=3, origin_task=1, lifecycle="candidate")
+    pool.add_key(expert_id=3, task_id=1, key_type="origin", value=unit(3),
+                 lifecycle="candidate", trainable=True)
+
+    # -- 3. freeze policy, then ledger before any gradient ------------------
+    model, manager = make_manager([0, 1, 2, 3])
+    raw_lora = {
+        expert_id: {
+            "{}.{}".format(layer_name, name): tensor
+            for layer_name, layer in sorted(manager.layers.items())
+            for name, tensor in layer.experts[str(expert_id)].state_dict().items()
+        }
+        for expert_id in (0, 1, 2)
+    }
+    report = enforce_freeze_policy(model, manager, pool, current_task=1,
+                                   candidate_expert_ids=[3])
+    assert report["audit"].ok, report["audit"].render()
+    ledger = capture_frozen_ledger(pool, raw_lora, current_task=1)
+    assert ledger.key_checksums, "the ledger must cover historical keys"
+
+    # -- 4. one gated training step ----------------------------------------
+    states = {
+        "s0": STATE_REUSE1, "s1": STATE_REUSE1, "s2": STATE_BASE_ONLY,
+        "s3": STATE_REUSE2, "s4": STATE_RESIDUAL,
+    }
+    experts = {"s0": [0], "s1": [0], "s2": [], "s3": [0, 1], "s4": [3]}
+    selection = build_selection(sample_ids, states, experts)
+    inputs = torch.randn(len(sample_ids), 8,
+                         generator=torch.Generator().manual_seed(3))
+    with use_selection(selection):
+        outputs = model(inputs)
+    weights = residual_weights(sample_ids, states)
+    assert weights.tolist() == [0.0, 0.0, 0.0, 0.0, 1.0]
+    loss = residual_answer_loss(outputs.pow(2).mean(dim=1), weights)
+    loss.backward()
+
+    candidate = [
+        parameter
+        for layer in manager.layers.values()
+        for parameter in layer.experts["3"].parameters()
+    ]
+    assert any(parameter.grad is not None and bool(torch.count_nonzero(parameter.grad))
+               for parameter in candidate), "the candidate expert must receive gradient"
+    for expert_id in (0, 1, 2):
+        for layer in manager.layers.values():
+            for parameter in layer.experts[str(expert_id)].parameters():
+                assert parameter.grad is None or not bool(
+                    torch.count_nonzero(parameter.grad)
+                ), "historical expert {} received gradient".format(expert_id)
+
+    # the alias-key loss reaches the alias keys and only the alias keys
+    targets = build_key_targets(restored, pool, 1)
+    assert sorted(targets) == [
+        "e0_t1_task_alias", "e1_t1_task_alias", "e2_t1_task_alias",
+    ]
+    assert targets["e0_t1_task_alias"].positive_ids == ["s0", "s1", "s3"]
+    assert targets["e1_t1_task_alias"].positive_ids == ["s3"]
+    # the alternative solver is ignored on s0 (not pushed away from a query it
+    # solves), and every recalled key is ignored on the base-solved s2
+    assert targets["e1_t1_task_alias"].ignored_ids == ["s0", "s2"]
+    # a bucket with no positives contributes no loss term (and is pruned below)
+    assert targets["e2_t1_task_alias"].positive_ids == []
+    alias_report = alias_key_loss(queries_by_sample, pool, targets)
+    assert alias_report.keys_used == 2
+    assert float(alias_report.total.detach()) > 0.0
+    alias_report.total.backward()
+    for key_id in ("e0_t1_task_alias", "e1_t1_task_alias"):
+        grad = pool.keys[key_id].grad
+        assert grad is not None and bool(torch.count_nonzero(grad)), key_id
+    assert pool.keys["e0_t0_origin"].grad is None
+
+    # -- 5. pruning retires the zero-support key ----------------------------
+    decisions = plan_key_pruning(pool)
+    assert [decision.key_id for decision in decisions] == ["e2_t1_task_alias"]
+    apply_pruning(pool, decisions)
+    assert pool.key_records["e2_t1_task_alias"]["lifecycle"] == "pruned"
+    assert "e2_t1_task_alias" not in pool.active_key_ids()
+
+    # -- 6. commit freezes the task and exports V7-compatible keys ----------
+    commit_report = commit_task(pool, task_id=1, candidate_expert_ids=[3])
+    assert commit_report.committed_experts == [3]
+    assert "e0_t1_task_alias" in commit_report.committed_alias_keys
+    assert pool.trainable_key_ids() == []
+    assert assert_commit_immutable(commit_report, pool)["status"] == "IMMUTABLE"
+    export = write_v7_compatible_keys(pool, tmp_path / "v7_keys.pt")
+    assert export["alias_keys_written"] == 0, "a V7 store carries origin keys only"
+    assert export["experts"] == 4
+
+    # -- 7. nothing frozen moved -------------------------------------------
+    verdict = verify_frozen_ledger(ledger, pool, raw_lora)
+    assert verdict["status"] == "UNCHANGED"
+    assert verdict["changed_keys"] == [] and verdict["changed_lora"] == []
+
+
+def test_the_pipeline_test_would_catch_a_freeze_violation(tmp_path):
+    """The chain above is only evidence if a violation can fail it."""
+    pool = make_pool(num_experts=2, per_task=2, seed=61)
+    ledger = capture_frozen_ledger(pool, {}, current_task=0)
+    pool.keys["e0_t0_origin"].data.add_(0.25)
+    with pytest.raises(GradientGatingError):
+        verify_frozen_ledger(ledger, pool, {})
+
+
+def test_alias_key_ranking_loss_is_a_gradient_carrying_hinge():
+    """``L_rank`` must be a hinge on the key, not a constant built from floats.
+
+    Built with basis-vector geometry so every cosine below is exact.  An earlier
+    implementation computed the hinge from ``float(...)`` values, which detached
+    it from the graph; with ``L_pos`` already at its stationary point (the
+    centroid the key is initialised with), ``L_key`` then had a gradient of
+    exactly zero and could not train anything.
+    """
+    from compose.v8.config import V8KeyConfig
+    from compose.v8.key_learning import KeyTargets
+    from compose.v8.pool import LIFECYCLE_HISTORICAL
+
+    def build(margin: float, competitor: int, negative_query: torch.Tensor):
+        pool = MultiKeyExpertPool()
+        for expert_id in (0, 1):
+            pool.add_expert(expert_id=expert_id, origin_task=0,
+                            lifecycle=LIFECYCLE_HISTORICAL)
+        pool.add_key(expert_id=0, task_id=0, key_type="origin",
+                     value=unit(200), lifecycle=LIFECYCLE_HISTORICAL)
+        pool.add_key(expert_id=1, task_id=0, key_type="origin",
+                     value=unit(competitor), lifecycle=LIFECYCLE_HISTORICAL)
+        key_id = pool.add_key(
+            expert_id=0, task_id=1, key_type="task_alias",
+            value=torch.nn.functional.normalize(unit(0) + unit(2), dim=-1),
+            lifecycle="candidate", trainable=True,
+        )
+        targets = {key_id: KeyTargets(key_id=key_id, expert_id=0, task_id=1,
+                                      positive_ids=["neg"], negative_ids=["neg2"])}
+        queries = {"neg": unit(0), "neg2": negative_query}
+        return pool, key_id, targets, queries, V8KeyConfig(ranking_margin=margin)
+
+    # margin violated: the negative query sits exactly on the competitor key,
+    # while the current key is 45 degrees off the positive query.
+    pool, key_id, targets, queries, config = build(0.2, 201, unit(201))
+    report = alias_key_loss(queries, pool, targets, config=config)
+    assert report.keys_used == 1 and report.ranking_pairs == 1
+    assert float(report.positive) == pytest.approx(1.0 - 0.5 ** 0.5, abs=1e-6)
+    assert float(report.ranking) == pytest.approx(0.2 - 0.0 + 1.0, abs=1e-6)
+    assert float(report.total) == pytest.approx(
+        1.0 * (1.0 - 0.5 ** 0.5) + 0.1 * 1.2, abs=1e-6
+    )
+    report.total.backward()
+    grad = pool.keys[key_id].grad
+    assert grad is not None and bool(torch.count_nonzero(grad))
+    # the competitor is what the current key is pushed away from, but it is
+    # historical: it is detached, so it receives no gradient at all
+    assert pool.keys["e1_t0_origin"].grad is None
+    assert pool.keys["e0_t0_origin"].grad is None
+
+    # margin already satisfied: the key claims the negative query outright and
+    # the nearest competitor is orthogonal, so the hinge is clamped off (exactly
+    # zero, not merely small) and a correctly-separated key is left alone
+    aligned = torch.nn.functional.normalize(unit(0) + unit(2), dim=-1)
+    pool, key_id, targets, queries, config = build(0.2, 300, aligned)
+    satisfied = alias_key_loss(queries, pool, targets, config=config)
+    assert satisfied.ranking_pairs == 1
+    assert float(satisfied.ranking) == 0.0

@@ -205,7 +205,13 @@ def alias_key_loss(
     targets: Mapping[str, KeyTargets],
     config: Optional[V8KeyConfig] = None,
 ) -> KeyLossReport:
-    """``lambda_pos * L_pos + lambda_rank * L_rank`` over the created alias keys."""
+    """``lambda_pos * L_pos + lambda_rank * L_rank`` over the created alias keys.
+
+    Both terms carry gradient into the *current* key and into nothing else;
+    every historical key is either detached (the hardest negative) or absent
+    from the graph.  ``L_pos`` alone is minimised exactly at the centroid the
+    alias key is initialised with, so ``L_rank`` is what actually refines it.
+    """
     config = config or V8KeyConfig()
     positive_terms: List[torch.Tensor] = []
     ranking_terms: List[torch.Tensor] = []
@@ -247,7 +253,7 @@ def alias_key_loss(
             query = F.normalize(
                 queries_by_sample[sample_id].detach().float().reshape(-1), dim=-1
             )
-            positive_similarity = float((query @ key).detach().item())
+            positive_similarity = query @ key
             hardest = None
             hardest_similarity = float("-inf")
             for other_id in pool.key_ids():
@@ -263,12 +269,22 @@ def alias_key_loss(
                     hardest = other
             if hardest is None:
                 continue
+            # ``hardest`` is detached: it is a historical (frozen) key, and the
+            # spec allows no update to it -- not even an incidental one from
+            # being pushed away here.  The current key keeps the whole gradient.
+            #
+            # This term has to stay attached to ``key``.  An earlier version
+            # built the hinge from ``float(...)`` values, which made L_rank a
+            # constant: the only differentiable term was then L_pos, whose exact
+            # stationary point is Normalize(mean(positive queries)) -- precisely
+            # the centroid ``create_alias_keys`` initialises with.  A freshly
+            # created alias key therefore had a gradient of ~0 and the objective
+            # could not move it at all.
             ranking_terms.append(
                 torch.clamp(
-                    torch.tensor(
-                        config.ranking_margin - positive_similarity + hardest_similarity,
-                        dtype=torch.float32,
-                    ),
+                    float(config.ranking_margin)
+                    - positive_similarity
+                    + (query @ hardest).detach(),
                     min=0.0,
                 )
             )
