@@ -569,6 +569,132 @@ downstream.
 
 ---
 
+## 14. Teacher Capability Analysis: can the old experts be reused?
+
+The question the whole method rests on (PART 49 Q1). Every number below is
+`states` / `state_rates` from `task{N}/analysis.json`, i.e. the teacher's verdict
+distribution over the full 256-sample validation split — not a subsample, and
+not a proxy.
+
+| Task | Scope | BaseOnly | ≥1 solved historical single | solved only by a pair | unresolved (Residual) |
+| --- | --- | --- | --- | --- | --- |
+| 4 (CLEVR-Math) | all-experts | 42 (16.41 %) | 178 (69.53 %) | 21 (8.20 %) | 15 (5.86 %) |
+| 4 (CLEVR-Math) | history-only | *run 2 pending* | | | |
+| 3 (IconQA) | all-experts | *run 3 pending* | | | |
+| 3 (IconQA) | history-only | *run 4 pending* | | | |
+
+Read the `all-experts` row for Task 4 with the scope caveat attached: experts
+16–19 are Task 4's *own* experts and did not exist when Task 4 was learned, so
+"reused" there includes self-reuse. The history-only row is the honest
+continual-learning number, and §20 splits the two.
+
+What the row already establishes: **the capability is there and the teacher
+finds it.** On a task whose V7 actual route scores 67.97, 69.5 % of samples are
+solved by reusing a single expert that already exists in the pool, and only
+5.9 % are unresolved after base, every recalled single and every valid pair have
+been tried. The residual 15 samples still keep a best historical context (§17):
+11 of them a single expert, 4 a pair.
+
+---
+
+## 15. V8-A Routing Results
+
+**Table 1 — official metric.** `V7 Metric` is the V7 actual route on the same
+split (`v7_final_pool_pair_upper_val256_20260907`), `Teacher UB` is that
+campaign's answer-NLL oracle pair (the ceiling V8-A can reach without training),
+`V8 Metric` is the V8 policy's route replayed through the frozen model and
+scored by the official evaluator, and `GapClosed = (V8 − V7) / (UB − V7)`.
+
+| Task | Scope | V7 Metric | Teacher UB | V8 Metric | V8 − V7 | GapClosed |
+| --- | --- | --- | --- | --- | --- | --- |
+| 4 (CLEVR-Math) | all-experts | 67.97 | 95.31 | **94.14** | **+26.17** | **0.957** |
+| 4 (CLEVR-Math) | history-only | *run 2 pending* | | | | |
+| 3 (IconQA) | all-experts | *run 3 pending* | | | | |
+| 3 (IconQA) | history-only | *run 4 pending* | | | | |
+
+The teacher's own verdict count and the official scorer's count agree exactly
+(`reconciliation.difference == 0`: 241 samples solved by the teacher, 241 scored
+correct by the evaluator). That is the check that the metric adapter used for
+`M` and the official metric used for the headline number are the same function —
+if they disagreed, the two halves of this report would be describing different
+runs.
+
+**One quantified upper-bound caveat.** STEP C scores the pool-wide candidate
+union (10 experts on Task 4) rather than each sample's own Top-8, so a sample
+can be solved using an expert its own recall window never contained. Three
+samples (1.17 %) were solved that way
+(`selected_route_outside_own_recall_window: 3` in `v8a_recall_audit.py`), so a
+router restricted to each sample's own Top-8 would score at most
+`(42 + 196) / 256 = 92.97 %` here rather than 94.14 %. The union is the
+teacher's *search* budget, not a leak of answers — but the number is an upper
+bound and the size of the bound is 3 samples, not "unknown".
+
+**Table 2 — teacher recall.** `V7 TeacherRecall@k` is the recall of the current
+single-key (`1 Expert : 1 Key`) router: the fraction of samples with a solving
+expert inside the router's Top-k, measured over the solver set defined in §16.
+`V8 TeacherRecall@k` is the same measurement after a current-task alias key is
+created by the specified centroid initialisation — the §17 counterfactual, since
+V8-A itself trains nothing. `SetExact` is discussed below.
+
+| Task | Scope | V7 R@1 | V7 R@2 | V7 R@4 | V7 R@8 | V8 R@1 | V8 R@2 | V8 R@4 | V8 R@8 | SetExact |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4 | all-experts | 0.719 | 0.849 | 0.950 | 0.990 | *§17* | *§17* | *§17* | *§17* | *§17* |
+| 4 | history-only | *run 2 pending* | | | | | | | | |
+| 3 | all-experts | *run 3 pending* | | | | | | | | |
+| 3 | history-only | *run 4 pending* | | | | | | | | |
+
+**BLOCKER / WHY / IMPACT / PROPOSED MINIMAL FIX — `SetExact`.** The
+specification names this column but does not define it. The closest verifiable
+reading is "the router's Top-k set equals the set of experts the teacher found
+solving the sample", which for k = |solving set| is exactly `V7 R@k` computed
+over the solver set already tabulated — reporting it twice under two names would
+be padding. The nearest *additional* measurable quantity is the fraction of
+samples where the router's Top-1 is the expert the teacher selected
+(`selected_recall_at_k["1"]`, §16, 0.332 on Task 4 / all-experts). This report
+publishes that instead of inventing a definition, and flags the gap rather than
+silently substituting.
+
+---
+
+## 16. Full-Pool Recall Audit: capability failure or retrieval failure?
+
+Every number here comes from `compose/experiments/v8a_recall_audit.py`, which
+recomputes the curves from primary evidence — `single_values` + `solved_threshold`
++ `selected_experts` — rather than from the three-valued labels, so the result
+does not depend on which labelling rule wrote the record (§9.2). "Solver" means
+*a scored expert whose metric met the threshold*, unioned with the selected
+route; a sample with no solver is a genuine Residual.
+
+| Task | Scope | samples | base solved | solved by ≥1 expert | Residual | selected R@1 | R@2 | R@4 | R@8 | solver R@1 | R@2 | R@4 | R@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4 | all-experts | 256 | 42 | 199 | 15 | 0.332 | 0.608 | 0.889 | 0.985 | **0.719** | 0.849 | 0.950 | 0.990 |
+| 4 | history-only | *run 2 pending* | | | | | | | | | | | |
+| 3 | all-experts | *run 3 pending* | | | | | | | | | | | |
+| 3 | history-only | *run 4 pending* | | | | | | | | | | | |
+
+Three readings, in order of how much they matter:
+
+1. **Retrieval is not the bottleneck.** 71.9 % of samples that any expert can
+   solve have a solving expert ranked **first** by the current single-key router,
+   and 99.0 % have one inside the Top-8 window. The V7 keys already rank
+   capability well; what they cannot do is say *which task* a key belongs to.
+2. **Selection ordering is weaker than retrieval.** The expert the teacher
+   *selects* sits first only 33.2 % of the time (`selected R@1`). The gap between
+   0.719 and 0.332 is not a failure — it is the NLL tie-break and the
+   lexicographic rule choosing among several solvers (§6) — but it is what the
+   alias key is supposed to sharpen, since a key that encodes "this expert solves
+   *this* distribution" should rank its expert above equally-capable alternatives.
+3. **Capability failure, not retrieval failure, is what remains.** Only 2 samples
+   (0.8 %) have a solver present in the visible order but outside the Top-8
+   window (`capability_present_but_outside_recall_window: 2`; experts 12 and 13
+   at ranks 12 and 9). The 15 Residual samples are cases where no *scored*
+   expert solved at all. Those are lower bounds: an expert that was never
+   recalled was never tried, which is exactly what a wider M or a better key
+   could change — the audit states this in its own output rather than leaving it
+   to be assumed.
+
+---
+
 ## 19. V8-B (minimal continual loop, Task 0 → Task 2)
 
 **Verdict: NOT RUN.** This section states what V8-B is, what it now costs, and
@@ -654,6 +780,56 @@ of a frozen historical context. Recommended sequence: Task 1 only (not Task 0,
 which has no history and so tests nothing new), with the teacher over a
 500-sample subsample rather than 2,000 — a ~3 h pilot that exercises every stage
 end to end.
+
+---
+
+## 21. Efficiency
+
+All figures below are measured, and each cites the artifact it came from.
+
+### 21.1 Teacher cost (Task 4, all-experts, 256 samples)
+
+| Quantity | Value | Source |
+| --- | --- | --- |
+| End-to-end wall time | 3,917 s = 65.3 min | `COMPLETE.json:duration_seconds` |
+| Model load | 102.7 s | `analysis.json:timings_seconds.load_model` |
+| Routes generated | 2,612 (256 base + 2,140 singles + 216 pairs) | `analysis.json:generation.generated` |
+| Generation cache hits | 0 | `analysis.json:generation.cache_hits` |
+| Seconds per route | 1.08 s | 2,356 routes (STEP C singles + pairs) between STEP B at 341.9 s and pair scoring at 2,894.1 s |
+| NLL evaluations | 2,396 live + 216 reused | `analysis.json:generation` |
+| Seeded pair NLLs | 64,768, replayed exactly (`max_abs_diff 0.0`) | `COMPLETE.json:seed_verification` |
+| Peak allocator memory | 14.8 GiB | `COMPLETE.json:peak_gpu_memory_bytes` |
+| Resident VRAM (`nvidia-smi`) | 16,910 MiB | sampled during run 2 on the same GPU |
+| GPU utilization | 14–34 % (mean ≈25 %), 85–95 W | sampled 5× at 3 s intervals |
+
+The GPU is **not** the bottleneck: at ~25 % utilization the teacher is bound by
+per-route decode/Python overhead, not by tensor compute. Two consequences worth
+recording, because they decide how V8-B should be run rather than being trivia:
+cost scales with the **number of routes**, so M and K_s are the cost levers
+(deeper recall is linearly more expensive), and the same GPU can serve other
+work alongside a run of this shape.
+
+### 21.2 Training cost (the comparison V8-B would have to beat)
+
+V7's own Task-4 training is 621 optimizer steps at 34.55 s/step = **5 h 58 min**
+for 39,743 samples, i.e. 0.54 s/sample at gradient-accumulation 64 (from
+`…/task4/logs/training.log` and `metrics/train_steps.rank*.jsonl`). V8-B adds
+the teacher on top of that, which is why the pilot in §19.5 is scoped at 500
+teacher samples rather than 2,000.
+
+**Cross-check.** §19.2 estimated a 2,000-sample teacher at 6–8 h single-GPU
+*before* this campaign ran, from the V7 logs and the legacy `task_run.py`
+budget. The measured 1.08 s/route now predicts 2,000 × 11 ≈ 22,000 routes ≈
+6.6 h. Two independent derivations agree, so the pilot's cost line is not a
+guess.
+
+### 21.3 Inference cost
+
+V8-A's policy replay adds no generation: the routes it selects were already
+generated during the teacher's search, so the replay is scoring only. The
+1.07 s/route figure is what inference costs when it is paid separately — one
+forward-generation per selected route, with the router itself being a matrix
+product over the frozen query cache.
 
 ---
 

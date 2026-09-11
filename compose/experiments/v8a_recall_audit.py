@@ -90,6 +90,7 @@ def audit(run_root: Path, task: int, ks: Sequence[int] = (1, 2, 4, 8)) -> Dict[s
     selected_hits: List[int | None] = []
     solver_hits: List[int | None] = []
     capability_present_not_recalled = 0
+    selected_outside = 0
     residual = 0
     base_solved = 0
     examples: List[Dict[str, Any]] = []
@@ -115,6 +116,15 @@ def audit(run_root: Path, task: int, ks: Sequence[int] = (1, 2, 4, 8)) -> Dict[s
         visible = full_order.get(sample_id, [])
         selected_hits.append(_best_rank(selected, order))
         solver_hits.append(_best_rank(solvers, order))
+
+        # STEP C scores the *pool-wide* candidate union, which is wider than any
+        # single sample's Top-M window.  A route that names an expert outside
+        # this sample's own window could therefore be selected by the teacher
+        # but never by the deployed per-sample router, so the achieved metric is
+        # an upper bound by exactly these samples.  Counting them makes the
+        # bound a number rather than a caveat.
+        if selected and not set(selected) <= set(order):
+            selected_outside += 1
 
         if _best_rank(solvers, order) is None:
             if _best_rank(solvers, visible) is not None:
@@ -142,6 +152,8 @@ def audit(run_root: Path, task: int, ks: Sequence[int] = (1, 2, 4, 8)) -> Dict[s
         "selected_recall_at_k": _curve(selected_hits, ks),
         "solver_recall_at_k": _curve(solver_hits, ks),
         "capability_present_but_outside_recall_window": capability_present_not_recalled,
+        "selected_route_outside_own_recall_window": selected_outside,
+        "solved_with_a_route_inside_own_window": solved - selected_outside,
         "examples_of_retrieval_miss": examples,
         "note": (
             "solver sets are lower bounds: only recalled experts are scored, so a "
