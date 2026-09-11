@@ -94,8 +94,58 @@ V7 trains with an optimizer whitelist keyed on tensor identity
 
 ### 3.5 Teacher infrastructure
 
-**V7 has no teacher.** It has two adjacent pieces of infrastructure that V8
-reuses rather than reinvents: `compose/eval/nll_eval.py` (teacher-forced answer
+**V7 has no teacher** — and this is stated by V7's own runner, not inferred:
+`compose/experiments/v7_task_run.py`'s docstring says *"Unlike V6.2 this runner
+has no teacher, residual, clustering, calibration or warm-up stages. The declared
+full train split is used for query center and training from optimization step
+one."* The live formal run's stage markers confirm it (`s0_full_data`,
+`s1_fixed_queries`, `s2_candidates`, `s3_training`, `s4_rms`, `s5_pruning_commit`).
+
+**But the repo does contain the teacher V8 grew out of.** The legacy V6.2
+pipeline `compose/experiments/task_run.py` (S0–S12, *Query-Clustered Residual
+Expert Discovery*) has:
+
+* **S2 "teacher search"** — `empty/single/pair over the per-sample Top-M`, i.e.
+  the same search shape as V8's STEP A/B/C plus pair search; and
+* **S3 "residual split"** — `old_teacher_loss > tau_res`, with `tau_res: 2.0`
+  hard-coded at `task_run.py:168` and applied at `task_run.py:1270-1299`.
+
+S3 is precisely the rule the V8 specification forbids — *"绝对禁止：Answer NLL <
+某个统一阈值 => solved"* — a single global magic number deciding which samples
+need new capability. V8's substantive contribution is therefore well-posed
+against a real predecessor rather than a straw man: it keeps the S2 search shape
+and replaces the S3 signal with the task metric. That is also why the V8 work
+does not need to build a teacher harness from nothing (see §19's cost model).
+
+### 3.7 What the legacy teacher proves about V8's design
+
+Two things worth separating, because they point opposite ways.
+
+**V8's search shape is inherited, not invented.** The legacy teacher's
+hyperparameters and V8's are the same numbers:
+
+| Legacy V6.2 (`task_run.py:158-172`) | V8 (`compose/v8/config.py:63-65`) |
+| --- | --- |
+| `router.top_m: 8` | `historical_top_m: 8` |
+| `teacher.top_k_for_pair: 4` | `pair_top_k_single: 4` |
+| `teacher.max_pairs: 6` | `max_pairs: 6` |
+| `residual.tau_res: 2.0` | **removed** — no NLL threshold exists |
+
+So V8's M=8, K_s=4 and C(4,2)=6 are the repo's established budget, and the
+method's actual delta is narrower and sharper than "a new teacher": **the same
+search shape, decided by task correctness instead of NLL**, plus the multi-key
+pool and the per-sample gradient gating that make reuse trainable without
+touching history.
+
+**The legacy teacher is the concrete thing V8 fixes.** Legacy S2 ranks singles
+by `loss + lambda_expert` and pairs by raw NLL delta
+(`task_run.py:1088-1096`, `:1110-1135`) and then lets S3 split residual samples
+on a global `tau_res = 2.0`. A sample whose correct answer the pool already
+produces, but with high NLL, is sent to a new expert; a sample with low NLL and a
+wrong answer is treated as solved. V8's causal-chain Q1 is exactly the question
+this cannot answer, which is why V8-A measures it directly.
+
+V7's own adjacent infrastructure that V8 reuses rather than reinvents: `compose/eval/nll_eval.py` (teacher-forced answer
 NLL, whose forward body V8's `AnswerNLLScorer._forward` reproduces exactly — see
 §13's seed verification, which proves it numerically) and the pair diagnostic
 `v7_final_pool_pair_upper_val256_20260907`, which contains 253 pairs × 256
@@ -427,3 +477,34 @@ a leak: it is what "Answer-Supervised" means, and the same information is what t
 official metric scores against. What the audit above establishes is that this
 information cannot reach the inference path, and that a *test* split can never
 reach the teacher.
+---
+
+## 24. Acceptance Checklist
+
+Every row cites the artefact that decides it — a test name, a file:line, or a
+section of this report. "Test" means it is decided by a test that runs in the
+601-test suite (§11); "report" means it is decided by a measured run.
+
+| # | Requirement | Decided by | Status |
+| --- | --- | --- | --- |
+| 1 | V7 still runnable | 548 pre-existing tests pass; `compose/v7/`, `compose/eval/`, `llava/` byte-unchanged (`git diff --stat`) | PASS |
+| 2 | Fixed query unchanged | `test_01_fixed_query_has_zero_trainable_parameters`; queries reused from the V7 cache, contract `6c51879f…` | PASS |
+| 3 | Historical LoRA frozen | `test_02_historical_lora_requires_grad_false`, `test_03_historical_lora_checksum_unchanged_after_training`; §10.3 | PASS |
+| 4 | Origin keys frozen | `test_04_historical_committed_old_key_unchanged` (and it fails when the key is mutated); §10.3 | PASS |
+| 5 | Multi-Key pool works | `test_05_one_expert_can_own_multiple_keys`, `test_27_v7_checkpoint_migration_creates_origin_keys_correctly` | PASS |
+| 6 | One expert cannot fill two Top-2 slots | `test_07_one_expert_cannot_occupy_two_top2_slots`; router aggregates per expert by max | PASS |
+| 7 | Correctness controls `solved` | `test_08_teacher_uses_task_correctness_for_solved_decision`; `metric_adapter.py` is the only `solved` producer | PASS |
+| 8 | NLL never independently controls `solved` | `test_09`, `test_10`, `test_teacher_rejects_nll_solved_threshold_configuration`; `config.py:66-85`, `:332` | PASS |
+| 9 | Alternative solved expert is IGNORE, not negative | `test_11_multiple_solved_experts_best_positive_others_ignore_unsolved_negative`, `test_21` | PASS |
+| 10 | BaseOnly / Reuse1 / Reuse2 get no candidate-LoRA gradient | `test_16`, `test_17`, `test_18` | PASS |
+| 11 | Residual candidate does get gradient | `test_19_residual_candidate_lora_receives_gradient` | PASS |
+| 12 | No gradient leaks across a mixed batch | `test_30_gradient_leakage_on_mixed_baseonly_reuse_residual_batch` | PASS |
+| 13 | Alias key created lazily, only with support | `test_22_zero_support_historical_expert_gets_no_alias_key`; `key_learning.py:create_alias_keys` | PASS |
+| 14 | Zero-support alias not committed | `test_pruning_retires_zero_support_alias_but_never_strands_an_expert` | PASS |
+| 15 | Inference never reads ground truth | `test_24_inference_path_never_reads_ground_truth_answer` (AST scan, with negative controls) | PASS |
+| 16 | Full-pool recall audit works | `compose/experiments/v8_full_pool_recall.py`; §16 | see §16 |
+| 17 | V7 regression passes | 548 tests; §12 | PASS |
+| 18 | Resume is deterministic | `test_25_teacher_cache_reload_deterministic`, `test_26_resume_preserves_expert_key_mapping` | PASS |
+| 19 | V8-A evidence collected | §13–§18 | see §14–§18 |
+| 20 | V8-B evidence collected *if run* | not run — costed and recommended in §19 | N/A (declared) |
+| 21 | Method and implementation reported separately | §1 and §25 keep the two verdicts apart, per PART 37 | PASS |
