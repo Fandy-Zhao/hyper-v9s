@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-09-11 — V8 Answer-Supervised Multi-Key: core, TEST 01–30, and the V8-A runner
+
+- New package `compose/v8/` (config, query, pool, routing, selection, teacher,
+  key_learning, gating, pruning, commit, checkpoint, cache, audit, inference,
+  metric_adapter) plus the experiment runner `compose/experiments/v8_task_run.py`.
+  V7 is untouched: no file under `compose/v7/`, `compose/adapters/`, or
+  `compose/eval/` was modified, and no existing checkpoint was written to.
+- Tests: `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30) and
+  `tests/compose/test_v8_generation_harness.py`. 92 pass together with the V7
+  regression file `test_v7_global_coevolution.py`.
+- V8-A runs the Answer-Supervised Expert Teacher over the committed V7 pool
+  (`…/v7_gpu01_cached_query_formal_20260903/task5/committed`, 23 experts, 23
+  origin keys) with **no training and no alias keys**, so it tests Goal A
+  (correctness-decided expert reuse) alone; with one key per expert the
+  multi-key router reduces exactly to V7's, so Goal B is out of scope for it
+  and the report says so.
+- `compose/v8/generate.py` supplies the per-sample 0/1/2-expert routing that
+  V7's evaluator cannot express — `compose/eval/eval_task.py` hard-requires two
+  *distinct* experts on `--selection-manifest`, which is recorded as a BLOCKER
+  with this module as its minimal fix. Batch size stays 1 and the prompt is a
+  byte-identical copy of the V7 evaluator's (asserted by test) so V8 numbers are
+  comparable to the V7 baseline they are measured against.
+- Two silent-failure bugs found by the runner's own guard rails, both fixed:
+  `RouteGenerationCache` defined `__len__` without `__bool__`, so a fresh cache
+  was falsy and every write was skipped — a run reported `generated=31` and left
+  no `generation_cache.jsonl`; and the seed spot check built its expert list as
+  `route.split("_")[1:]`, which turns `"e10_13"` into `[13]`, so every seeded
+  *pair* was silently re-measured as a single expert and a correct run aborted.
+  `experts_from_route` is now the checked inverse of `route_key`.
+- Smoke (task 4 CLEVR-Math, first 4 validation samples, GPU 3): states
+  `{'BaseOnly': 1, 'Reuse1': 3, 'Reuse2': 0, 'Residual': 0}` — minimal
+  cardinality, no sample needed a pair; V8 policy 100.0 vs V7 actual-route
+  67.97; seed verification MATCH, max |diff| 0.0 across 8 live recomputations of
+  the frozen V7 pair diagnostic.
+
 ## 2026-09-03 — DDP smoke lifecycle closed; DISTRIBUTED_RMS_EQUIVALENCE PASS (0903 spec §22/§24)
 
 - DDP cache smoke (`v7_gpu01_ddp_cache_smoke_task0_20260903`, world 2 ×

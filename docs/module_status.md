@@ -65,6 +65,8 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
 - `scripts/Compose/` - full/smoke training, evaluation, Oracle, and matched baseline launchers
 - `expansion/` and `router/` - two-slot candidate pool and answer-free multi-label Query-Key router, currently diagnostic-only
 - `tests/compose/` - 159 tests plus 8 subtests covering foundation, Oracle, arithmetic-RMS composition, scheduling, candidate slots, and multi-label routing
+- `v8/` - answer-supervised multi-key layer: frozen historical LoRA/keys, per-task alias keys, correctness-decided reuse (BaseOnly/Reuse1/Reuse2/Residual), optimizer whitelist and gradient gating. Additive: it reads the V7 pool and never writes to it. See `docs/reports/V7_TO_V8_IMPLEMENTATION_MAPPING.md`
+- `v8/` + `experiments/v8_task_run.py` - V8-A: the Answer-Supervised Expert Teacher over the committed V7 pool, no training, per-sample 0/1/2-expert generation with an append-only answer cache and an official-metric gate
 
 ## Risks
 - `llava/model/llava_arch copy.py` is a stale copy — archived to deprecated
