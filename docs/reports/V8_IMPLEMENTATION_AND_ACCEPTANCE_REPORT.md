@@ -29,7 +29,7 @@ metric adapters, lazy alias-key creation, the gradient gating, the freeze ledger
 the trainer, the inference router — 18 modules under `compose/v8/`, plus 10
 drivers under `compose/experiments/v8*`, all new files
 beside V7 rather than edits to it. `git diff --stat 9ff2b28..HEAD` is **34 files,
-12,784 insertions, 0 deletions** at `a6d3e4b`, and **zero** of those files are
+12,988 insertions, 0 deletions** at `3215000`, and **zero** of those files are
 under `compose/v7/`, `compose/adapters/`, `compose/eval/` or `llava/`. The suite
 is **609 tests passing** (75.32 s), 548 of them pre-dating this work.
 
@@ -680,8 +680,8 @@ rule, and 16–19 plus 30 are the four gating states and their interaction.
 ## 12. V7 Regression and Task 0 Parity
 
 **V7 regression**: 548 tests under `tests/compose/` that predate this work still
-pass. `git diff --stat 9ff2b28..HEAD` reports **34 files changed, 12,784
-insertions(+), 0 deletions(-)** at `a6d3e4b` — every change is a new file
+pass. `git diff --stat 9ff2b28..HEAD` reports **34 files changed, 12,988
+insertions(+), 0 deletions(-)** at `3215000` — every change is a new file
 (`compose/v8/*`, `compose/experiments/v8*.py`, the two new test files) plus
 additive edits to `CHANGELOG.md` and `docs/module_status.md`. Nothing under
 `compose/v7/`, `compose/adapters/`, `compose/eval/` or `llava/` was modified,
@@ -690,11 +690,14 @@ deleted lines is the mechanical statement of "V8 does not break V7": no V7 code
 path was edited, only new modules were added beside it.
 
 The insertion count is quoted against a named commit because it is the one number
-here that *moves*: it was 11,347 when §12.1 was first drafted and 11,874 when §1
-was written, and neither is a fact about the branch, only about a moment in it.
-The two load-bearing numbers do not move at all — **0 deletions** and **0 files
-under the four protected directories** hold at every commit from `9ff2b28` to
-`HEAD`, and both are re-checkable with
+here that *moves*: it was 11,347 when §12.1 was first drafted, 11,874 when §1 was
+written, and 12,988 at `3215000`; none of those is a fact about the branch, only
+about a moment in it. `3215000` is pinned rather than `HEAD` because it is the
+last commit that touches code — every commit after it edits only this report —
+so 12,988 is the code-bearing diffstat and stays that way as the report is
+polished. The two load-bearing numbers do not move at all: **0 deletions** and
+**0 files under the four protected directories** hold at every commit from
+`9ff2b28` to `HEAD`, and both are re-checkable with
 `git diff --numstat 9ff2b28..HEAD | awk '$2 != 0'` (empty) and
 `git diff --name-only 9ff2b28..HEAD | grep -E '^(compose/v7/|compose/adapters/|compose/eval/|llava/)'` (empty).
 
