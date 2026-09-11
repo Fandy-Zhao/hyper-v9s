@@ -109,6 +109,12 @@ class TrainReport:
     answer_loss_sum: float = 0.0
     key_loss_sum: float = 0.0
     key_steps: int = 0
+    #: Batches whose key targets were non-empty -- the only batches that can
+    #: legitimately move an alias key.  ``key_steps`` counts the loss terms
+    #: added, so ``key_steps - key_batches`` is the number of no-op key terms.
+    key_batches: int = 0
+    #: Per-role sample counts across the epoch's batches (PART 3/6 evidence).
+    key_role_samples: Dict[str, int] = field(default_factory=dict)
     states: Dict[str, int] = field(default_factory=dict)
     gating: List[Dict[str, Any]] = field(default_factory=list)
     gradient_experts: List[int] = field(default_factory=list)
@@ -133,6 +139,8 @@ class TrainReport:
             "mean_answer_loss": self.mean_answer_loss,
             "mean_key_loss": self.mean_key_loss,
             "key_steps": int(self.key_steps),
+            "key_batches": int(self.key_batches),
+            "key_role_samples": dict(self.key_role_samples),
             "states": dict(self.states),
             "gradient_experts": list(self.gradient_experts),
             "gradient_keys": list(self.gradient_keys),
@@ -297,15 +305,28 @@ class V8TaskTrainer:
         """Run one epoch of mixed gated batches.
 
         ``teacher_result`` is only needed to train alias keys: it supplies the
-        three-valued targets.  Without it the epoch trains the candidate expert
-        alone, which is the correct behaviour for a task whose teacher found no
-        reusable history.
+        four-valued role targets.  Without it the epoch trains the candidate
+        expert alone, which is the correct behaviour for a task whose teacher
+        found no reusable history.
+
+        The key targets are rebuilt **per batch**, restricted to that batch's
+        sample ids.  A single global objective over every teacher record would
+        make the per-sample state table a statement about intent rather than
+        about the run: a batch of nothing but BaseOnly samples would still move
+        alias keys, through other samples' positives, and a probe that saw the
+        alias tensors move in a Residual batch could not tell which sample
+        caused it.  Restricting to the batch is what makes
+
+        * BaseOnly -> no key moves,
+        * Reuse1/Reuse2 -> only the selected solvers' aliases move,
+        * Residual -> the context alias moves,
+
+        literally true of the batch the trainer just ran (PART 6).
         """
         if not batches:
             raise TrainerError("an epoch needs at least one batch")
+        use_keys = teacher_result is not None and bool(self.queries_by_sample)
         targets = None
-        if teacher_result is not None and self.queries_by_sample:
-            targets = build_key_targets(teacher_result, self.pool, self.current_task)
         report = TrainReport()
         log = progress or (lambda message: None)
         self.optimizer.zero_grad(set_to_none=True)
@@ -324,12 +345,25 @@ class V8TaskTrainer:
                 )
             loss = residual_answer_loss(per_sample, weights)
             key_report = None
-            if targets is not None:
+            batch_targets = None
+            if use_keys:
+                batch_targets = build_key_targets(
+                    teacher_result,
+                    self.pool,
+                    self.current_task,
+                    sample_ids=batch.sample_ids,
+                )
                 key_report = alias_key_loss(
-                    self.queries_by_sample, self.pool, targets, self.key_config
+                    self.queries_by_sample, self.pool, batch_targets, self.key_config
                 )
                 loss = loss + key_report.total
-            loss.backward()
+            # A batch whose samples are all covered (BaseOnly / Reuse1 / Reuse2)
+            # selects nothing trainable, so the loss is a constant zero with no
+            # graph behind it -- and that is the *point* of the gating, not an
+            # error.  Calling backward() on it would raise instead of recording
+            # "nothing moved", which is the fact the report exists to state.
+            if loss.requires_grad:
+                loss.backward()
             self._record_gradient_footprint()
             self.optimizer.step()
             self.optimizer.zero_grad(set_to_none=True)
@@ -349,6 +383,24 @@ class V8TaskTrainer:
             if key_report is not None:
                 report.key_loss_sum += float(key_report.total.detach().item())
                 report.key_steps += 1
+                if any(
+                    bucket.positive_ids or bucket.context_positive_ids
+                    or bucket.negative_ids
+                    for bucket in batch_targets.values()
+                ):
+                    report.key_batches += 1
+                for bucket in (batch_targets or {}).values():
+                    counts = (
+                        ("solver_positive", len(bucket.positive_ids)),
+                        ("context_positive", len(bucket.context_positive_ids)),
+                        ("negative", len(bucket.negative_ids)),
+                        ("ignore", len(bucket.ignored_ids)),
+                    )
+                    for role, count in counts:
+                        report.key_role_samples[role] = (
+                            report.key_role_samples.get(role, 0) + count
+                        )
+                targets = batch_targets
             log("batch {}/{}: {} residual, {} covered".format(
                 index + 1, len(batches), report.residual_samples, report.covered_samples
             ))

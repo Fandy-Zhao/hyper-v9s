@@ -43,7 +43,17 @@ _FORBIDDEN_FIELD_TOKENS = (
     "label_text",
 )
 
-CACHE_VERSION = 1
+#: v1 -> v2: the record payload gained ``historical_experts_visible`` and
+#: ``historical_experts_tested`` -- the evidence that the teacher searched the
+#: whole visible historical pool rather than the recalled Top-M.  A v1 cache
+#: still loads: the fields default to empty and the record is then a faithful
+#: description of the pre-oracle semantics, which is what it always was.  The
+#: version is written into the manifest and never rewritten in place.
+CACHE_VERSION = 2
+#: Versions this reader accepts.  A v1 file is not an error -- it is a record
+#: produced by a teacher whose search was recall-bounded, and labelling it as
+#: such is more honest than refusing to read it.
+SUPPORTED_CACHE_VERSIONS = (1, 2)
 
 
 def _forbid_answer_fields(payload: Any, path: str = "$") -> None:
@@ -94,6 +104,15 @@ def record_from_payload(payload: Mapping[str, Any]) -> TeacherSampleRecord:
         # written before this field existed still loads.
         residual_context=[int(value) for value in payload.get("residual_context", [])],
         solved_threshold=float(payload.get("solved_threshold", 0.0)),
+        # v2 fields.  A v1 record has neither, and reloading it with empty lists
+        # is correct: that record was produced by a recall-bounded search, so its
+        # "visible" set is genuinely unknown from the artefact alone.
+        historical_experts_visible=[
+            int(value) for value in payload.get("historical_experts_visible", [])
+        ],
+        historical_experts_tested=[
+            int(value) for value in payload.get("historical_experts_tested", [])
+        ],
     )
 
 
@@ -182,6 +201,13 @@ def read_teacher_result(root: str | Path) -> TeacherResult:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("stores_ground_truth") is not False:
         raise TeacherCacheError("teacher cache declares ground truth storage")
+    version = int(manifest.get("cache_version", 0))
+    if version not in SUPPORTED_CACHE_VERSIONS:
+        raise TeacherCacheError(
+            f"teacher cache version {version} is not supported by this reader "
+            f"(supported: {list(SUPPORTED_CACHE_VERSIONS)}); the file is left "
+            "untouched -- re-run the teacher rather than upgrading in place"
+        )
     records_path = root / str(manifest["records_file"])
     records: List[TeacherSampleRecord] = []
     with records_path.open("r", encoding="utf-8") as handle:
@@ -247,6 +273,7 @@ def merge_state_maps(*mappings: Mapping[str, str]) -> Dict[str, str]:
 
 __all__ = [
     "CACHE_VERSION",
+    "SUPPORTED_CACHE_VERSIONS",
     "TeacherCacheError",
     "assert_roundtrip",
     "merge_state_maps",

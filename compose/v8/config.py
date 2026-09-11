@@ -28,11 +28,24 @@ STATE_REUSE2 = "Reuse2"
 STATE_RESIDUAL = "Residual"
 TEACHER_STATES = (STATE_BASE_ONLY, STATE_REUSE1, STATE_REUSE2, STATE_RESIDUAL)
 
-#: Three-valued key target (PART 12).  An alternative solved expert is IGNORE:
-#: it must never be pushed away from a query it can actually solve.
-TARGET_POSITIVE = "positive"
+#: Key-target roles.  An alternative solved expert is IGNORE: it must never be
+#: pushed away from a query it can actually solve.
+#:
+#: SOLVER_POSITIVE and CONTEXT_POSITIVE are *both* attraction signals but rest on
+#: different evidence, and the whole point of keeping them apart is that
+#: "not independently solved" is not the same statement as "not useful as
+#: composition context".  A Residual sample's context expert must therefore
+#: attract its alias key rather than repel it -- the reasoning that makes an
+#: unsolved single a legitimate NEGATIVE on a Reuse1 sample does not transfer.
+#:
+#: ``TARGET_POSITIVE`` keeps its historical string value ``"positive"`` so that
+#: teacher records written before this distinction existed stay readable.
+TARGET_SOLVER_POSITIVE = "positive"
+TARGET_POSITIVE = TARGET_SOLVER_POSITIVE
+TARGET_CONTEXT_POSITIVE = "context_positive"
 TARGET_NEGATIVE = "negative"
 TARGET_IGNORE = "ignore"
+TARGETS = (TARGET_SOLVER_POSITIVE, TARGET_CONTEXT_POSITIVE, TARGET_NEGATIVE, TARGET_IGNORE)
 
 
 @dataclass(frozen=True)
@@ -57,9 +70,34 @@ class V8QueryConfig:
             raise ValueError("V8 query must have zero trainable parameters")
 
 
+#: The teacher may only be a Capability Discovery Oracle: the answer supervision
+#: it hands out must not be limited by what the current keys happen to recall.
+#: A bounded-recall teacher makes key quality a *precondition* for capability
+#: discovery, so a capable expert that the origin keys rank badly is never
+#: scored, never becomes a solver, and never earns the alias key that would have
+#: fixed its ranking -- the failure is invisible and self-confirming.
+TEACHER_SEARCH_FULL_HISTORY = "full_history_single_oracle"
+
+#: Bounded pair composition search over the K_s best historical singles, or a
+#: strictly exhaustive sweep over every visible historical pair.  Bounded is the
+#: default because it is the established budget; exhaustive is opt-in because it
+#: is C(H,2) generations per pending sample.
+PAIR_SEARCH_BOUNDED = "bounded"
+PAIR_SEARCH_EXHAUSTIVE = "exhaustive"
+
+
 @dataclass(frozen=True)
 class V8TeacherConfig:
     use_base_first: bool = True
+    #: Which experts the teacher is allowed to score as singles.  Only the
+    #: full-history oracle is implemented: key recall is a diagnostic here, never
+    #: a filter on who receives answer supervision.
+    search_mode: str = TEACHER_SEARCH_FULL_HISTORY
+    pair_search_mode: str = PAIR_SEARCH_BOUNDED
+    #: DIAGNOSTIC ONLY.  The router's Top-M is still computed and recorded (it
+    #: is the quantity the keys are judged by), but it no longer decides which
+    #: experts the teacher tests, which states are assigned, which experts get
+    #: alias support, or which samples the candidate trains on.
     historical_top_m: int = 8
     pair_top_k_single: int = 4
     max_pairs: int = 6
@@ -85,6 +123,17 @@ class V8TeacherConfig:
             raise ValueError("V8 solved signal must be task_metric")
         if self.use_base_first is not True:
             raise ValueError("V8 requires base-first minimal-capacity search")
+        if self.search_mode != TEACHER_SEARCH_FULL_HISTORY:
+            raise ValueError(
+                "the training teacher must be a full-history capability oracle: "
+                "key recall may not limit which experts receive answer "
+                "supervision (DECISION-1)"
+            )
+        if self.pair_search_mode not in (PAIR_SEARCH_BOUNDED, PAIR_SEARCH_EXHAUSTIVE):
+            raise ValueError(
+                f"pair_search_mode must be {PAIR_SEARCH_BOUNDED!r} or "
+                f"{PAIR_SEARCH_EXHAUSTIVE!r}"
+            )
         if self.historical_top_m < 1:
             raise ValueError("historical_top_m must be positive")
         if self.pair_top_k_single < 2:
@@ -92,8 +141,16 @@ class V8TeacherConfig:
         if self.max_pairs < 1:
             raise ValueError("max_pairs must be positive")
 
+    @property
+    def full_history_singles(self) -> bool:
+        """True when every visible historical expert is scored as a single."""
+        return self.search_mode == TEACHER_SEARCH_FULL_HISTORY
+
     def pair_budget(self, candidate_count: int) -> int:
         """Number of pairs actually enumerated over the shortlist."""
+        if self.pair_search_mode == PAIR_SEARCH_EXHAUSTIVE:
+            count = max(int(candidate_count), 0)
+            return count * (count - 1) // 2
         shortlist = min(int(candidate_count), int(self.pair_top_k_single))
         return min(shortlist * (shortlist - 1) // 2, int(self.max_pairs))
 
@@ -123,10 +180,20 @@ class V8KeyConfig:
     positive_loss: str = "cosine"
     ranking_loss: str = "margin"
     alternative_solved_policy: str = "ignore"
-    lambda_pos: float = 1.0
+    #: ``L_pos`` splits by evidence source: an expert the teacher selected solved
+    #: the sample, an expert it kept as Residual context did not.  Both attract
+    #: the alias key; the two weights are separate so an ablation can tell the
+    #: two contributions apart without a code change.  V8-v1 runs them equal.
+    lambda_solver_positive: float = 1.0
+    lambda_context_positive: float = 1.0
     lambda_rank: float = 0.1
     ranking_margin: float = 0.2
     learning_rate: float = 3.0e-4
+
+    @property
+    def lambda_pos(self) -> float:
+        """Legacy name for the solver-positive weight (pre-oracle semantics)."""
+        return self.lambda_solver_positive
 
     def __post_init__(self) -> None:
         if self.mode != "multi_key":
@@ -146,7 +213,9 @@ class V8KeyConfig:
             raise ValueError("V8 v1 positive loss is cosine attraction")
         if self.ranking_loss != "margin":
             raise ValueError("V8 v1 ranking loss is a margin loss")
-        if self.lambda_pos < 0 or self.lambda_rank < 0:
+        if self.lambda_solver_positive < 0 or self.lambda_rank < 0:
+            raise ValueError("key loss weights must be non-negative")
+        if self.lambda_context_positive < 0:
             raise ValueError("key loss weights must be non-negative")
         if self.ranking_margin < 0:
             raise ValueError("ranking margin must be non-negative")
@@ -248,6 +317,24 @@ class V8TrainingConfig:
             raise ValueError("gradient_accumulation_steps must be positive")
 
 
+#: Renamed fields, so a config dict written by an earlier revision still loads
+#: instead of raising ``TypeError`` on an unexpected keyword.  Value is
+#: ``{section: {old_name: new_name}}``.
+_RENAMED_SECTION_FIELDS: Dict[str, Dict[str, str]] = {
+    "key": {"lambda_pos": "lambda_solver_positive"},
+}
+
+
+def _section_kwargs(name: str, raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Adapt a raw section dict to the current dataclass field names."""
+    if name == "audit" and "recall_ks" in raw:
+        raw["recall_ks"] = tuple(raw["recall_ks"])
+    for old, new in _RENAMED_SECTION_FIELDS.get(name, {}).items():
+        if old in raw:
+            raw.setdefault(new, raw.pop(old))
+    return raw
+
+
 @dataclass(frozen=True)
 class V8Config:
     schema_version: int = 1
@@ -278,10 +365,9 @@ class V8Config:
         for name, section_type in self.SECTIONS.items():
             current = getattr(self, name)
             if isinstance(current, Mapping):
-                raw = dict(current)
-                if name == "audit" and "recall_ks" in raw:
-                    raw["recall_ks"] = tuple(raw["recall_ks"])
-                object.__setattr__(self, name, section_type(**raw))
+                object.__setattr__(
+                    self, name, section_type(**_section_kwargs(name, dict(current)))
+                )
             elif not isinstance(current, section_type):
                 raise TypeError(
                     f"V8 config section {name!r} must be a {section_type.__name__} "
@@ -298,10 +384,9 @@ class V8Config:
     def from_dict(cls, value: Dict[str, Any]) -> "V8Config":
         sections: Dict[str, Any] = {}
         for name, section in cls.SECTIONS.items():
-            raw = dict(value.get(name, {}) or {})
-            if name == "audit" and "recall_ks" in raw:
-                raw["recall_ks"] = tuple(raw["recall_ks"])
-            sections[name] = section(**raw)
+            sections[name] = section(
+                **_section_kwargs(name, dict(value.get(name, {}) or {}))
+            )
         return cls(
             schema_version=int(value.get("schema_version", 1)),
             method=str(value.get("method", "v8_answer_supervised_multikey")),
@@ -344,11 +429,19 @@ __all__ = [
     "STATE_BASE_ONLY",
     "STATE_REUSE1",
     "STATE_REUSE2",
+    "PAIR_SEARCH_BOUNDED",
+    "PAIR_SEARCH_EXHAUSTIVE",
     "STATE_RESIDUAL",
-    "TEACHER_STATES",
-    "TARGET_POSITIVE",
-    "TARGET_NEGATIVE",
+    "STATE_REUSE1",
+    "STATE_REUSE2",
+    "TARGET_CONTEXT_POSITIVE",
     "TARGET_IGNORE",
+    "TARGET_NEGATIVE",
+    "TARGET_POSITIVE",
+    "TARGET_SOLVER_POSITIVE",
+    "TARGETS",
+    "TEACHER_SEARCH_FULL_HISTORY",
+    "TEACHER_STATES",
     "V7_QUERY_MODULE_HASH",
     "V8AuditConfig",
     "V8Config",

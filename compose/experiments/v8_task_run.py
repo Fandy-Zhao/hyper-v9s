@@ -69,11 +69,15 @@ from compose.v8.audit import (  # noqa: E402
     teacher_expert_recall_at_k,
 )
 from compose.v8.config import (  # noqa: E402
+    PAIR_SEARCH_BOUNDED,
+    PAIR_SEARCH_EXHAUSTIVE,
     STATE_BASE_ONLY,
     STATE_RESIDUAL,
     STATE_REUSE1,
     STATE_REUSE2,
+    TARGET_CONTEXT_POSITIVE,
     TARGET_POSITIVE,
+    TEACHER_SEARCH_FULL_HISTORY,
     V8Config,
     V8TeacherConfig,
 )
@@ -108,6 +112,25 @@ DEFAULT_QUERY_CACHE = (
 
 TASK_NAMES = {0: "ImageNet-R", 1: "ArxivQA", 2: "VizWiz",
               3: "IconQA", 4: "CLEVR-Math", 5: "Flickr30k"}
+
+#: Artefact schema versions.  The audit trail is append-only in spirit: a reader
+#: must be able to tell which teacher semantics produced a file, because the
+#: pre-oracle campaign's ``teacher_result.json`` has the same shape but a
+#: different meaning (it searched only the recalled Top-M).
+#:
+#: * ``recall.json`` v1 -> v2: adds ``teacher_visible_expert_ids`` and marks the
+#:   existing ``visible_expert_ids`` as the active-pool field it always was.
+#: * ``teacher_result.json`` v1 -> v2: adds ``teacher_search_mode``,
+#:   ``historical_experts_visible`` and the per-record
+#:   ``historical_experts_tested`` / ``context_positive_experts``.
+#:
+#: Old files are never rewritten in place; the reader tolerates a v1 file by
+#: treating a missing ``teacher_search_mode`` as the pre-oracle semantics.
+RECALL_SCHEMA_VERSION = 2
+TEACHER_RESULT_SCHEMA_VERSION = 2
+#: The search mode string written by the pre-oracle campaign, used only when
+#: *reading* a v1 artefact.
+LEGACY_TEACHER_SEARCH_MODE = "bounded_recall"
 
 
 def _read_json(path: str | Path) -> Any:
@@ -542,6 +565,11 @@ class V8TaskRun:
         top_m = int(self.args.recall_top_m)
         excluded = self._excluded_experts()
         self.excluded_expert_ids = excluded
+        # The capability-search universe: the experts that exist, are alive
+        # (``active_expert_ids`` drops pruned ones) and are in continual scope at
+        # this task.  It is *not* the router's Top-M -- that is the whole point
+        # of DECISION-1, and the teacher hard-fails if the two are conflated.
+        self.visible_experts = sorted(set(self.expert_ids) - set(excluded))
         if len(excluded) >= len(self.expert_ids):
             # No historical pool exists yet (task 0).  V8's policy is BaseOnly
             # for every sample by construction, so the router is never asked to
@@ -579,10 +607,18 @@ class V8TaskRun:
                 if excluded else ""))
         _write_json(self.out / "recall.json", {
             "task_id": self.task,
+            "schema_version": RECALL_SCHEMA_VERSION,
             "recall_top_m": top_m,
             "history_only": bool(self.args.history_only),
             "excluded_expert_ids": excluded,
+            # NOTE (schema trap, kept for backward compatibility): this field has
+            # always held the whole *active pool*, not the in-scope set -- the
+            # scope is ``excluded_expert_ids``.  The unambiguous name is
+            # ``teacher_visible_expert_ids`` below; both are written so readers
+            # written against either revision agree.
             "visible_expert_ids": self.expert_ids,
+            "teacher_visible_expert_ids": list(self.visible_experts),
+            "router_top_m_diagnostic": True,
             "query_contract_hash": self.query_contract_hash,
             "recall": self.recall_map,
             "full_order": self.full_order,
@@ -665,12 +701,19 @@ class V8TaskRun:
         teacher_config = V8TeacherConfig(
             historical_top_m=int(self.args.recall_top_m),
             pair_top_k_single=int(self.args.shortlist_ks),
+            pair_search_mode=str(self.args.pair_search_mode),
         )
         teacher = AnswerSupervisedTeacher(self.metric, teacher_config)
 
+        # The teacher is a Capability Discovery Oracle: every historical expert
+        # visible at this task is scored as a single, independently of whether
+        # the current keys happen to recall it.  ``visible_experts`` is passed
+        # explicitly (it is a required argument) so no caller can silently fall
+        # back to a recall-limited search.
         result = teacher.run(
             task_id=self.task,
             sample_ids=self.sample_ids,
+            visible_experts=self.visible_experts,
             recall_map=self.recall_map,
             scorer=self.make_metric_scorer(engine),
             nll_scorer=nll,
@@ -684,13 +727,18 @@ class V8TaskRun:
         self.nll_reused = nll.reused
         _write_json(self.out / "teacher_result.json", {
             "task_id": self.task,
+            "schema_version": TEACHER_RESULT_SCHEMA_VERSION,
+            "teacher_search_mode": result.search_mode,
+            "historical_experts_visible": list(result.visible_experts),
             "config": dataclasses.asdict(teacher_config),
             "states": result.state_counts(),
             "state_rates": result.state_rate(),
+            "coverage": teacher_coverage_report(result),
             "records": [record.to_dict() for record in result.records],
         })
-        self.log("teacher: {} states={} generated={} nll_live={}".format(
-            len(result.records), result.state_counts(), self.generated, self.nll_computed))
+        self.log("teacher: mode={} visible={} {} states={} generated={} nll_live={}".format(
+            result.search_mode, len(result.visible_experts), len(result.records),
+            result.state_counts(), self.generated, self.nll_computed))
 
     # -- policy ---------------------------------------------------------
     def write_policy(self) -> None:
@@ -773,6 +821,92 @@ class V8TaskRun:
         )
         self.log("official V8 policy metric: {}".format(self.official))
 
+    # -- deployable Top-2 inference (PART 8) ----------------------------
+    def top2_inference(self) -> Dict[str, Any]:
+        """The *deployable* number, next to the teacher's oracle number.
+
+        ``official_score`` replays the teacher's per-sample route, and that route
+        is chosen with the validation answer in hand and may hold 0, 1 or 2
+        experts.  It is an **oracle** metric: no deployed system can pick
+        cardinality per sample from the ground truth.  This method measures what
+        the committed pool actually delivers -- every held-out sample goes
+
+            input -> frozen fixed query -> committed multi-key pool
+                  -> max-per-expert -> fixed Top-2 distinct experts -> generation
+
+        with no ground truth, no teacher, no NLL and no weighting anywhere in the
+        path.  The two numbers answer different questions and must never be
+        reported as one; the analysis records both under names that say which is
+        which.
+        """
+        router = MultiKeyRouter(V8Config().routing)
+        queries = torch.stack([self.queries[sample_id] for sample_id in self.sample_ids])
+        result = router(queries, self.pool, excluded_experts=self.excluded_expert_ids)
+        selection = {
+            sample_id: [int(value) for value in result.expert_ids[row].tolist()]
+            for row, sample_id in enumerate(self.sample_ids)
+        }
+        engine = GenerationEngine(
+            self.bundle,
+            image_folder=IMAGES,
+            device=self.args.device,
+            max_new_tokens=int(self.args.max_new_tokens),
+            cache_path=self.out / "generation_cache.jsonl",
+        )
+        answers = engine.generate_route(selection, self.records_by_id)
+        directory = self.out / "top2_inference"
+        directory.mkdir(parents=True, exist_ok=True)
+        with (directory / "answers.jsonl").open("w", encoding="utf-8") as handle:
+            for sample_id in self.sample_ids:
+                handle.write(json.dumps({
+                    "question_id": sample_id,
+                    "prompt": question_text(self.records_by_id[sample_id]),
+                    "text": answers[sample_id],
+                    "model_id": "compose",
+                    "metadata": {
+                        "v8_state": _cardinality_state(selection[sample_id]),
+                        "v8_experts": selection[sample_id],
+                        "v8_route": route_key(selection[sample_id]),
+                    },
+                }, ensure_ascii=False) + "\n")
+        annotation_path = directory / "questions.json"
+        _write_json(annotation_path, [
+            {
+                "question_id": sample_id,
+                "answer": answer_text(self.records_by_id[sample_id]),
+                "image": self.records_by_id[sample_id].get("image"),
+            }
+            for sample_id in self.sample_ids
+        ])
+        official = _score_answers(
+            directory,
+            self.task,
+            self.task,
+            directory / "answers.jsonl",
+            annotation_file=str(annotation_path),
+        )
+        payload = {
+            "metric": official,
+            "value": float(official["value"]),
+            "num_experts_per_sample": sorted(
+                {len(experts) for experts in selection.values()}
+            ),
+            "always_two_experts": all(
+                len(experts) == 2 for experts in selection.values()
+            ),
+            "generated": engine.generated_count,
+            "cache_hits": engine.cache_hits,
+            "inference_inputs": [
+                "frozen fixed query", "committed origin/alias keys",
+                "max-per-expert aggregation", "fixed Top-2 distinct experts",
+            ],
+            "forbidden_inputs": ["ground_truth", "teacher", "answer_nll", "task_label"],
+        }
+        _write_json(directory / "metric.json", payload)
+        self.top2 = payload
+        self.log("actual fixed Top-2 inference metric: {}".format(payload["value"]))
+        return payload
+
     # -- analysis -------------------------------------------------------
     def analyse(self) -> None:
         result = self.teacher_result
@@ -849,23 +983,42 @@ class V8TaskRun:
                 key = "{}".format(len(record.selected_experts))
             cardinality[key] = cardinality.get(key, 0) + 1
 
+        top2 = getattr(self, "top2", None)
+
         analysis = {
             "task_id": self.task,
             "task_name": TASK_NAMES.get(self.task),
             "samples": len(result.records),
             "v8_policy_metric": v8_metric,
+            # PART 8: the two metrics answer different questions and are named so
+            # that neither can be quoted as the other.
+            **metric_report(v8_metric, top2),
+            "teacher_search_mode": result.search_mode,
+            "historical_experts_visible": list(result.visible_experts),
+            "teacher_coverage": result.coverage_report(),
             "v7_actual_route_metric": v7_metric,
             "v7_nll_oracle_pair_metric": nll_oracle_metric,
             "v8_teacher_positive_samples": teacher_positives,
             "v8_teacher_positive_rate": teacher_positives / len(result.records),
             "full_pool_oracle_solves": teacher_positives,
             "full_pool_oracle_solves_note": (
-                "proxy, not an exhaustive sweep: it counts the samples the "
-                "teacher solved with a Top-M recalled expert.  Establishing "
-                "whether some non-recalled expert could also have solved a "
-                "sample would cost one generation per expert per sample, which "
-                "is outside this experiment's budget"
+                "the samples the Capability Discovery Oracle solved with a single "
+                "expert from the full visible historical pool (base-first), so "
+                "this is a capability statement about the pool and is not limited "
+                "by what the keys recall.  It is still not an exhaustive claim "
+                "about *pairs* when pair_search_mode is bounded"
             ),
+            "router_top_m_diagnostic_only": {
+                "recall_top_m": int(self.args.recall_top_m),
+                "teacher_expert_recall_at_k": {
+                    str(k): v for k, v in recall_curve.items()
+                },
+                "note": (
+                    "diagnostic: how often the committed keys rank a capable "
+                    "expert inside Top-K.  It is NOT an input to the teacher's "
+                    "search, the state assignment or the alias support"
+                ),
+            },
             "states": states,
             "state_rates": result.state_rate(),
             "policy_cardinality_histogram": dict(sorted(cardinality.items())),
@@ -940,6 +1093,9 @@ class V8TaskRun:
         self.run_teacher()
         self.write_policy()
         self.official_score()
+        self.top2 = None
+        if bool(getattr(self.args, "top2_inference_eval", False)):
+            self.top2_inference()
         self.analyse()
         verify = self.nll_scorer.verify_seed(trials=int(self.args.verify_nll_trials))
         _write_json(self.out / "seed_verification.json", verify)
@@ -961,6 +1117,10 @@ class V8TaskRun:
             "status": "COMPLETE",
             "task_id": self.task,
             "v8_policy_metric": self.analysis["v8_policy_metric"],
+            "teacher_oracle_metric": self.analysis["teacher_oracle_metric"],
+            "actual_top2_inference_metric": self.analysis[
+                "actual_top2_inference_metric"
+            ],
             "v7_actual_route_metric": self.analysis["v7_actual_route_metric"],
             "states": self.analysis["states"],
             "seed_verification": verify,
@@ -987,8 +1147,17 @@ def _parser() -> argparse.ArgumentParser:
                         help="route only over experts of earlier tasks, as the "
                              "pool stands when the task is being learned")
     parser.add_argument("--shortlist-ks", type=int, default=4)
+    parser.add_argument("--pair-search-mode", default=PAIR_SEARCH_BOUNDED,
+                        choices=(PAIR_SEARCH_BOUNDED, PAIR_SEARCH_EXHAUSTIVE),
+                        help="bounded sweeps the K_s best singles; exhaustive is "
+                             "C(H,2) generations per pending sample")
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--pair-min-metric-gain", type=float, default=None)
+    parser.add_argument("--top2-inference-eval", action="store_true",
+                        help="additionally generate the *deployable* fixed Top-2 "
+                             "route (no answer, no teacher, no NLL) so the run "
+                             "reports actual_top2_inference_metric next to the "
+                             "teacher's variable-cardinality oracle metric")
     parser.add_argument("--verify-nll-trials", type=int, default=8)
     parser.add_argument("--min-free-mib", type=int, default=18000,
                         help="wait for this much free device memory before loading")
@@ -997,6 +1166,60 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit", type=int, default=None,
                         help="smoke only: use the first N validation samples")
     return parser
+
+
+#: The note attached to a teacher-oracle number.  It exists so that the oracle
+#: metric can never be quoted as a deployable result by accident.
+TEACHER_ORACLE_NOTE = (
+    "teacher-selected route replayed: cardinality 0/1/2 is chosen per sample with "
+    "the validation answer in hand, so this is an ORACLE number and not deployable"
+)
+TOP2_NOT_MEASURED_NOTE = "not measured in this run: pass --top2-inference-eval"
+TOP2_MEASURED_NOTE = (
+    "held-out input -> frozen query -> committed keys -> max-per-expert -> fixed "
+    "Top-2 distinct experts -> generation; no ground truth, no teacher, no NLL"
+)
+
+
+def metric_report(
+    teacher_oracle_metric: float,
+    top2_payload: Optional[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """The two metric slots, formally separated (PART 8).
+
+    ``teacher_oracle_metric`` describes a route the teacher chose with the
+    answer in hand.  ``actual_top2_inference_metric`` describes the route the
+    committed pool produces with no supervision at all.  They answer different
+    questions, so they get different keys and each carries a note saying which
+    is which -- the failure mode this prevents is a single number being read as
+    "V8's accuracy".
+    """
+    return {
+        "teacher_oracle_metric": float(teacher_oracle_metric),
+        "teacher_oracle_metric_note": TEACHER_ORACLE_NOTE,
+        "actual_top2_inference_metric": (
+            None if top2_payload is None else float(top2_payload["value"])
+        ),
+        "actual_top2_inference_metric_note": (
+            TOP2_NOT_MEASURED_NOTE if top2_payload is None else TOP2_MEASURED_NOTE
+        ),
+        "metrics_are_separate": True,
+    }
+
+
+def _cardinality_state(experts: Sequence[int]) -> str:
+    """The state *name* for a fixed route, used only as a label in the answers.
+
+    At inference the state is not a decision -- the router always returns the
+    fixed Top-2 -- so this is a description of the cardinality that was used,
+    not a teacher verdict.  It is deliberately derived from the route alone.
+    """
+    count = len(list(experts))
+    if count == 0:
+        return STATE_BASE_ONLY
+    if count == 1:
+        return STATE_REUSE1
+    return STATE_REUSE2
 
 
 def main() -> None:

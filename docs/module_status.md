@@ -187,3 +187,89 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
 - Headline correction recorded in report §14/§25: the all-experts V8-A numbers
   (94.14 / 87.11) are roughly half self-reuse; genuine cross-task reuse is
   73/256 (Task 4) and 40/256 (Task 3).
+
+# 2026-09-11 (final) V8 method-semantics convergence: Capability Discovery Oracle
+
+- Status: implemented, tested, **not committed at the time of writing**; branch
+  `exp/v8-answer-supervised-multikey`. No long run started (PART 13).
+- Scope: audit + minimal correction against three finalised decisions — (1) the
+  training teacher is a Capability Discovery Oracle and may not let the old keys'
+  recall decide who receives answer supervision; (2) a Residual sample's old
+  historical context must also train the current-task alias key; (3) inference
+  stays a fixed sparse Top-2 with no weighting, no dynamic K, no dense MoE.
+- **`compose/v8/teacher.py` — search universe was recall-bounded (the audit's
+  main finding).** STEP C looped over `candidates = union of per-sample recall`,
+  so an expert no sample recalled was never scored: capability discovery
+  depended on key quality, and a badly-ranked capable expert produced no solver
+  verdict, hence no alias key, hence stayed badly ranked — a self-confirming
+  failure that hid its own deficit. On the formal Task-4 run that universe was 10
+  of 16 visible historical experts, so **every Residual count in the V8-A
+  campaign is a lower bound**. `visible_experts` is now a *required* argument (no
+  caller can fall back to the old scope by omission) and STEP C iterates it
+  directly; `recall` survives only as `router_top_m` / `router_top_m_diagnostic`
+  / `router_rank`, the quantity the keys are judged by. `assert_full_history_coverage`
+  makes `tested == visible` a hard invariant for every non-BaseOnly sample (a
+  BaseOnly sample must have tested nothing), and `TeacherResult.coverage_report()`
+  writes the auditable trace into `teacher_result.json`. Pair search is unchanged
+  and still `bounded` by default (top-4 singles → ≤6 pairs) with `exhaustive` as
+  explicit configuration; it is not claimed to be exhaustive.
+- **`compose/v8/config.py` + `key_learning.py` — Residual context role was
+  inverted.** Residual labelled *every* tested expert `NEGATIVE`, including the
+  context expert, and `create_alias_keys` derived support from
+  `positives_by_sample()` alone. So a context-only expert got **no alias key at
+  all**, and any key it had was actively **repelled from** exactly those queries —
+  the inverse of DECISION-2. Four-valued roles now: `TARGET_POSITIVE` (legacy
+  string `"positive"` kept so old artefacts still parse), `TARGET_CONTEXT_POSITIVE`
+  (`"context_positive"`), `TARGET_NEGATIVE`, `TARGET_IGNORE`; on a Residual every
+  non-context tested expert is now IGNORE, never NEGATIVE, and
+  `assert_no_ignore_is_negative` rejects context∩negative on one sample.
+  `AliasSupport(k,t) = SolverPositiveQueries ∪ ContextPositiveQueries`, created
+  lazily at `alias_support_threshold`, with `support_source ∈ {solver_only,
+  context_only, mixed, none}` and `solver/context_support_count` per key.
+  `L_key` splits the positive term: `lambda_solver_positive = 1.0`,
+  `lambda_context_positive = 1.0`, `lambda_rank = 0.1`, `ranking_margin = 0.2`;
+  `lambda_pos` survives as a read-only property + config-dict rename shim.
+- **`compose/v8/selection.py`**: `STATE_CARDINALITY[Residual] (0,1,2) → (0,1)`,
+  `MAX_RESIDUAL_ACTIVE_EXPERTS = 2`. A Residual row composes context + candidate;
+  two historical contexts would demand a three-expert cardinality inference
+  cannot reproduce.
+- **`compose/v8/trainer.py`**: `build_key_targets` is now called per batch with
+  `sample_ids=batch.sample_ids` instead of once per epoch over all records, so
+  the state/gradient table is literally true of the batch that ran; a
+  zero-target batch skips `backward()` via a `loss.requires_grad` guard (a
+  constant-zero loss has no graph — this was a real crash the new tests caught).
+  `TrainReport` gains `key_batches` / `key_role_samples`.
+- **`compose/v8/cache.py`**: `CACHE_VERSION = 2`, `SUPPORTED_CACHE_VERSIONS =
+  (1, 2)`. v2 adds `historical_experts_visible` / `historical_experts_tested` to
+  every record; a v1 file still loads with those defaulted to empty — which is
+  the honest reading, since that record *was* produced by a recall-bounded
+  search. An unknown version raises and the file is left untouched; nothing is
+  upgraded in place.
+- **`compose/experiments/v8_task_run.py`**: `visible_experts` passed explicitly
+  (`v8_task_run.py:572`); `recall.json` gains `schema_version`,
+  `teacher_visible_expert_ids` (because the legacy `visible_expert_ids` has
+  always held the whole active pool and the scope lives in
+  `excluded_expert_ids` — the trap that §16.1's audit fell into) and
+  `router_top_m_diagnostic: true`; `train/val` separation stated. New
+  `metric_report()` (`v8_task_run.py:1184`) emits **two** metrics:
+  `teacher_oracle_metric` (route chosen with the answer in hand, cardinality
+  varies per sample — this is what 94.14 / 87.11 are) and
+  `actual_top2_inference_metric` (the deployable fixed Top-2, `--top2-inference-eval`
+  opt-in, and `null` with a reason when not measured). The deployable route
+  (`top2_inference()`, `:825`) is supervised-free end to end.
+- Tests: `tests/` **621 passed** (V8 multi-key 57, generation harness 16, **V7
+  regression 548 — unchanged**, which is the evidence that no V7 path was
+  touched). Twelve new oracle tests A–L, incl. D = the full
+  `teacher_result → key_targets → create_alias_keys → alias_key_loss → tensor
+  gradient` flow for the context expert alone in a solver-free batch, testing the
+  *direction* of the step and not only that a gradient exists; I/J pin the
+  fixed-Top-2 chain and its supervision-free purity; K pins the oracle/deployable
+  metric distinction.
+- Artefacts: `experiments/runs/0911_v8a_formal/*` were **not** rewritten. Their
+  numbers keep their v1 meaning and are labelled PRE-ORACLE-SEMANTICS in report
+  §14 / §17 / §19.1. Report: new **§26**; §9 table corrected (it was the report
+  that was wrong, not the code); §11/§19.1/§1 updated.
+- V8-B still **not run**. Revised plan (report §26.10): full suite → oracle smoke
+  (`--limit 32`, ~15–25 min) → Phase-0 re-analysis of cached generations →
+  Task-1 V8-B pilot (~12–14 GPU-h) → six-task loop (~35–40 GPU-h). No step past
+  the suite was executed.

@@ -9,8 +9,16 @@ V8 state     experts                    composition scale
 ``BaseOnly`` ``[-1, -1]`` (empty)       backbone only
 ``Reuse1``   ``[k, -1]``               ``1.0``  (active slots == 1)
 ``Reuse2``   ``[k, l]``               ``1/sqrt(2)``
-``Residual`` ``[k, l]`` (context)     ``1/sqrt(2)``
+``Residual`` ``[k, -1]`` or ``[]``     ``1.0`` / backbone; at most **one**
+                                        historical context expert
 ===========  =========================  ============================
+
+The Residual cardinality cap is not cosmetic.  At inference V8 keeps the fixed
+Top-2 budget, and a Residual sample is the one whose second slot belongs to the
+current task's candidate expert.  A two-expert historical context would therefore
+ask the training-time composition for a three-expert cardinality that the
+inference path can never reproduce -- the model would be trained on a
+composition it is never allowed to make.
 
 So V8 needs no new forward path: it needs a builder that turns a per-sample
 state map into one ``ComposeSelection`` covering a whole batch.  That is what
@@ -39,16 +47,19 @@ class SelectionError(RuntimeError):
     """Raised when a state map cannot be turned into a legal selection."""
 
 
-#: How many experts each state must name.  ``Residual`` is not fixed here
-#: because PART 15 lets it fall back to the best *historical context*, which may
-#: be a single expert or a pair; the cardinality is validated against the
-#: recorded context instead.
+#: How many experts each state must name.  ``Residual`` may be empty (no
+#: historical pool, or a task with no history) or hold its single best context
+#: expert -- never a pair, for the cardinality reason in the module docstring.
 STATE_CARDINALITY: Dict[str, Tuple[int, ...]] = {
     STATE_BASE_ONLY: (0,),
     STATE_REUSE1: (1,),
     STATE_REUSE2: (2,),
-    STATE_RESIDUAL: (0, 1, 2),
+    STATE_RESIDUAL: (0, 1),
 }
+
+#: The largest number of experts a Residual training row may compose: its
+#: historical context plus the current-task candidate expert.
+MAX_RESIDUAL_ACTIVE_EXPERTS = 2
 
 
 def validate_state(state: str, experts: Sequence[int]) -> None:
@@ -197,6 +208,7 @@ def residual_weights(
 
 
 __all__ = [
+    "MAX_RESIDUAL_ACTIVE_EXPERTS",
     "SelectionError",
     "STATE_CARDINALITY",
     "build_selection",

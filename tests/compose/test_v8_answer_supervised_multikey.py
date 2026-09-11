@@ -44,10 +44,12 @@ from compose.v8.config import (
     STATE_RESIDUAL,
     STATE_REUSE1,
     STATE_REUSE2,
+    TARGET_CONTEXT_POSITIVE,
     TARGET_IGNORE,
     TARGET_NEGATIVE,
     TARGET_POSITIVE,
     V8Config,
+    V8KeyConfig,
     V8TeacherConfig,
 )
 from compose.v8.gating import (
@@ -88,6 +90,7 @@ from compose.v8.routing import (
     distinct_expert_rate,
 )
 from compose.v8.selection import (
+    STATE_CARDINALITY,
     SelectionError,
     build_selection,
     residual_weights,
@@ -206,6 +209,27 @@ class FakeTeacherTask:
         return values
 
 
+def visible_experts_for(
+    task: FakeTeacherTask,
+    recall: Mapping[str, Sequence[int]],
+) -> List[int]:
+    """The historical pool visible to the teacher, derived *independently*.
+
+    Deliberately not derived from what the teacher would test: the whole point
+    of the Capability Discovery Oracle is that the search universe is a property
+    of the pool and the continual scope, not of the teacher's own decisions.  So
+    it is built from the declared oracle's expert set (what *could* solve
+    something) unioned with the router's Top-M (which is now diagnostic only).
+    Deriving it from the teacher's answer would make the coverage assertion in
+    ``assert_full_history_coverage`` vacuous.
+    """
+    experts = {int(v) for values in recall.values() for v in values}
+    experts.update(int(k) for k in task.singles)
+    for pair in task.pairs:
+        experts.update(int(v) for v in pair)
+    return sorted(experts)
+
+
 def run_teacher(
     task: FakeTeacherTask,
     sample_ids: Sequence[str],
@@ -214,11 +238,16 @@ def run_teacher(
     with_nll: bool = True,
     pair_min_metric_gain: float | None = None,
     config: V8TeacherConfig | None = None,
+    visible: Sequence[int] | None = None,
 ):
     teacher = AnswerSupervisedTeacher(TaskMetricAdapter(), config)
     return teacher.run(
         task_id=3,
         sample_ids=list(sample_ids),
+        visible_experts=(
+            list(visible) if visible is not None
+            else visible_experts_for(task, recall)
+        ),
         recall_map=recall,
         scorer=task.scorer,
         nll_scorer=task.nll_scorer if with_nll else None,
@@ -458,10 +487,12 @@ def test_11_multiple_solved_experts_best_positive_others_ignore_unsolved_negativ
 
 
 def _decide_reuse1(single_values):
-    """Run ``_decide`` on a Reuse1 sample with a recall smaller than the scores.
+    """Run ``_decide`` on a Reuse1 sample with a recall smaller than the search.
 
-    ``recall`` is the sample's own Top-M; ``candidates`` is the pool-wide union
-    that STEP C actually scores, so ``tested_singles`` can be a strict superset.
+    ``recall`` is the sample's own Top-M and is now *diagnostic only*;
+    ``visible_experts`` is the capability-search universe STEP C actually scores,
+    so ``tested_singles`` can be a strict superset of the recall -- which is
+    exactly the situation the oracle must handle.
     """
     teacher = AnswerSupervisedTeacher.__new__(AnswerSupervisedTeacher)
     teacher.config = V8TeacherConfig()
@@ -472,7 +503,8 @@ def _decide_reuse1(single_values):
         base_value=0.0,
         base_is_solved=False,
         recall=[10, 11, 12],
-        candidates=[10, 11, 12, 13],
+        visible_experts=[10, 11, 12, 13],
+        shortlist=[10, 11, 12, 13],
         single_values={expert: {"s0": value} for expert, value in single_values},
         pair_values={},
         nll_cache={},
@@ -556,9 +588,17 @@ def test_14_pair_must_satisfy_task_metric_contribution_rule():
     assert accepted.by_sample()["s0"].selected_experts == [1, 2]
     # an unreachable margin -> the same solved pair is rejected
     rejected = run_teacher(task, samples, {"s0": [1, 2]}, pair_min_metric_gain=1.5)
-    assert rejected.by_sample()["s0"].state == STATE_RESIDUAL
-    # and the pair members keep their negative target: they contributed nothing
-    assert rejected.by_sample()["s0"].key_targets[1] == TARGET_NEGATIVE
+    record = rejected.by_sample()["s0"]
+    assert record.state == STATE_RESIDUAL
+    # And the rejected pair is NOT punished.  On a Residual sample "failed
+    # alone" is not evidence of "harmful in a composition" (PART 3): the best
+    # scored single becomes the context expert -- an attraction target, so its
+    # alias key learns to be recallable here -- and every other tested expert is
+    # IGNORE.  No expert on a Residual sample is ever NEGATIVE.
+    assert record.residual_context == [1]
+    assert record.key_targets[1] == TARGET_CONTEXT_POSITIVE
+    assert record.key_targets[2] == TARGET_IGNORE
+    assert TARGET_NEGATIVE not in set(record.key_targets.values())
 
 
 def test_15_base_solved_selects_empty_set_and_stops():
@@ -732,11 +772,14 @@ def test_30_gradient_leakage_on_mixed_baseonly_reuse_residual_batch():
     assert report["max_abs_delta"] < 1e-6
     assert len(candidate_names) > 0
 
-    # the probe must be able to detect real leakage: gate the covered rows ON
+    # The probe must be able to detect real leakage: gate the covered rows ON.
+    # Only ``c0`` (BaseOnly) and ``c1`` (Reuse1) can be relabelled this way --
+    # ``c2`` holds two experts, and Residual is capped at one (PART 2), so the
+    # relabel would trip the cardinality rule before it could test the gating.
     def forward_backward_leaky(batch):
         sample_ids = batch["sample_ids"]
         leaks = dict(batch["states"])
-        for sample_id in covered_ids:
+        for sample_id in ("c0", "c1"):
             leaks[sample_id] = STATE_RESIDUAL       # wrong on purpose
         selection = build_selection(sample_ids, leaks, batch["experts"])
         weights = residual_weights(sample_ids, leaks)
@@ -1410,12 +1453,13 @@ def test_v8_pipeline_chains_teacher_verdicts_to_a_committed_pool(tmp_path):
     result = teacher.run(
         task_id=1,
         sample_ids=sample_ids,
+        visible_experts=[0, 1, 2],
         recall_map=recall,
         scorer=task.scorer,
         nll_scorer=task.nll_scorer,
     )
 
-    # -- the teacher's four states, and its three target states -------------
+    # -- the teacher's four states, and its four target roles ---------------
     assert result.state_counts() == {
         STATE_BASE_ONLY: 1,
         STATE_REUSE1: 2,
@@ -1429,7 +1473,14 @@ def test_v8_pipeline_chains_teacher_verdicts_to_a_committed_pool(tmp_path):
     assert by_sample["s3"].key_targets[0] == TARGET_POSITIVE    # both members of the winning pair
     assert by_sample["s3"].key_targets[1] == TARGET_POSITIVE
     assert by_sample["s4"].state == STATE_RESIDUAL
-    assert by_sample["s4"].residual_context, "Residual keeps a historical context"
+    assert by_sample["s4"].residual_context == [0], (
+        "Residual keeps at most one historical context, chosen by "
+        "(metric, NLL, expert_id)"
+    )
+    assert by_sample["s4"].key_targets[0] == TARGET_CONTEXT_POSITIVE
+    assert by_sample["s4"].key_targets[1] == TARGET_IGNORE
+    assert by_sample["s4"].key_targets[2] == TARGET_IGNORE
+    assert TARGET_NEGATIVE not in set(by_sample["s4"].key_targets.values())
 
     # -- 1. canonical cache: write, reload, digest-checked -------------------
     cache = tmp_path / "teacher_cache"
@@ -1449,12 +1500,17 @@ def test_v8_pipeline_chains_teacher_verdicts_to_a_committed_pool(tmp_path):
     created = create_alias_keys(
         restored, pool, task_id=1, queries_by_sample=queries_by_sample
     )
-    # expert 0 solved s0, s1 and the pair with 1 on s3 -> support 3
-    # expert 1 solved s3 -> support 1
-    # expert 2 solved nothing -> no key at all
+    # Expert 0 solved s0, s1 and the pair with 1 on s3 (solver support 3) and is
+    # the context expert kept for the Residual sample s4 -> AliasSupport = 4.
+    # Expert 1 solved s3 and is not s4's context -> support 1, solver-only.
+    # Expert 2 solved nothing and is not a context -> no key at all.
     assert created["num_created"] == 2, created
-    assert created["created"]["e0_t1_task_alias"]["support"] == 3
+    assert created["created"]["e0_t1_task_alias"]["support"] == 4
+    assert created["created"]["e0_t1_task_alias"]["solver_support_count"] == 3
+    assert created["created"]["e0_t1_task_alias"]["context_support_count"] == 1
+    assert created["created"]["e0_t1_task_alias"]["support_source"] == "mixed"
     assert created["created"]["e1_t1_task_alias"]["support"] == 1
+    assert created["created"]["e1_t1_task_alias"]["support_source"] == "solver_only"
     assert not pool.has_alias(2, 1), "zero support must not create an alias key"
     assert pool.active_key_ids_for_expert(0) == ["e0_t0_origin", "e0_t1_task_alias"]
 
@@ -1517,12 +1573,23 @@ def test_v8_pipeline_chains_teacher_verdicts_to_a_committed_pool(tmp_path):
         "e0_t1_task_alias", "e1_t1_task_alias", "e2_t1_task_alias",
     ]
     assert targets["e0_t1_task_alias"].positive_ids == ["s0", "s1", "s3"]
+    # s4's context expert is an attraction target of its own kind, and is NOT
+    # also ignored or negative on that sample (PART 3)
+    assert targets["e0_t1_task_alias"].context_positive_ids == ["s4"]
+    assert targets["e0_t1_task_alias"].support_source == "mixed"
     assert targets["e1_t1_task_alias"].positive_ids == ["s3"]
     # the alternative solver is ignored on s0 (not pushed away from a query it
-    # solves), and every recalled key is ignored on the base-solved s2
-    assert targets["e1_t1_task_alias"].ignored_ids == ["s0", "s2"]
-    # a bucket with no positives contributes no loss term (and is pruned below)
+    # solves), every recalled key is ignored on the base-solved s2, and every
+    # non-context expert is ignored on the Residual s4
+    assert targets["e1_t1_task_alias"].ignored_ids == ["s0", "s2", "s4"]
+    # s1 is the one sample where "tested as a single and did not solve it" *is*
+    # evidence -- a Reuse1 sample the pool already covers, so pushing e1's key
+    # away from that query removes nothing.  The same label is never applied to
+    # the Residual s4, where failure alone is not evidence.
+    assert targets["e1_t1_task_alias"].negative_ids == ["s1"]
+    # a bucket with no support contributes no loss term (and is pruned below)
     assert targets["e2_t1_task_alias"].positive_ids == []
+    assert targets["e2_t1_task_alias"].context_positive_ids == []
     alias_report = alias_key_loss(queries_by_sample, pool, targets)
     assert alias_report.keys_used == 2
     assert float(alias_report.total.detach()) > 0.0
@@ -1640,8 +1707,8 @@ def _trainer_scenario(tmp_path):
     )
     teacher = AnswerSupervisedTeacher(TaskMetricAdapter(), V8TeacherConfig())
     result = teacher.run(
-        task_id=1, sample_ids=sample_ids, recall_map=recall,
-        scorer=task.scorer, nll_scorer=task.nll_scorer,
+        task_id=1, sample_ids=sample_ids, visible_experts=[0, 1, 2],
+        recall_map=recall, scorer=task.scorer, nll_scorer=task.nll_scorer,
     )
     pool = make_pool(num_experts=3, per_task=3, seed=51)
     queries_by_sample = {
@@ -1782,3 +1849,450 @@ def test_v8_trainer_leakage_probe_shows_mixed_batches_change_nothing(tmp_path):
                 {"s4": [3], "s0": [3]},
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# PART 10 (oracle-semantics round): tests A - L
+#
+# The first 45 tests encode the *mechanism*; these encode the three finalised
+# method decisions and are named by letter so the acceptance report can cite
+# them one-to-one.  Each one fails if its decision is silently reverted.
+# ---------------------------------------------------------------------------
+def test_oracle_A_full_history_search_finds_an_expert_the_keys_rank_outside_top_m():
+    """A: key recall must not decide who is eligible for answer supervision.
+
+    Expert 9 solves ``s0`` and is ranked *outside* the router's Top-M -- the
+    defining case: if the search were bounded by the recall, 9 would never be
+    scored, never be selected, and never earn the alias key that fixes exactly
+    this ranking deficit.  The failure would be invisible and self-confirming.
+    """
+    samples = ["s0"]
+    recall = {"s0": [0, 1, 2, 3, 4]}          # 9 is deliberately absent
+    task = FakeTeacherTask(base_solved=[], singles={9: ["s0"]})
+    visible = [0, 1, 2, 3, 4, 9]
+    result = run_teacher(task, samples, recall, visible=visible)
+
+    record = result.by_sample()["s0"]
+    assert 9 not in record.recall, "the fixture must keep 9 outside the Top-M"
+    assert record.historical_experts_tested == visible
+    assert record.state == STATE_REUSE1
+    assert record.selected_experts == [9]
+    assert record.key_targets[9] == TARGET_POSITIVE
+    assert record.key_targets[0] == TARGET_NEGATIVE
+    # the recall is still recorded -- it is the quantity key quality is judged
+    # by -- but only as a diagnostic
+    assert record.router_top_m == [0, 1, 2, 3, 4]
+    assert result.coverage_report()["full_coverage"] is True
+
+
+def test_oracle_B_every_visible_single_must_be_scored_or_the_run_hard_fails():
+    """B: the oracle invariant is asserted per sample, not argued from the code."""
+    from compose.v8.teacher import (
+        TeacherSampleRecord,
+        assert_full_history_coverage,
+    )
+
+    def record(sample_id, base_solved, tested):
+        return TeacherSampleRecord(
+            sample_id=sample_id, state=STATE_RESIDUAL, selected_experts=[],
+            base_solved=base_solved, base_value=0.0, recall=[], single_values={},
+            pair_values={}, tested_singles=list(tested), tested_pairs=[],
+            achieved_value=0.0, achieved_nll=None, delta_nll=None,
+            teacher_gain=0.0, key_targets={}, decision_reason="test",
+            historical_experts_visible=[0, 1, 2, 3],
+            historical_experts_tested=list(tested),
+        )
+
+    # the honest case passes
+    assert_full_history_coverage(
+        [record("s0", False, [0, 1, 2, 3]), record("s1", True, [])], [0, 1, 2, 3]
+    )
+
+    # one expert left unscored -> the search was bounded, and it must not pass
+    with pytest.raises(TeacherError, match="full visible"):
+        assert_full_history_coverage([record("s0", False, [0, 1, 2])], [0, 1, 2, 3])
+
+    # scoring something outside the visible pool is equally a bug
+    with pytest.raises(TeacherError, match="full visible"):
+        assert_full_history_coverage(
+            [record("s0", False, [0, 1, 2, 3, 7])], [0, 1, 2, 3]
+        )
+
+    # STEP A stops before the search: a BaseOnly sample must have tested nothing
+    with pytest.raises(TeacherError, match="BaseOnly"):
+        assert_full_history_coverage([record("s0", True, [0])], [0, 1, 2, 3])
+
+
+def test_oracle_C_residual_context_expert_gains_alias_support_and_is_never_negative():
+    """C: a Residual sample's context expert is an attraction target (DECISION-2)."""
+    from compose.v8.teacher import TeacherResult, TeacherSampleRecord
+
+    pool = make_pool(num_experts=2, per_task=1, seed=3)
+    queries = {"s0": unit(5), "s1": unit(60)}
+    result = TeacherResult(
+        task_id=1,
+        records=[
+            TeacherSampleRecord(
+                sample_id="s0", state=STATE_RESIDUAL, selected_experts=[],
+                base_solved=False, base_value=0.0, recall=[0, 1],
+                single_values={"0": 0.0, "1": 0.0}, pair_values={},
+                tested_singles=[0, 1], tested_pairs=[[0, 1]],
+                achieved_value=0.0, achieved_nll=None, delta_nll=None,
+                teacher_gain=0.0,
+                key_targets={"0": TARGET_CONTEXT_POSITIVE, "1": TARGET_IGNORE},
+                residual_context=[0],
+                decision_reason="no_single_or_pair_solved_residual",
+                historical_experts_visible=[0, 1],
+                historical_experts_tested=[0, 1],
+            ),
+        ],
+        config={},
+    )
+
+    assert_no_ignore_is_negative(build_key_targets(result, pool, task_id=1))
+
+    created = create_alias_keys(result, pool, task_id=1, queries_by_sample=queries)
+    assert created["num_created"] == 1
+    payload = created["created"]["e0_t1_task_alias"]
+    assert payload["support"] == 1
+    assert payload["context_support_count"] == 1
+    assert payload["solver_support_count"] == 0
+    assert payload["support_source"] == "context_only"
+    assert pool.has_alias(0, 1), "the context expert must earn a callable alias key"
+    assert not pool.has_alias(1, 1), "a non-context expert gets no support"
+
+    targets = build_key_targets(result, pool, task_id=1)
+    bucket = targets["e0_t1_task_alias"]
+    assert bucket.context_positive_ids == ["s0"]
+    assert bucket.positive_ids == []
+    assert bucket.support == 1
+    assert "s0" not in bucket.negative_ids
+    assert "s0" not in bucket.ignored_ids
+
+    # a context-positive expert must also be rejected if it is simultaneously
+    # labelled negative on the same sample: attraction and repulsion on one
+    # (query, key) pair is a contradiction, not a trade-off
+    bad = TeacherResult(
+        task_id=1,
+        records=[
+            TeacherSampleRecord(
+                sample_id="s0", state=STATE_RESIDUAL, selected_experts=[],
+                base_solved=False, base_value=0.0, recall=[], single_values={},
+                pair_values={}, tested_singles=[0], tested_pairs=[],
+                achieved_value=0.0, achieved_nll=None, delta_nll=None,
+                teacher_gain=0.0,
+                key_targets={"0": TARGET_CONTEXT_POSITIVE},
+                decision_reason="test",
+            ),
+        ],
+        config={},
+    )
+    conflicted = build_key_targets(bad, pool, task_id=1)
+    conflicted["e0_t1_task_alias"].negative_ids.append("s0")
+    with pytest.raises(Exception, match="positive and"):
+        assert_no_ignore_is_negative(conflicted)
+
+
+def test_oracle_D_residual_context_produces_real_alias_key_gradient():
+    """D: the gradient, not the presence of the parameter, is the evidence.
+
+    "The alias tensor has a gradient in this batch" proves nothing -- a batch
+    containing any solver positive would do that.  What has to hold is that this
+    sample's context role alone moves the key, and that the move is *towards*
+    the sample's query.
+    """
+    pool = make_pool(num_experts=2, per_task=1, seed=3)
+    pool.add_key(expert_id=0, task_id=1, key_type="task_alias",
+                 value=torch.nn.functional.normalize(unit(300), dim=-1),
+                 lifecycle="candidate", trainable=True)
+    origin_before = pool.keys["e0_t0_origin"].detach().clone()
+    query = unit(0)
+    targets = build_key_targets(
+        _residual_result(context_expert=0), pool, task_id=1
+    )
+
+    key_before = pool.keys["e0_t1_task_alias"].detach().clone()
+    before = float(torch.nn.functional.cosine_similarity(
+        torch.nn.functional.normalize(key_before, dim=-1), query, dim=-1))
+    report = alias_key_loss({"s0": query, "s1": unit(90)}, pool, targets,
+                            config=V8KeyConfig(lambda_context_positive=1.0,
+                                               lambda_solver_positive=1.0,
+                                               lambda_rank=0.0))
+    assert report.context_positive_pairs == 1
+    assert float(report.context_positive.detach()) > 0.0
+    assert float(report.solver_positive.detach()) == 0.0
+    report.total.backward()
+
+    grad = pool.keys["e0_t1_task_alias"].grad
+    assert grad is not None and float(grad.abs().sum()) > 0.0, (
+        "the context expert's alias key must receive a real gradient"
+    )
+    # the origin key is historical: in the graph as a detached constant or not
+    # at all, never a leaf that accumulates
+    assert pool.keys["e0_t0_origin"].grad is None
+    assert torch.equal(origin_before, pool.keys["e0_t0_origin"].detach())
+
+    # and the gradient points the right way: a step down the loss raises the
+    # similarity to the query
+    with torch.no_grad():
+        pool.keys["e0_t1_task_alias"].add_(grad, alpha=-0.1)
+    after = float(torch.nn.functional.cosine_similarity(
+        torch.nn.functional.normalize(pool.keys["e0_t1_task_alias"].detach(), dim=-1),
+        query, dim=-1))
+    assert after > before, (before, after)
+
+
+def _residual_result(context_expert: int, task_id: int = 1):
+    from compose.v8.teacher import TeacherResult, TeacherSampleRecord
+
+    return TeacherResult(
+        task_id=task_id,
+        records=[
+            TeacherSampleRecord(
+                sample_id="s0", state=STATE_RESIDUAL, selected_experts=[],
+                base_solved=False, base_value=0.0, recall=[0, 1],
+                single_values={"0": 0.0, "1": 0.0}, pair_values={},
+                tested_singles=[0, 1], tested_pairs=[[0, 1]],
+                achieved_value=0.0, achieved_nll=None, delta_nll=None,
+                teacher_gain=0.0,
+                key_targets={
+                    str(context_expert): TARGET_CONTEXT_POSITIVE,
+                    **{
+                        str(other): TARGET_IGNORE
+                        for other in (0, 1) if other != context_expert
+                    },
+                },
+                residual_context=[int(context_expert)],
+                decision_reason="no_single_or_pair_solved_residual",
+                historical_experts_visible=[0, 1],
+                historical_experts_tested=[0, 1],
+            ),
+        ],
+        config={},
+    )
+
+
+def _alias_grad_case(state: str, selected: Sequence[int], positives: Mapping[int, str]):
+    """Run the key loss for one declared sample and report the alias gradients."""
+    from compose.v8.teacher import TeacherResult, TeacherSampleRecord
+
+    pool = _pool_with_alias(expert_ids=(0, 1))
+    queries = {"s0": unit(0), "s1": unit(70)}
+    record = TeacherSampleRecord(
+        sample_id="s0", state=state, selected_experts=list(selected),
+        base_solved=False, base_value=0.0, recall=[0, 1],
+        single_values={"0": 1.0, "1": 1.0}, pair_values={},
+        tested_singles=[0, 1], tested_pairs=[],
+        achieved_value=1.0, achieved_nll=None, delta_nll=None,
+        teacher_gain=1.0,
+        key_targets={str(k): v for k, v in positives.items()},
+        decision_reason="test",
+    )
+    result = TeacherResult(task_id=1, records=[record], config={})
+    targets = build_key_targets(result, pool, task_id=1)
+    report = alias_key_loss(queries, pool, targets)
+    if float(report.total.detach()) > 0.0:
+        report.total.backward()
+    return pool, targets, report
+
+
+def test_oracle_E_reuse1_selected_solver_alias_key_receives_gradient():
+    """E: the state table's Reuse1 row: candidate 0, selected solver alias +."""
+    pool, targets, report = _alias_grad_case(
+        STATE_REUSE1, selected=[0],
+        positives={0: TARGET_POSITIVE, 1: TARGET_IGNORE},
+    )
+    assert targets["e0_t1_task_alias"].positive_ids == ["s0"]
+    grad = pool.keys["e0_t1_task_alias"].grad
+    assert grad is not None and float(grad.abs().sum()) > 0.0
+    # the alternative solver is IGNORE, so its key is not in the graph
+    assert "e1_t1_task_alias" not in targets or not targets["e1_t1_task_alias"].positive_ids
+    assert pool.keys["e1_t1_task_alias"].grad is None
+
+
+def test_oracle_F_reuse2_both_selected_aliases_receive_gradient():
+    """F: the state table's Reuse2 row: candidate 0, both selected aliases +."""
+    pool, targets, report = _alias_grad_case(
+        STATE_REUSE2, selected=[0, 1],
+        positives={0: TARGET_POSITIVE, 1: TARGET_POSITIVE},
+    )
+    assert targets["e0_t1_task_alias"].positive_ids == ["s0"]
+    assert targets["e1_t1_task_alias"].positive_ids == ["s0"]
+    for key_id in ("e0_t1_task_alias", "e1_t1_task_alias"):
+        grad = pool.keys[key_id].grad
+        assert grad is not None and float(grad.abs().sum()) > 0.0, key_id
+
+
+def test_oracle_G_baseonly_batch_trains_no_key_and_leaves_the_candidate_alone(tmp_path):
+    """G: the state table's BaseOnly row: 0 key gradient, 0 candidate update.
+
+    This is the test that requires the key loss to be restricted to the batch.
+    With a global objective the BaseOnly batch below would still move a key,
+    through some other sample's positive, and the table would be a statement
+    about intent rather than about the run.
+    """
+    from compose.v8.trainer import TrainBatch, V8TaskTrainer
+
+    scenario = _trainer_scenario(tmp_path)
+    pool, manager = scenario["pool"], scenario["manager"]
+    keys_before = {
+        key_id: pool.keys[key_id].detach().clone() for key_id in pool.key_ids()
+    }
+    # keyed by layer *and* name: the fixture has two layers with identically
+    # named LoRA tensors, so a name-only dict would collide and compare layer 0
+    # against layer 0 twice
+    candidate_before = {
+        "{}.{}".format(layer_name, name): tensor.detach().clone()
+        for layer_name, layer in sorted(manager.layers.items())
+        for name, tensor in layer.experts["3"].state_dict().items()
+    }
+
+    trainer = V8TaskTrainer(
+        model=scenario["model"], manager=manager, pool=pool, config=V8Config(),
+        current_task=1, candidate_expert_ids=[3],
+        forward_fn=scenario["forward_fn"],
+        queries_by_sample=scenario["queries"],
+    )
+    only_base = TrainBatch(["s2"], {"s2": STATE_BASE_ONLY}, {"s2": []})
+    report = trainer.train_epoch([only_base], teacher_result=scenario["result"])
+
+    assert report.states == {STATE_BASE_ONLY: 1}
+    assert report.gradient_keys == [], report.gradient_keys
+    assert report.gradient_experts == []
+    assert report.key_batches == 0, "a BaseOnly batch has no key targets at all"
+    assert report.key_role_samples.get("context_positive", 0) == 0
+    for key_id, value in keys_before.items():
+        assert torch.equal(value, pool.keys[key_id].detach()), key_id
+    for layer_name, layer in sorted(manager.layers.items()):
+        for name, tensor in layer.experts["3"].state_dict().items():
+            key = "{}.{}".format(layer_name, name)
+            assert torch.equal(candidate_before[key], tensor), key
+
+
+def test_oracle_H_residual_cardinality_is_at_most_one_context_expert():
+    """H: capped at one historical context, so at most two experts in total."""
+    from compose.v8.selection import (
+        MAX_RESIDUAL_ACTIVE_EXPERTS,
+        validate_state,
+    )
+
+    assert MAX_RESIDUAL_ACTIVE_EXPERTS == 2
+    assert STATE_CARDINALITY[STATE_RESIDUAL] == (0, 1)
+    validate_state(STATE_RESIDUAL, [])
+    validate_state(STATE_RESIDUAL, [3])
+    with pytest.raises(SelectionError, match="requires"):
+        validate_state(STATE_RESIDUAL, [0, 1])
+    with pytest.raises(SelectionError, match="requires"):
+        validate_state(STATE_RESIDUAL, [0, 1, 2])
+
+    # a Residual batch row is the context expert plus nothing: the candidate's
+    # second slot comes from the training route, not from the state
+    from compose.v8.trainer import TrainBatch
+    batch = TrainBatch(["s0"], {"s0": STATE_RESIDUAL}, {"s0": [0]})
+    assert len(batch.experts_by_sample["s0"]) == 1
+
+    # and the teacher itself never emits a pair as context
+    result = run_teacher(
+        FakeTeacherTask(base_solved=[], singles={}, pairs={}),
+        ["s0", "s1"], {"s0": [0, 1], "s1": [0, 1]}, visible=[0, 1],
+    )
+    for record in result.records:
+        assert record.state == STATE_RESIDUAL
+        assert len(record.residual_context) <= 1
+
+
+def test_oracle_I_three_keys_on_one_expert_still_occupy_one_top2_slot():
+    """I: the inference budget is per *expert*, so an extra key buys no slot."""
+    pool = make_pool(num_experts=3, per_task=3, seed=21)
+    pool.add_key(expert_id=0, task_id=1, key_type="task_alias", value=unit(10),
+                 lifecycle="candidate", trainable=False)
+    pool.add_key(expert_id=0, task_id=2, key_type="task_alias", value=unit(11),
+                 lifecycle="candidate", trainable=False)
+    assert len(pool.active_key_ids_for_expert(0)) == 3
+
+    router = MultiKeyRouter()
+    queries = torch.stack([unit(10), unit(11), unit(12)])
+    result = router(queries, pool)
+    assert result.expert_ids.shape[1] == 2
+    for row in result.expert_ids.tolist():
+        assert len(set(row)) == 2, "one expert must not fill both slots"
+        assert 0 in row  # three keys make expert 0 impossible to miss
+    assert duplicate_row_count(["a", "b", "c"], result.expert_ids) == 0
+    assert distinct_expert_rate(result.expert_ids) == 1.0
+
+    # the router is still exactly max-per-expert: the repeated-key expert scores
+    # its *best* key, never the sum
+    per_expert = result.per_expert_scores
+    column = result.pool_expert_ids.tolist().index(0)
+    keys = torch.stack([
+        torch.nn.functional.normalize(pool.keys[key_id].float(), dim=-1)
+        for key_id in pool.active_key_ids_for_expert(0)
+    ])
+    best = (torch.nn.functional.normalize(queries, dim=-1) @ keys.T).max(dim=1).values
+    assert torch.allclose(per_expert[:, column], best, atol=1e-5)
+
+
+def test_oracle_J_the_whole_inference_chain_is_supervision_free():
+    """J: purity over the modules the deployable path actually runs."""
+    for name in ("inference.py", "routing.py", "query.py", "generate.py"):
+        report = assert_inference_purity(REPO / "compose" / "v8" / name)
+        assert report["pure"] is True, (name, report)
+        assert report["forbidden_identifiers_found"] == []
+        assert report["forbidden_strings_found"] == []
+
+    import inspect
+
+    from compose.v8.inference import V8InferenceRouter
+
+    pool = make_pool(num_experts=3, per_task=3, seed=5)
+    router = V8InferenceRouter(pool)
+    # The only tensors the router holds are the committed keys themselves --
+    # frozen data, not a learnable surface (PART 7) -- and nothing is buffered.
+    assert not list(router.buffers())
+    assert {id(parameter) for parameter in router.parameters()} == {
+        id(pool.keys[key_id]) for key_id in pool.key_ids()
+    }
+    assert not any(parameter.requires_grad for parameter in router.parameters())
+    for method in ("route_policy", "selection", "forward"):
+        signature = inspect.signature(getattr(router, method))
+        assert not any(
+            token in name.lower()
+            for name in signature.parameters
+            for token in ("answer", "ground_truth", "label", "teacher", "nll")
+        ), method
+
+
+def test_oracle_K_teacher_oracle_and_actual_top2_metrics_are_formally_distinct():
+    """K: the harness must not be able to report one route's number as the other's."""
+    from compose.experiments.v8_task_run import (
+        TOP2_MEASURED_NOTE,
+        TOP2_NOT_MEASURED_NOTE,
+        _parser,
+        metric_report,
+    )
+
+    # the deployable route is off unless it is explicitly asked for, so no run
+    # can quietly publish an oracle number under the wrong name
+    args = _parser().parse_args(["--task", "1", "--root", "/tmp/v8-test-root"])
+    assert args.top2_inference_eval is False
+
+    unmeasured = metric_report(94.14, None)
+    assert unmeasured["teacher_oracle_metric"] == 94.14
+    assert unmeasured["actual_top2_inference_metric"] is None
+    assert unmeasured["actual_top2_inference_metric_note"] == TOP2_NOT_MEASURED_NOTE
+    assert "ORACLE" in unmeasured["teacher_oracle_metric_note"]
+    assert unmeasured["metrics_are_separate"] is True
+
+    measured = metric_report(94.14, {"value": 87.11})
+    assert measured["teacher_oracle_metric"] == 94.14
+    assert measured["actual_top2_inference_metric"] == 87.11
+    assert measured["actual_top2_inference_metric_note"] == TOP2_MEASURED_NOTE
+    assert measured["teacher_oracle_metric"] != measured["actual_top2_inference_metric"]
+
+
+def test_oracle_L_mixed_batch_leakage_is_still_probed():
+    """L: TEST30's guarantee is unchanged by the per-batch key-loss change."""
+    assert hasattr(
+        sys.modules[__name__],
+        "test_30_gradient_leakage_on_mixed_baseonly_reuse_residual_batch",
+    )

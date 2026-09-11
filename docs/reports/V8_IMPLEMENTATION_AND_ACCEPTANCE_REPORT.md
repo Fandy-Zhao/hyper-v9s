@@ -28,10 +28,12 @@ historical LoRA, its committed origin keys, and the base model stay frozen.
 metric adapters, lazy alias-key creation, the gradient gating, the freeze ledger,
 the trainer, the inference router — 18 modules under `compose/v8/`, plus 10
 drivers under `compose/experiments/v8*`, all new files
-beside V7 rather than edits to it. `git diff --stat 9ff2b28..HEAD` is **34 files,
-12,988 insertions, 0 deletions** at `3215000`, and **zero** of those files are
-under `compose/v7/`, `compose/adapters/`, `compose/eval/` or `llava/`. The suite
-is **609 tests passing** (75.32 s), 548 of them pre-dating this work.
+beside V7 rather than edits to it. `git diff --stat 9ff2b28..HEAD -- compose/ tests/`
+is **30 files, 11,682 insertions, 0 deletions** — purely additive — and **zero**
+files anywhere in the branch are under `compose/v7/`, `compose/adapters/`,
+`compose/eval/` or `llava/`. The suite is **621 tests passing** (70.75 s), 548 of
+them pre-dating this work (the V7 row has been 548 in every round, including the
+§26 semantics round).
 
 **What was measured.** Four full teacher runs — Task 3 (IconQA) and Task 4
 (CLEVR-Math), each in an all-experts and a history-only scope — over the frozen
@@ -51,6 +53,22 @@ and above the frozen base alone (16.41 % / 17.97 %) by **+28.51** and **+15.62**
 points. Genuine cross-task reuse is **73/256 = 28.52 %** (Task 4) and
 **40/256 = 15.63 %** (Task 3); more than half of each "historical reuse" figure
 is the frozen base answering correctly on its own.
+
+**A third correction, added by §26.** 94.14 % and 87.11 % are
+`teacher_oracle_metric`: they replay a route the *teacher* chose with the
+validation answer in hand and with a per-sample cardinality of 0, 1 or 2. They
+are the right number for "does the capability exist in the pool", and the wrong
+number for "what would a deployed V8 answer". The deployable number is the fixed
+Top-2 route taken by a held-out query against the committed key pool with **no**
+supervision anywhere in the chain; it is written as `actual_top2_inference_metric`
+and is `null` for every run of this campaign, because the field did not exist
+when they ran and **no artefact was rewritten to add it**. §26 also re-answered
+DECISION-1: the teacher's STEP C had been searching only the union of the
+per-sample recalls, so in the Task-4 run 6 of 16 visible historical experts were
+never scored on any sample and every Residual count in this report is a **lower
+bound**. That is a search-scope defect, not a measurement one, and the numbers
+above stand as measured — under the corrected oracle semantics they can only
+grow.
 
 **The strongest evidence for V8's design.** The capability is present but the
 router cannot find it: with historical experts only, solver recall@1 is 27.4 %
@@ -88,6 +106,17 @@ decides whether the fix is better keys or a new expert.
   cross-task reuse. Three carry regression tests and the parity fix is verified
   by execution — 256/256 identical answers (§12.1). None was hidden, and none is
   a violation of the specified method.
+  The **§26 semantics round then found four more**, all of them violations of the
+  *finalised* method rather than of the original specification: the teacher
+  searched only the recalled Top-M instead of the full visible history; a
+  Residual's context expert was labelled `negative` and derived no alias support,
+  which is the exact inverse of DECISION-2; a Residual accepted up to two
+  historical contexts, a cardinality inference cannot reproduce; and the key loss
+  was computed epoch-globally rather than per batch, so the state table was not
+  true of the batch that ran. All four are fixed with tests A–L (§26.8). One
+  further row was **the report being wrong, not the code**: §9's gradient table
+  said Reuse1/Reuse2 alias gradient was zero while `test_20` already asserted
+  otherwise.
 * **Method acceptance: PARTIALLY VERIFIED — the retrieval half holds, the reuse
   half is smaller than the headline and the training half is unmeasured.** V8-A's
   teacher does identify samples historical experts solve, §17 shows a second
@@ -100,7 +129,13 @@ decides whether the fix is better keys or a new expert.
   failures above are reported rather than dropped.
 
 **Recommendation: NO-GO for the full six-task loop; GO for one Task-1 V8-B
-pilot**, with the §19.5 scope and the decision rule in §25.5.
+pilot**, with the §19.5 scope and the decision rule in §25.5 — now preceded by
+the two cheap steps of §26.10 (an oracle smoke at `--limit 32` and a Phase-0
+re-analysis of the *cached* generations, both well under an hour), because the
+§26 teacher change makes the pilot's premise testable before the 12 GPU-hours
+are spent: if the full-history oracle does not find materially more capability
+than the recall-bounded one, DECISION-1 bought nothing and the pilot should not
+start.
 
 ---
 
@@ -375,15 +410,27 @@ decision is expressed as a per-sample weight:
 L_answer_residual = sum_i r_i * L_answer_i / max(sum_i r_i, 1)
 ```
 
-| State | Candidate LoRA gradient | This task's alias-key gradient |
+| State | Candidate LoRA gradient | Alias-key gradient |
 | --- | --- | --- |
-| BaseOnly | zero | zero |
-| Reuse1 | zero | zero |
-| Reuse2 | zero | zero |
-| Residual | **non-zero** | non-zero where support exists |
+| BaseOnly | 0 | 0 |
+| Reuse1 | 0 | **+ on the selected solver's alias key**; 0 elsewhere |
+| Reuse2 | 0 | **+ on both selected solvers' alias keys**; 0 elsewhere |
+| Residual | **+** | **+ on the historical context expert's alias key**; 0 elsewhere |
+
+The Reuse1/Reuse2 rows read **zero** in the first version of this report, and the
+table was simply wrong: it was written from the intent "only Residual samples
+train the candidate" and silently carried that over to the key. The code has
+always given a solver's alias key a positive term (that is what
+`create_alias_keys` support is), `test_20` asserts it, and §26 records the
+correction together with the two rules that make the table literally true of a
+batch rather than of an epoch — the key loss is now restricted to the batch's
+sample ids, and a Residual sample's context expert is an attraction target
+(`CONTEXT_POSITIVE`) rather than a `NEGATIVE`.
 
 Tests: `test_16/17/18` (zero candidate gradient for BaseOnly/Reuse1/Reuse2),
-`test_19` (non-zero for Residual), and — the one that matters most —
+`test_19` (non-zero for Residual), `test_oracle_E/F` (Reuse1/Reuse2 alias
+gradient), `test_oracle_G` (a BaseOnly batch moves no key and no candidate
+parameter), and — the one that matters most —
 `test_30_gradient_leakage_on_mixed_baseonly_reuse_residual_batch`, which runs a
 mixed batch and asserts the candidate gradient equals the residual-only batch's
 gradient. `gradient_leakage_probe` (`gating.py:335`) reports `max_abs_delta`.
@@ -396,11 +443,21 @@ The trainable-parameter whitelist is `audit_trainable_parameters`
 
 ### 9.1 The alias-key objective, and a defect the integration test found
 
-Alias keys are trained with `L_key = lambda_pos * L_pos + lambda_rank * L_rank`
-(`key_learning.py:202`, `lambda_pos = 1.0`, `lambda_rank = 0.1`,
-`ranking_margin = 0.2`). `L_pos` pulls the key toward its positive queries'
-centroid; `L_rank` is a margin hinge that pushes it away from the
-highest-scoring *other* key on each sample where it is NEGATIVE.
+Alias keys are trained with a two-source positive term plus the margin hinge
+(`key_learning.py`, §26.3):
+
+```
+L_key = lambda_solver_positive  * L_solver        (1.0)
+      + lambda_context_positive * L_context       (1.0)
+      + lambda_rank             * L_rank          (0.1, ranking_margin = 0.2)
+```
+
+`L_solver` pulls the key toward the queries its expert *solved*; `L_context`
+pulls it toward the queries for which it was kept as a Residual sample's
+historical context; `L_rank` is a margin hinge that pushes it away from the
+highest-scoring *other* key on each sample where it is NEGATIVE. Both positive
+halves are attractions; keeping them separate is what lets a later ablation
+attribute a change to one evidence source without touching the code.
 
 Writing the chained integration test exposed a real defect here, which is
 recorded rather than smoothed over:
@@ -431,6 +488,14 @@ silently did nothing and the resulting numbers would have been attributed to
 "key geometry is insufficient" rather than to a bug.
 
 ### 9.2 The three-valued rule, and a second defect found the same way
+
+> **Superseded in part by §26.2.** As written here, STEP C scored a *pool-wide
+> candidate list* — the union of every pending sample's recall. That is still a
+> recall-bounded search: an expert no sample recalls is never scored. Under the
+> finalised DECISION-1 the search universe is the whole visible historical pool,
+> so `tested_singles` is a superset of the recall by construction rather than by
+> accident of the union. The defect and fix below are unchanged and still stand;
+> only the universe they apply to has grown.
 
 The teacher scores the **pool-wide candidate list** on every unsolved sample:
 `teacher.py` STEP C loops over `candidates`, the union of every pending
@@ -604,28 +669,32 @@ The "checksum before" column is V7's own recorded fingerprint from
 
 ```
 $ pytest tests/ -q
-609 passed, 3 warnings, 8 subtests passed in 75.32s (0:01:15)
+621 passed, 3 warnings, 8 subtests passed in 70.75s (0:01:10)
 ```
 
 Wall time is the least stable number here — repeated runs of the same tree
-report 75.32 s and 76.52 s — so it is quoted once, above, and the pass count is
-what the rest of this report relies on.
+report 70.75 s, 75.32 s and 76.52 s — so it is quoted once, above, and the pass
+count is what the rest of this report relies on.
 
 Split:
 
 | Suite | Collected | Result |
 | --- | --- | --- |
-| `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30) | 45 | all pass |
+| `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30 + A–L) | 57 | all pass |
 | `tests/compose/test_v8_generation_harness.py` | 16 | all pass |
 | V7 regression (rest of `tests/compose/`) | 548 | all pass |
 
-The three rows sum to 609, which is the suite total. `45 = 30` names from PART 15,
-plus the integration tests of §9.1, §10.2 and §12, plus the regression tests this
-campaign's own defects produced: `test_22b_current_task_expert_gets_no_alias_key`
-(§17) and `test_22c_full_pool_audit_honours_the_history_only_scope` (§16). The
-file defines 45 `def test_` and contains no `pytest.mark.parametrize`, so defined
-and collected counts agree — verified with `grep -c '^def test_'` and
-`pytest --collect-only -q`, which both report 45.
+The three rows sum to 621, which is the suite total, and the V7 row is
+**unchanged at 548** across the §26 semantics round — which is the point of
+quoting it: the corrections of §26 touched no V7 code path. `57 = 45 + 12`: the
+45 of the pre-§26 file (`30` names from PART 15, plus the integration tests of
+§9.1, §10.2 and §12, plus the regression tests this campaign's own defects
+produced — `test_22b_current_task_expert_gets_no_alias_key` (§17) and
+`test_22c_full_pool_audit_honours_the_history_only_scope` (§16)) plus the twelve
+oracle tests A–L of §26.8. The file defines 57 `def test_` and contains no
+`pytest.mark.parametrize`, so defined and collected counts agree — verified with
+`grep -c '^def test_'` and `pytest --collect-only -q`, which both report 57.
+
 
 Two earlier drafts of this table were wrong and are corrected here rather than
 quietly replaced: one said 42 for the first row and 607 for the total, which does
@@ -680,25 +749,32 @@ rule, and 16–19 plus 30 are the four gating states and their interaction.
 ## 12. V7 Regression and Task 0 Parity
 
 **V7 regression**: 548 tests under `tests/compose/` that predate this work still
-pass. `git diff --stat 9ff2b28..HEAD` reports **34 files changed, 12,988
-insertions(+), 0 deletions(-)** at `3215000` — every change is a new file
-(`compose/v8/*`, `compose/experiments/v8*.py`, the two new test files) plus
-additive edits to `CHANGELOG.md` and `docs/module_status.md`. Nothing under
-`compose/v7/`, `compose/adapters/`, `compose/eval/` or `llava/` was modified,
-which is why `test_29_v7_original_tests_still_pass` passes by construction. Zero
-deleted lines is the mechanical statement of "V8 does not break V7": no V7 code
-path was edited, only new modules were added beside it.
+pass — and the count is 548 again after §26, which is the evidence that §26
+touched no V7 code path. Nothing under `compose/v7/`, `compose/adapters/`,
+`compose/eval/` or `llava/` was modified, which is why
+`test_29_v7_original_tests_still_pass` passes by construction. Zero deleted lines
+is the mechanical statement of "V8 does not break V7": no V7 code path was
+edited, only new modules were added beside it.
 
-The insertion count is quoted against a named commit because it is the one number
-here that *moves*: it was 11,347 when §12.1 was first drafted, 11,874 when §1 was
-written, and 12,988 at `3215000`; none of those is a fact about the branch, only
-about a moment in it. `3215000` is pinned rather than `HEAD` because it is the
-last commit that touches code — every commit after it edits only this report —
-so 12,988 is the code-bearing diffstat and stays that way as the report is
-polished. The two load-bearing numbers do not move at all: **0 deletions** and
-**0 files under the four protected directories** hold at every commit from
-`9ff2b28` to `HEAD`, and both are re-checkable with
-`git diff --numstat 9ff2b28..HEAD | awk '$2 != 0'` (empty) and
+The insertion count is the one number here that *moves*, and it is quoted against
+the **code-only** path filter so that it does not move when this report is
+edited:
+
+```
+$ git diff --stat 9ff2b28..HEAD -- compose/ tests/
+30 files changed, 11682 insertions(+), 0 deletions(-)
+```
+
+30 files — `compose/v8/*`, `compose/experiments/v8*.py`, the two new test files —
+and **0 deletions**, which is what a purely additive change to a frozen pool looks
+like. Earlier drafts quoted the whole-branch diffstat instead (11,347 at §12.1's
+draft, 11,874 at §1, 12,988 at `3215000`, and larger again with §26's prose): all
+of them are the same 34 files and the same 0 deletions, differing only in how much prose
+had been written at the time, which is why the pinned number is now the one that
+excludes prose. The two load-bearing claims are unchanged and both hold at every
+commit from `9ff2b28` to `HEAD`, re-checkable with
+`git diff --numstat 9ff2b28..HEAD | awk '$2 != 0'` (empty — no file anywhere in
+the branch loses a line) and
 `git diff --name-only 9ff2b28..HEAD | grep -E '^(compose/v7/|compose/adapters/|compose/eval/|llava/)'` (empty).
 
 **Task 0 parity** (`compose/experiments/v8_task0_parity.py`). Task 0 is the one
@@ -873,6 +949,23 @@ downstream.
 ---
 
 ## 14. Teacher Capability Analysis: can the old experts be reused?
+
+> **Artefact provenance — read before quoting any number in §14–§17.** The
+> campaign these sections report (`experiments/runs/0911_v8a_formal/*`, plus the
+> smoke and `0911_v8a_all` runs) was produced by the **pre-oracle**
+> implementation: its teacher searched the union of the samples' recalled Top-M,
+> which is exactly the recall-bounded search DECISION-1 rules out. The artefacts
+> are **untouched** — no file was rewritten, no `analysis.json`, no
+> `teacher_result.json` — and they keep their full analytical value as
+> *historical capability evidence*, *origin-key routing deficit* and *same-split
+> alias geometry*. What they are **not** is a measurement of the Capability
+> Discovery Oracle, and they must not be cited as one. In this report the
+> campaign is named **PRE-ORACLE-SEMANTICS V8-A** (equivalently: the
+> *bounded-candidate* V8-A campaign). Every number below therefore reads as a
+> **lower bound** on what the oracle teacher would have found: the oracle scores
+> strictly more experts on every unsolved sample, so it can only find more
+> capability, never less. §26.7 states which claims survive unchanged and which
+> would have to be re-measured.
 
 The question the whole method rests on (PART 49 Q1). Every number below is
 `states` / `state_rates` from `task{N}/analysis.json`, i.e. the teacher's verdict
@@ -1239,6 +1332,19 @@ different tests.
 
 ## 17. Alias Key Analysis
 
+> **What this section is, stated so it cannot be mistaken for something else.**
+> This is a **same-split geometric feasibility / upper-bound counterfactual**,
+> not a generalisation result and not a measurement of trained alias keys. The
+> centroid `K_init(k, t) = Normalize(mean(q_i for i in P(k, t)))` is built from
+> the teacher's positives **on the split it is then evaluated on**, with no
+> optimisation and no train/validation separation — so the "after" columns
+> answer "is there geometry that would make this expert recallable at all?",
+> which is the useful question for deciding whether alias keys are worth
+> training. They do not answer "would a key trained on the training split
+> generalise?" — §26.5 explains why that question is forbidden in this form and
+> what replaces it. The section is kept, unchanged, because its answer is still
+> the right upper bound.
+
 Answers causal-chain Q3: **if V8 gave a historical expert a second key on the
 current task, would the router find that expert more often?** V8-A trains
 nothing, so this is a counterfactual, computed by
@@ -1521,6 +1627,19 @@ Task 0 → Task 2 as a continual loop, one task at a time, each task:
    Top-M historical recall (M = 8), STEP C historical singles, then pairs over
    the K_s = 4 shortlist only if no single solved. Verdicts are written to the
    canonical cache (`write_teacher_result`, `stores_ground_truth: false`).
+
+   > **Superseded in part by §26.2.** As written here, "STEP B Top-M historical
+   > recall" read as if the recalled Top-M *were* the search universe, and the
+   > implementation of the time behaved that way: STEP C scored the union of the
+   > per-sample recalls, so an expert no sample recalled was never scored at all.
+   > Under the Capability Discovery Oracle semantics STEP B is a **diagnostic of
+   > the keys**, not a bound on the search — STEP C scores every visible
+   > historical single, and `assert_full_history_coverage` makes that a hard
+   > invariant. Everything below about *cost* is unaffected (the oracle search is
+   > strictly larger, never smaller), but a V8-B run started from this section's
+   > description would reproduce the pre-oracle semantics. Use §26 as the
+   > specification; treat a stale `teacher_result.json` without
+   > `teacher_search_mode: full_history_single_oracle` as a v1 artefact.
 2. **Alias keys** created lazily from teacher positives
    (`create_alias_keys`, support ≥ `alias_support_threshold`).
 3. **Gated training** (`compose/v8/trainer.py`): mixed batches, per-sample
@@ -1858,6 +1977,28 @@ query → router → composition → generation. NLL lives in `teacher.py` and
 the teacher cache are not parameters of any inference function; `validate_policy`
 checks a policy against the pool without reference to any per-sample outcome.
 
+The full deployable path, stated once and enforced by
+`test_oracle_J_the_whole_inference_chain_is_supervision_free`
+(purity scan over `inference.py`, `routing.py`, `query.py` and `generate.py`
+together, plus a check that the router's only tensors are the committed keys):
+
+```
+input -> frozen fixed query (0 parameters)
+      -> every committed origin/alias key (cosine)
+      -> max per expert
+      -> fixed Top-2 *distinct* experts
+      -> generation
+```
+
+No similarity weighting, no RBF kernel, no temperature, no softmax over
+similarities, no dynamic K, no Top-1/Top-2 switch, no ground truth, no teacher,
+no NLL, no task label. One expert holding several keys occupies **one** slot
+(TEST 05/TEST 07 plus `test_oracle_I`, which puts three keys on one expert and
+checks it still takes a single slot at its *best* key's score). The teacher's
+variable 0/1/2-expert cardinality is a **training-supervision and oracle-analysis**
+device only; it is not the inference rule. §26.4 separates the two metrics this
+produces and says which numbers may be quoted as deployable.
+
 ### 22.5 Scope statement
 
 The teacher *is* allowed to see validation ground truth — that is the method, not
@@ -2023,14 +2164,34 @@ something that can fail rather than by a comment:
 | Per-sample gradient gating on mixed batches | `test_30` | No |
 | Inference reads no ground truth, NLL, oracle or task label | AST scan `assert_inference_purity`, `test_24`, with negative controls that prove the scanner has teeth | No |
 | Deterministic resume | `test_25`, `test_26` | No |
+| Teacher searches the **whole** visible history, not the recalled Top-M | `assert_full_history_coverage`, required `visible_experts`, `test_oracle_A`/`_B` | No — a short search raises before any verdict is written |
+| Residual's context expert attracts its alias key and is never negative | `test_oracle_C`, `test_oracle_D`, `assert_no_ignore_is_negative` | No — `test_oracle_D` reads the tensor gradient, not the label |
+| Residual composes exactly one historical context | `STATE_CARDINALITY[Residual] = (0,1)`, `test_oracle_H` | No |
+| Oracle metric and deployable Top-2 metric never conflated | `metric_report`, `test_oracle_K` | No — the deployable field is `null` unless explicitly measured |
+| Inference chain is supervision-free, fixed Top-2 | `test_oracle_I`, `test_oracle_J` | No — the scan covers `inference.py`, `routing.py`, `query.py`, `generate.py` |
 
-Suite: **609 passed**; **548** of them pre-date this work and pass
-unchanged. `git diff --stat 9ff2b28..HEAD` = 34 files, **0 deletions**, and
-**0 files** under `compose/v7/`, `compose/adapters/`, `compose/eval/` or
-`llava/`; the insertion count is given against a named commit in §12 and §1
-rather than here, because it grows with every commit on this branch while the
-zero-deletion invariant does not. V7 is not merely still passing — it is
-byte-unchanged, which is why its tests pass by construction.
+Suite: **621 passed**; **548** of them pre-date this work and pass
+unchanged — the same 548 as before §26, which is this round's evidence that no
+V7 path was touched. `git diff --numstat 9ff2b28..HEAD | awk '$2 != 0'` is
+empty: **0 deletions** anywhere in the branch, and
+`git diff --name-only 9ff2b28..HEAD` has **0 files** under `compose/v7/`,
+`compose/adapters/`, `compose/eval/` or `llava/`. The insertion count is given
+against a code-only path filter in §12 and §1 rather than here, because it grows
+with every commit on this branch while the zero-deletion invariant does not. V7
+is not merely still passing — it is byte-unchanged, which is why its tests pass
+by construction.
+
+The last five rows are the §26 round's additions, and the verdict above is
+re-established by them rather than preserved by them: three of the five record a
+violation the audit found, one closes a reporting gap, and one only pins
+behaviour that was already correct. In particular the row "alternative solved
+expert is IGNORE, never negative" had been **false for the Residual case** — the
+context expert, the one expert a residual composition actually needs, was
+labelled negative and therefore repelled from exactly the queries it should have
+attracted. A fourth violation (the key loss being epoch-global rather than
+per-batch) is not in this table because it is a property of a training run rather
+than a mechanism, and it is covered by `test_oracle_G`; all four are itemised in
+§26.2 and §26.8.
 
 **Four defects were found during the campaign, and all four are in the record.**
 The three-valued key-target rule was not total and had already written 33
@@ -2065,6 +2226,30 @@ memory. The buggy artefact is kept at
 `experiments/runs/0911_v8a_formal/full_pool_recall_task4.json` as the defect's
 evidence, and the corrected re-run writes to a `_v2` path with a
 `schema_version` field so the two cannot be confused.
+
+**§26 added four more, and they are of a different kind.** The four above were
+defects against the *original* specification, found by using the code. The four
+below were found by auditing the code against the *finalised* method, and each is
+a case where the implementation was coherent, tested and wrong:
+
+| Defect | What it did | Why no test caught it |
+| --- | --- | --- |
+| STEP C searched the union of per-sample recalls | An expert no sample recalled was never scored, so it could not become a solver and could not earn the key that would make it recallable | Every test asserted the *rule* over `tested_singles`, and `tested_singles` was correct given the scope; the scope itself was an input, never an assertion |
+| Residual's context expert labelled `negative`, and `create_alias_keys` read `positives_by_sample()` only | A context-only expert got **no alias key at all**, and any key it had was repelled from exactly the queries it should attract | `test_20` asserted a Reuse sample trains a historical key, which was true; nothing asserted what a *Residual* does to its context |
+| `STATE_CARDINALITY[Residual] = (0,1,2)` | Two historical contexts were legal, a three-expert composition the inference path cannot produce | The selection test checked the *arities* were legal, not that they were reachable |
+| `build_key_targets` called once per epoch over all records | The §9 gradient table described the epoch, not the batch that ran | The per-batch path was correct for the states that appeared in the fixture |
+
+The first is the one that matters most, and it is worth being precise about why:
+it is not that the teacher returned a wrong answer, it is that the failure mode
+was **self-concealing**. A capable expert the keys ranked badly produced no
+solver verdict, therefore no alias key, therefore stayed badly ranked, therefore
+produced no solver verdict. The mechanism that §17 identifies as the fix — the
+alias key — was gated behind the condition it exists to repair. No amount of
+testing the rule would have found it, because the rule was right; the *universe*
+was wrong, and it was 10 of 16 experts on the formal Task-4 run. Every Residual
+count in this report was therefore a lower bound, which is the direction that
+makes it survivable: the corrected semantics can only move the numbers up, and
+they are cited with §14's PRE-ORACLE-SEMANTICS banner until re-measured.
 
 **Code acceptance: PASS, with no open items.** The one that stood — answer parity
 — closed with a MATCH (§12.1), and it closed on a run of the *repaired* code, so
@@ -2178,3 +2363,237 @@ Task 1 is the right pilot task for the reason §19.5 gives: Task 0 has no histor
 and would test nothing new. If all four conditions hold, the full loop is a
 **GO** with §21's cost model as the budget; if the first fails, stop and report a
 negative result rather than resizing the pilot until it passes.
+
+---
+
+## 26. Method-Semantics Convergence: the Capability Discovery Oracle round (2026-09-11)
+
+This section records the second, final round of method work. Three decisions were
+fixed and are not open for discussion; the round's job was to audit the
+implementation against them and land the minimal, complete, testable corrections.
+It is a **semantics** change, not a redesign: no new module, no new mechanism, no
+change to the router core, and no rewrite of any completed experiment artefact.
+
+### 26.1 The three finalised decisions
+
+**DECISION-1 — the training teacher is a Capability Discovery Oracle.** The
+teacher's goal is to discover, as completely as it can, *which experts in the
+historical pool actually have capability on the current sample*. A wrong recall
+by the old keys may not decide who is eligible to receive answer supervision.
+
+**DECISION-2 — a Residual sample's historical context must also train the
+current-task Alias Key.** The Alias Key's meaning widens from "this expert can
+solve the sample alone" to "this expert should be called on this task
+distribution / should take part in the composition".
+
+**DECISION-3 — inference stays a fixed sparse Top-2.** No similarity weighting,
+no RBF weighting, no dynamic K, no dense MoE. Still: all keys → max per expert →
+Top-2 distinct experts → the existing LoRA composition.
+
+### 26.2 CURRENT → REQUIRED mapping, and what the audit found
+
+The audit was done first and separately from the edits. Four suspected
+contradictions were checked; all four were real, and two of them were worse than
+the prompt assumed.
+
+| # | Area | CURRENT (before this round) | REQUIRED | Verdict |
+| --- | --- | --- | --- | --- |
+| 1 | Teacher search universe | STEP C scored `candidates` = the **union of every pending sample's recall** (`teacher.py`). An expert no sample recalls is never scored, so key quality was a *precondition* for capability discovery. | Score **every** visible historical single: `origin_task < t`, `lifecycle == historical`, expert alive, in continual scope. Top-M kept only as `router_top_m` / `router_rank` / origin-key recall diagnostic. | **Contradiction confirmed.** Self-confirming failure: a capable expert ranked badly is never scored → never a solver → never earns the alias key that would fix its ranking → the deficit is invisible. |
+| 2 | Residual context → alias key | Residual labelled **every** tested expert `NEGATIVE`, **including the context expert**, and `create_alias_keys` derived support from `positives_by_sample()` only. | Context expert is `CONTEXT_POSITIVE`: it attracts its alias key and is **never** `NEGATIVE`; `AliasSupport(k,t) = SolverPositiveQueries ∪ ContextPositiveQueries`. | **Contradiction confirmed, in both directions.** A context-only expert got **no alias key at all**, and any key it did have was actively **repelled** from exactly those queries. The opposite of DECISION-2. |
+| 3 | §9 gradient table | The report said Reuse1/Reuse2 alias gradient = **zero**; `test_20` asserted that a Reuse sample *can* train a historical alias key. | BaseOnly 0/0, Reuse1 0/+, Reuse2 0/+, Residual +/+. | **The report was the wrong artefact, not the code.** The code's key loss was already closer to the required table; it was global rather than per-batch, which is the part that is now fixed. |
+| 4 | Inference | `routing.py` + `inference.py`: cosine over all keys → `scatter_reduce_ amax` per expert → `topk` over **distinct expert columns**. | Exactly that; **do not rewrite the Router**. | **Already correct. Nothing was rewritten**, only pinned by new tests (I and J). |
+| 5 | Residual cardinality | `STATE_CARDINALITY[Residual] = (0, 1, 2)` — two historical contexts were legal. | At most **one** context expert: a Residual training row composes context + candidate, and a two-expert historical context would ask for a three-expert cardinality inference can never reproduce. | Fixed (`selection.py:53`, `MAX_RESIDUAL_ACTIVE_EXPERTS = 2`). |
+| 6 | Key-loss scope | `build_key_targets` was called once per epoch over **all** teacher records. | Per batch, restricted to `batch.sample_ids`, so the state table is true of the batch that ran. | Fixed (`trainer.py:354`). |
+| 7 | Cache / artefact schema | `recall.json` v1 and `teacher_result.json` v1 had the same shape under a different meaning. | `schema_version`, a backward-compatible reader, no in-place rewrite. | Fixed: `CACHE_VERSION = 2` with `SUPPORTED_CACHE_VERSIONS = (1, 2)`, `RECALL_SCHEMA_VERSION = 2`, `TEACHER_RESULT_SCHEMA_VERSION = 2`. |
+| 8 | Metrics | One `v8_policy_metric` stood for a route chosen with the answer in hand. | Formally separate `teacher_oracle_metric` from `actual_top2_inference_metric`. | Fixed: `metric_report()` (`v8_task_run.py:1184`), plus an opt-in `--top2-inference-eval` that measures the deployable route. |
+
+### 26.3 Teacher search semantics, before and after
+
+**Before.** `candidates = sorted(union of recall_map[s] for s in pending)`; STEP C
+looped `for expert_id in candidates`. The per-sample `recall` was the sample's own
+Top-M and the union was the search universe. In the formal Task 4 run that union
+was 10 experts out of 16 visible — so 6 historical experts were never scored on
+any sample, and the campaign's Residual count (141/256) is a **lower bound**.
+
+**After.** `visible_experts` is a **required argument** (`teacher.run(..., visible_experts=...)`)
+so no caller can fall back to a recall-limited search by omission. STEP C loops
+over it directly. `recall_map` still drives `TeacherSampleRecord.recall`, exposed
+as `router_top_m`, and is recorded in `router_top_m_diagnostic` — it is the
+quantity the keys are judged by, and it is now *only* that. It may not be used
+for who is tested, the Reuse/Residual state, the alias positive support, or the
+candidate training mask.
+
+The invariant is asserted, not argued (`teacher.py:855`,
+`assert_full_history_coverage`): for every base-unsolved sample,
+`set(historical_experts_tested) == set(historical_experts_visible)` or the run
+raises. A BaseOnly sample must have tested **nothing** (STEP A stops before the
+search). `TeacherResult.coverage_report()` writes the auditable trace of it into
+`teacher_result.json`, so a reader can check coverage without re-running.
+
+Pair search is bounded by default — shortlist = the best `pair_top_k_single = 4`
+already-scored singles ranked by `(-metric, NLL, expert_id)`, so at most
+C(4,2) = 6 pairs — and `pair_search_mode` (`bounded` | `exhaustive`) is explicit
+configuration. The bounded mode is **not** claimed to be exhaustive anywhere in
+this report, and §19.2/§21's pair costs are unchanged by this round.
+
+### 26.4 The four roles, and the alias key's two supervision sources
+
+`TARGETS` is now four-valued (`config.py:43-48`). `TARGET_POSITIVE` keeps its
+historical string value `"positive"` so pre-existing `teacher_result.json`
+artefacts stay readable; the new value is `"context_positive"`, and
+`context_positive_experts` is exposed as a derived list so a reader never has to
+parse the dict.
+
+| State | Solver positive | Context positive | Negative | Candidate gradient | Alias gradient |
+| --- | --- | --- | --- | --- | --- |
+| BaseOnly | — | — | — (recall is IGNORE) | 0 | 0 |
+| Reuse1 | selected expert | — | every **tested** single that did not solve | 0 | + on the selected solver |
+| Reuse2 | both selected | — | every tested single that did not solve | 0 | + on both selected solvers |
+| Residual | — | **the single best context** | **none** — every other tested expert is IGNORE | **+** | + on the context expert |
+
+The reason for the asymmetry is the line that motivates DECISION-2: *not
+independently solved ≠ not useful as composition context*. On a Reuse1 sample the
+sample is already covered by the pool, so pushing an unsolved expert's key away
+removes nothing; on a Residual sample the same label would teach the router *not*
+to recall the expert the residual composition depends on. `assert_no_ignore_is_negative`
+now rejects a key that is simultaneously context-positive and negative on one
+sample — attraction and repulsion on the same (query, key) pair is a
+contradiction, not a trade-off.
+
+`AliasSupport(k, t) = SolverPositiveQueries(k, t) ∪ ContextPositiveQueries(k, t)`,
+created lazily when `|AliasSupport| ≥ alias_support_threshold`, initialised
+unchanged at `Normalize(mean(q_i over support))`. Per-key metadata now carries
+`solver_support_count`, `context_support_count`, `total_support_count` and
+`support_source ∈ {solver_only, context_only, mixed}`; the report aggregates
+`experts_with_solver_support` / `experts_with_context_support` /
+`support_source_counts`. A current-task expert still gets no same-task alias key,
+and historical LoRA and origin keys stay frozen.
+
+`L_key` splits the positive term by evidence source with equal V8-v1 weights:
+`lambda_solver_positive = 1.0`, `lambda_context_positive = 1.0`,
+`lambda_rank = 0.1`, `ranking_margin = 0.2`. `lambda_pos` survives as a read-only
+property and a config-dict rename shim, so an old checkpoint's config still loads.
+
+### 26.5 Oracle metric vs deployable metric — the 94.14 / 87.11 reading
+
+`v8_policy_metric` replays the **teacher's** per-sample route. That route was
+chosen with the validation answer in hand and its cardinality varies 0/1/2 per
+sample, so it is an **oracle** number: no deployed system can choose cardinality
+per sample from ground truth. The deployable question is different — a held-out
+sample arrives with no answer, becomes a fixed query, is scored against the
+committed multi-key pool, takes the fixed Top-2 distinct experts, and is
+generated.
+
+Both are now written, under names that say which is which, with a note attached
+to each (`metric_report`, `v8_task_run.py:1184`; `test_oracle_K` pins the
+contract). Consequences that must be stated plainly:
+
+* **94.14 (Task 3) and 87.11 (Task 4) are teacher-oracle numbers. They are not
+  Top-2 deployable numbers** and must not be quoted as "V8's accuracy".
+* `actual_top2_inference_metric` is `null` for every run of the completed
+  campaign, because the field did not exist when they ran and no artefact was
+  rewritten. It is `null` for a new run too unless `--top2-inference-eval` is
+  passed; the field then says why ("not measured in this run").
+* The field name is deliberately *not* `v8_metric`.
+
+### 26.6 Strict train/validation separation
+
+TRAIN: GT-Answer Teacher → capability oracle → solver/context support → alias
+keys created and trained. VALIDATION: no GT routing, no teacher, no NLL. Building
+a centroid alias key from validation Teacher positives and reporting it as
+post-training generalisation is **forbidden** — which is precisely what §17's
+counterfactual is, and why §17 now carries that label explicitly. §17 is kept
+because its answer (is there geometry that makes the expert recallable at all?)
+is the right *upper bound* and a legitimate feasibility result; it is not a
+generalisation result and no number from it may be reported as one.
+
+### 26.7 What the pre-oracle campaign still supports, and what must be re-measured
+
+**Survives unchanged** (these do not depend on the search universe):
+
+* the historical capability evidence *as a lower bound* — §14/§16's Residual
+  counts can only grow when the search universe grows;
+* the origin-key routing deficit — §15's recall curves are a property of the
+  frozen keys, measured identically either way;
+* §17's same-split alias geometry upper bound (with §17's new label);
+* §18's case studies, §20–§21's pool and cost measurements, §22's leakage audit,
+  §23's bottleneck attribution (with the B-row caveat below).
+
+**Must be re-measured for the oracle semantics**: the B bottleneck row in §23
+("the solver exists but is outside the recall window"). Under a bounded search
+that row required an expert to be recalled by *some* sample before it could be
+scored; under the oracle every visible expert is scored on every unsolved sample,
+so "capability present but outside the recall window" stops being a search
+limitation and becomes a pure **retrieval** statement — which is what it was
+always meant to be. The oracle run will therefore produce a *larger* Residual
+set and a *smaller* apparent B; both are the intended direction.
+
+### 26.8 Code changed, and the tests that pin it
+
+| File | Change |
+| --- | --- |
+| `compose/v8/config.py` | Four roles + `TARGETS`; `TEACHER_SEARCH_FULL_HISTORY`, `PAIR_SEARCH_BOUNDED/EXHAUSTIVE`; `search_mode`/`pair_search_mode` validation; split `lambda_solver_positive`/`lambda_context_positive` with a legacy `lambda_pos` shim and a config-dict rename map |
+| `compose/v8/teacher.py` | STEP C over the full visible pool; required `visible_experts`; `assert_full_history_coverage`; metric-ranked pair shortlist via `rank_singles`; single-best `CONTEXT_POSITIVE` Residual context; `coverage_report()` |
+| `compose/v8/key_learning.py` | `context_positive_ids` + `support_source`; `AliasSupport = solver ∪ context`; split positive loss with context statistics; `assert_no_ignore_is_negative` covers context |
+| `compose/v8/selection.py` | `STATE_CARDINALITY[Residual] = (0, 1)`, `MAX_RESIDUAL_ACTIVE_EXPERTS = 2` |
+| `compose/v8/trainer.py` | Per-batch `build_key_targets(..., sample_ids=batch.sample_ids)`; `loss.requires_grad` guard; `key_batches` / `key_role_samples` reporting |
+| `compose/v8/cache.py` | `CACHE_VERSION = 2`, `SUPPORTED_CACHE_VERSIONS = (1, 2)`, v2 fields read back with v1-compatible defaults |
+| `compose/experiments/v8_task_run.py` | `visible_experts` passed explicitly; `teacher_visible_expert_ids`; `schema_version`; `metric_report`; opt-in `top2_inference()` and `--top2-inference-eval`; `--pair-search-mode` |
+| `tests/compose/test_v8_answer_supervised_multikey.py` | Tests A–L added; existing tests updated to the new semantics |
+
+**Tests A–L, all passing** (57 tests in the file, 45 pre-existing + 12 new):
+
+| Test | What it pins |
+| --- | --- |
+| A | A capable expert the keys rank **outside** Top-M is still tested and still selectable as Reuse1 |
+| B | Full visible coverage is a hard failure; BaseOnly must have tested nothing |
+| C | The Residual context expert gains alias support, is `CONTEXT_POSITIVE`, is never `NEGATIVE`, and context∩negative is rejected |
+| D | The context role alone produces a **non-zero gradient** on `K_alias(e0,t)`, origin key and historical LoRA untouched, and a gradient step *raises* `cos(q, K_alias)` |
+| E | Reuse1: the selected solver's alias key receives gradient, the IGNORE alternative receives none |
+| F | Reuse2: both selected solvers' alias keys receive gradient |
+| G | A BaseOnly batch moves no key and no candidate parameter (`key_batches == 0`) |
+| H | `STATE_CARDINALITY[Residual] == (0, 1)`, ≤ 2 active experts with a candidate, and the teacher never emits a pair as context |
+| I | Three keys on one expert still occupy one Top-2 slot, at max-per-expert score, two distinct experts per row |
+| J | Purity of the whole inference chain (`inference.py`, `routing.py`, `query.py`, `generate.py`) and no learnable/buffered state in the router |
+| K | `teacher_oracle_metric` and `actual_top2_inference_metric` are formally distinct and `--top2-inference-eval` defaults off |
+| L | §TEST30's mixed-batch leakage probe is retained |
+
+Test D is the one that answers the prompt's explicit warning — "do not take 'the
+alias parameter has a gradient in this batch' as evidence". It checks the full
+data flow `teacher_result → key_targets → create_alias_keys → alias_key_loss →
+tensor gradient` for the context expert *alone*, in a batch where no solver
+positive exists, and then checks the direction of the step rather than only its
+magnitude.
+
+### 26.9 Artefact integrity
+
+* `experiments/runs/0911_v8a_formal/*` was **not** read-modified-written at any
+  point in this round; no `analysis.json`, `teacher_result.json`,
+  `recall.json` or `COMPLETE.json` was rewritten. The verification is a
+  `git status` on the tracked tree plus the fact that the runner refuses to
+  overwrite an existing run root's artefacts.
+* Old `teacher_result.json` files keep their v1 meaning and are labelled
+  PRE-ORACLE-SEMANTICS wherever they are cited (§14's banner).
+* New semantics need new artefacts under new names: a future oracle run must use
+  a fresh `--root`, and its `analysis.json` will carry
+  `teacher_search_mode: full_history_single_oracle` plus
+  `teacher_coverage.full_coverage: true`, which is what distinguishes it from a
+  v1 file at a glance.
+
+### 26.10 Revised validation plan, and cost, before any long run
+
+No long experiment was started in this round (PART 13), and none should start
+without the user's explicit request. The order below is deliberate: each step is
+cheaper than the next, and each has a stop rule.
+
+| Step | What | Cost | Stop rule |
+| --- | --- | --- | --- |
+| 1 | Full test suite (done) | minutes, CPU | any failure → stop |
+| 2 | **Oracle smoke** — one task, `--limit 32`, `--top2-inference-eval`, fresh root | ~15–25 min on one free GPU (the existing 256-sample teacher run is ~1 h; 32 samples with cached routes is a fraction of it) | `teacher_coverage.full_coverage` must be `true`; if not, the search is still bounded somewhere |
+| 3 | Phase-0 oracle analysis on the *cached* generation results, no new generation | minutes | compare Residual counts against §14's lower bounds — they must not fall |
+| 4 | **Task-1 V8-B pilot**, oracle semantics, fresh root | ≈ 12–14 GPU-hours (§19.2: 6–8 h teacher + ≈6 h training) | §25.5's four conditions, plus: the alias keys trained in step 4 must beat §17's untrained centroid on the same split |
+| 5 | Full six-task loop | ≈ 35–40 GPU-hours | only after step 4 passes all four conditions |
+
+Steps 2–3 are the cheap falsification of this round's own change: if the oracle
+teacher does not find materially more capability than the bounded one, DECISION-1
+bought nothing and that is worth knowing before spending 12 GPU-hours.

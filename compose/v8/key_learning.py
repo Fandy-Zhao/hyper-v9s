@@ -12,18 +12,29 @@ Initialisation is the centroid of the queries this expert actually solved::
 
 **The loss** (PART 13, v1 -- deliberately minimal)::
 
-    L_key = lambda_pos * L_pos + lambda_rank * L_rank
-    L_pos  = 1 - cos(q_i, K(k, t))                       over positives
-    L_rank = max(0, margin - sim(q_i, K_pos) + sim(q_i, K_neg))
+    L_key = lambda_solver_positive  * L_solver
+          + lambda_context_positive * L_context
+          + lambda_rank             * L_rank
+    L_solver  = 1 - cos(q_i, K(k, t))   over SOLVER_POSITIVE queries
+    L_context = 1 - cos(q_i, K(k, t))   over CONTEXT_POSITIVE queries
+    L_rank    = max(0, margin - sim(q_i, K_pos) + sim(q_i, K_neg))
 
 No BCE, no temperature, no orthogonality/entropy/load-balancing terms: the
 specification defers those until an experiment shows the simple form is
 insufficient.
 
-The three-valued target is what makes this safe.  A sample where *two* experts
-solve the task has one POSITIVE and one IGNORE -- never a negative.  Pushing an
-expert's key away from a query it demonstrably solves would delete real
-capability, so :func:`build_key_targets` refuses to emit that pairing.
+Four roles, not three.  SOLVER_POSITIVE and CONTEXT_POSITIVE both attract the
+alias key; IGNORE and (on Reuse samples) NEGATIVE do not.  Keeping the two
+attraction sources distinct is the whole point of DECISION-2 -- "not
+independently solved" is not the same claim as "not useful as composition
+context" -- and the equal V8-v1 weights are what make an ablation meaningful
+later without a code change.
+
+The roles are what make this safe.  A sample where *two* experts solve the task
+has one POSITIVE and one IGNORE -- never a negative.  Pushing an expert's key
+away from a query it demonstrably solves would delete real capability, so
+:func:`build_key_targets` refuses to emit that pairing; for the same reason a
+Residual sample's context expert is CONTEXT_POSITIVE and never NEGATIVE.
 """
 
 from __future__ import annotations
@@ -35,6 +46,7 @@ import torch
 import torch.nn.functional as F
 
 from compose.v8.config import (
+    TARGET_CONTEXT_POSITIVE,
     TARGET_IGNORE,
     TARGET_NEGATIVE,
     TARGET_POSITIVE,
@@ -51,24 +63,43 @@ class KeyLearningError(RuntimeError):
 
 @dataclass
 class KeyTargets:
-    """Three-valued supervision for one alias key.
+    """Supervision for one alias key, split by *why* the expert should be called.
 
-    ``positive_ids`` are sample ids the key must move toward; ``negative_ids``
-    are ids the key claimed but the metric says it does not solve; ``ignored_ids``
-    are ids where the expert genuinely solves the sample but another expert was
-    selected -- they must contribute no gradient at all.
+    ``positive_ids`` -- SOLVER_POSITIVE: the teacher selected this expert and it
+    solved the sample.  ``context_positive_ids`` -- CONTEXT_POSITIVE: the sample
+    went to Residual and this expert was the best historical context kept for it.
+    Both attract the key; they are kept apart because they are different claims
+    about the expert, and an ablation that could not tell them apart could not
+    attribute a change to either.
+
+    ``negative_ids`` are ids the key claimed but the metric says it does not
+    solve; ``ignored_ids`` are ids carrying no gradient at all -- including every
+    other expert on a Residual sample, where "failed alone" is not evidence of
+    "harmful in a composition".
     """
 
     key_id: str
     expert_id: int
     task_id: int
     positive_ids: List[str] = field(default_factory=list)
+    context_positive_ids: List[str] = field(default_factory=list)
     negative_ids: List[str] = field(default_factory=list)
     ignored_ids: List[str] = field(default_factory=list)
 
     @property
     def support(self) -> int:
-        return len(self.positive_ids)
+        """``AliasSupport(k, t)`` = solver positives union context positives."""
+        return len(set(self.positive_ids) | set(self.context_positive_ids))
+
+    @property
+    def support_source(self) -> str:
+        if self.positive_ids and self.context_positive_ids:
+            return "mixed"
+        if self.positive_ids:
+            return "solver_only"
+        if self.context_positive_ids:
+            return "context_only"
+        return "none"
 
 
 @dataclass
@@ -76,20 +107,32 @@ class KeyLossReport:
     total: torch.Tensor
     positive: torch.Tensor
     ranking: torch.Tensor
-    positive_pairs: int
-    ranking_pairs: int
-    mean_positive_similarity: float
-    keys_used: int
+    solver_positive: torch.Tensor = None  # type: ignore[assignment]
+    context_positive: torch.Tensor = None  # type: ignore[assignment]
+    positive_pairs: int = 0
+    context_positive_pairs: int = 0
+    ranking_pairs: int = 0
+    mean_positive_similarity: float = 0.0
+    mean_context_positive_similarity: float = 0.0
+    keys_used: int = 0
+    keys_with_context_support: int = 0
 
     def to_dict(self) -> Dict[str, float]:
         return {
             "loss_key": float(self.total.detach()),
             "loss_key_positive": float(self.positive.detach()),
+            "loss_key_solver_positive": float(self.solver_positive.detach()),
+            "loss_key_context_positive": float(self.context_positive.detach()),
             "loss_key_ranking": float(self.ranking.detach()),
             "key_positive_pairs": int(self.positive_pairs),
+            "key_context_positive_pairs": int(self.context_positive_pairs),
             "key_ranking_pairs": int(self.ranking_pairs),
             "key_mean_positive_similarity": float(self.mean_positive_similarity),
+            "key_mean_context_positive_similarity": float(
+                self.mean_context_positive_similarity
+            ),
             "key_keys_used": int(self.keys_used),
+            "key_keys_with_context_support": int(self.keys_with_context_support),
         }
 
 
@@ -97,10 +140,23 @@ def build_key_targets(
     teacher_result: TeacherResult,
     pool: MultiKeyExpertPool,
     task_id: int,
+    sample_ids: Optional[Iterable[str]] = None,
 ) -> Dict[str, KeyTargets]:
-    """Group the teacher's per-sample verdicts into per-alias-key targets."""
+    """Group the teacher's per-sample verdicts into per-alias-key targets.
+
+    ``sample_ids`` restricts the grouping to one batch's samples.  Without it the
+    key loss is a *global* objective over every teacher record, so a batch
+    consisting only of BaseOnly samples would still move alias keys -- via other
+    samples' positives.  Restricting to the batch is what makes the per-sample
+    gating in the state table literally true: a BaseOnly sample contributes
+    nothing to any key, and the trainer's gradient footprint is a statement about
+    the batch it ran.
+    """
+    wanted = None if sample_ids is None else {str(value) for value in sample_ids}
     targets: Dict[str, KeyTargets] = {}
     for record in teacher_result.records:
+        if wanted is not None and record.sample_id not in wanted:
+            continue
         for expert_id, target in record.key_targets.items():
             expert_id = int(expert_id)
             if not pool.has_alias(expert_id, int(task_id)):
@@ -112,6 +168,8 @@ def build_key_targets(
             )
             if target == TARGET_POSITIVE:
                 bucket.positive_ids.append(record.sample_id)
+            elif target == TARGET_CONTEXT_POSITIVE:
+                bucket.context_positive_ids.append(record.sample_id)
             elif target == TARGET_NEGATIVE:
                 bucket.negative_ids.append(record.sample_id)
             elif target == TARGET_IGNORE:
@@ -120,6 +178,7 @@ def build_key_targets(
                 raise KeyLearningError(f"unknown target {target!r}")
     for bucket in targets.values():
         bucket.positive_ids.sort()
+        bucket.context_positive_ids.sort()
         bucket.negative_ids.sort()
         bucket.ignored_ids.sort()
     return targets
@@ -148,11 +207,22 @@ def create_alias_keys(
     experts; before that every caller passed a strictly historical pool.
     """
     config = config or V8PruningConfig()
-    positives = teacher_result.positives_by_sample()
+    # AliasSupport(k, t) = SolverPositiveQueries(k, t) UNION ContextPositiveQueries(k, t).
+    # The context half is what makes a Residual sample's kept expert callable: it
+    # is the expert the residual composition leans on, and if it never earns a key
+    # the router has no way to recall it on this distribution.
     support: Dict[int, List[str]] = {}
-    for sample_id, expert_ids in positives.items():
+    solver_support: Dict[int, List[str]] = {}
+    context_support: Dict[int, List[str]] = {}
+    for sample_id, expert_ids in teacher_result.positives_by_sample().items():
         for expert_id in expert_ids:
-            support.setdefault(int(expert_id), []).append(str(sample_id))
+            solver_support.setdefault(int(expert_id), []).append(str(sample_id))
+    for sample_id, expert_ids in teacher_result.context_positives_by_sample().items():
+        for expert_id in expert_ids:
+            context_support.setdefault(int(expert_id), []).append(str(sample_id))
+    for expert_id in set(solver_support) | set(context_support):
+        merged = set(solver_support.get(expert_id, [])) | set(context_support.get(expert_id, []))
+        support[expert_id] = sorted(merged)
 
     created: Dict[str, Dict[str, object]] = {}
     skipped: Dict[int, str] = {}
@@ -194,9 +264,20 @@ def create_alias_keys(
                 "support_truncated": len(sample_ids) > 256,
             },
         )
+        solver_only = sorted(set(solver_support.get(expert_id, [])))
+        context_only = sorted(set(context_support.get(expert_id, [])))
+        num_solver = len(solver_only)
+        num_context = len(context_only)
         created[key_id] = {
             "expert_id": expert_id,
             "support": len(sample_ids),
+            "solver_support_count": num_solver,
+            "context_support_count": num_context,
+            "total_support_count": len(sample_ids),
+            "support_source": (
+                "mixed" if num_solver and num_context
+                else ("solver_only" if num_solver else "context_only")
+            ),
             "init_similarity_max": float(
                 F.cosine_similarity(
                     F.normalize(value.reshape(1, -1), dim=-1),
@@ -212,6 +293,14 @@ def create_alias_keys(
         "num_created": len(created),
         "num_skipped": len(skipped),
         "experts_with_support": len(support),
+        "experts_with_solver_support": len(solver_support),
+        "experts_with_context_support": len(context_support),
+        "support_source_counts": {
+            source: sum(
+                1 for payload in created.values() if payload["support_source"] == source
+            )
+            for source in ("solver_only", "context_only", "mixed")
+        },
     }
 
 
@@ -221,18 +310,34 @@ def alias_key_loss(
     targets: Mapping[str, KeyTargets],
     config: Optional[V8KeyConfig] = None,
 ) -> KeyLossReport:
-    """``lambda_pos * L_pos + lambda_rank * L_rank`` over the created alias keys.
+    """``lambda_* * L_pos + lambda_rank * L_rank`` over the created alias keys.
 
-    Both terms carry gradient into the *current* key and into nothing else;
+    ``L_pos`` has two evidence-sourced halves.  A SOLVER_POSITIVE expert really
+    solved the sample, so its key is pulled towards that query.  A
+    CONTEXT_POSITIVE expert did not solve it alone but was the best historical
+    context the teacher kept, so its key is pulled towards the same query for the
+    same reason the composition leans on that expert.  Keeping the halves apart
+    (``lambda_solver_positive`` / ``lambda_context_positive``) is what lets an
+    ablation attribute a change to one source; V8-v1 runs them equal.
+
+    A CONTEXT_POSITIVE sample is excluded from the negative ranking targets for
+    that key by construction: "not solved alone" is not evidence of "harmful in a
+    composition", and repelling the key here would actively teach the router *not*
+    to recall the expert the residual composition depends on.
+
+    Every term carries gradient into the *current* key and into nothing else;
     every historical key is either detached (the hardest negative) or absent
     from the graph.  ``L_pos`` alone is minimised exactly at the centroid the
     alias key is initialised with, so ``L_rank`` is what actually refines it.
     """
     config = config or V8KeyConfig()
-    positive_terms: List[torch.Tensor] = []
+    solver_terms: List[torch.Tensor] = []
+    context_terms: List[torch.Tensor] = []
     ranking_terms: List[torch.Tensor] = []
     similarity_sum = 0.0
+    context_similarity_sum = 0.0
     keys_used = 0
+    keys_with_context = 0
     reference = None
     for parameter in pool.parameters():
         reference = parameter
@@ -244,26 +349,40 @@ def alias_key_loss(
             raise KeyLearningError(f"targets reference a missing key {key_id}")
         if not pool.key_records[key_id].get("trainable", False):
             continue
-        if not bucket.positive_ids:
+        if not bucket.positive_ids and not bucket.context_positive_ids:
             continue
         key = F.normalize(pool.keys[key_id].float().reshape(-1), dim=-1)
         keys_used += 1
 
-        positive_queries = []
-        for sample_id in bucket.positive_ids:
-            positive_queries.append(
-                F.normalize(queries_by_sample[sample_id].detach().float().reshape(-1), dim=-1)
+        def _stack(sample_ids: Sequence[str]) -> torch.Tensor:
+            return torch.stack(
+                [
+                    F.normalize(
+                        queries_by_sample[sample_id].detach().float().reshape(-1), dim=-1
+                    )
+                    for sample_id in sample_ids
+                ],
+                dim=0,
             )
-        if positive_queries:
-            stacked = torch.stack(positive_queries, dim=0)
-            similarities = stacked @ key
-            positive_terms.append((1.0 - similarities).mean())
+
+        if bucket.positive_ids:
+            similarities = _stack(bucket.positive_ids) @ key
+            solver_terms.append((1.0 - similarities).mean())
             similarity_sum += float(similarities.mean().detach().item())
 
+        if bucket.context_positive_ids:
+            similarities = _stack(bucket.context_positive_ids) @ key
+            context_terms.append((1.0 - similarities).mean())
+            context_similarity_sum += float(similarities.mean().detach().item())
+            keys_with_context += 1
+
         # Hardest negative: the non-selected key that most claims this query.
+        # A sample that gave this expert *any* positive role -- solver or context
+        # -- never appears here (see ``assert_no_ignore_is_negative``).
+        positive_samples = set(bucket.positive_ids) | set(bucket.context_positive_ids)
         negative_ids = [
             sample_id for sample_id in bucket.negative_ids
-            if sample_id not in set(bucket.positive_ids)
+            if sample_id not in positive_samples
         ]
         for sample_id in negative_ids:
             query = F.normalize(
@@ -309,24 +428,51 @@ def alias_key_loss(
         raise KeyLearningError("the pool has no parameters")
 
     zero = reference.new_zeros(())
-    positive = (torch.stack(positive_terms).mean() if positive_terms else zero)
+    solver_positive = (torch.stack(solver_terms).mean() if solver_terms else zero)
+    context_positive = (torch.stack(context_terms).mean() if context_terms else zero)
+    positive = (
+        float(config.lambda_solver_positive) * solver_positive
+        + float(config.lambda_context_positive) * context_positive
+    )
     ranking = (torch.stack(ranking_terms).mean() if ranking_terms else zero)
-    total = float(config.lambda_pos) * positive + float(config.lambda_rank) * ranking
+    total = positive + float(config.lambda_rank) * ranking
     return KeyLossReport(
         total=total,
         positive=positive,
         ranking=ranking,
+        solver_positive=solver_positive,
+        context_positive=context_positive,
         positive_pairs=sum(len(bucket.positive_ids) for bucket in targets.values()),
+        context_positive_pairs=sum(
+            len(bucket.context_positive_ids) for bucket in targets.values()
+        ),
         ranking_pairs=len(ranking_terms),
         mean_positive_similarity=(similarity_sum / keys_used) if keys_used else 0.0,
+        mean_context_positive_similarity=(
+            (context_similarity_sum / keys_with_context) if keys_with_context else 0.0
+        ),
         keys_used=keys_used,
+        keys_with_context_support=keys_with_context,
     )
 
 
 def assert_no_ignore_is_negative(targets: Mapping[str, KeyTargets]) -> None:
-    """A sample may not be positive and negative for the same key at once."""
+    """A sample may not be positive and negative for the same key at once.
+
+    "Positive" covers both evidence sources.  A CONTEXT_POSITIVE expert must not
+    also be a NEGATIVE on the same sample: that pairing would ask the key loss to
+    attract and repel the identical (query, key) pair, and the repulsion would win
+    on the samples where the residual composition needs the expert most.
+    """
     for key_id, bucket in targets.items():
-        overlap = set(bucket.positive_ids) & set(bucket.negative_ids)
+        positives = set(bucket.positive_ids) | set(bucket.context_positive_ids)
+        overlap = (set(bucket.positive_ids) & set(bucket.context_positive_ids))
+        if overlap:
+            raise KeyLearningError(
+                f"key {key_id} has {len(overlap)} samples both solver-positive and "
+                f"context-positive: {sorted(overlap)[:5]}"
+            )
+        overlap = positives & set(bucket.negative_ids)
         if overlap:
             raise KeyLearningError(
                 f"key {key_id} has {len(overlap)} samples both positive and "

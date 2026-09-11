@@ -1,5 +1,62 @@
 # Changelog
 
+## 2026-09-11 (final) — V8 method-semantics convergence: the teacher becomes a Capability Discovery Oracle
+
+Three method decisions were finalised and the implementation was audited against
+them. It is a semantics correction, not a redesign: no new module, no router
+change, no experiment artefact rewritten.
+
+- **The teacher's search was recall-bounded, which made capability discovery
+  depend on the very keys it was supposed to judge.** `compose/v8/teacher.py`
+  STEP C looped over the union of the per-sample recalls, so an expert no sample
+  recalled was never scored — it could not become a solver, could not earn the
+  alias key that would fix its ranking, and the deficit stayed invisible. On the
+  formal Task-4 run that universe was 10 of 16 visible historical experts, so
+  every Residual count in the V8-A campaign is a lower bound. `visible_experts` is
+  now a required argument, STEP C scores the **whole visible historical pool**,
+  `recall` survives only as the `router_top_m` diagnostic, and
+  `assert_full_history_coverage` makes full coverage a hard invariant
+  (`TeacherResult.coverage_report()` writes the trace for audit).
+- **A Residual sample's historical context was labelled `negative` and got no
+  alias key** — the exact inverse of the rule that the context expert is the
+  composition partner. `TARGET_CONTEXT_POSITIVE` is now a fourth role (the
+  legacy `"positive"` string is kept so old artefacts still parse), every other
+  tested expert on a Residual becomes IGNORE rather than NEGATIVE, and
+  `AliasSupport = SolverPositive ∪ ContextPositive` so the context expert
+  actually attracts its current-task key. `L_key` splits its positive term into
+  `lambda_solver_positive` / `lambda_context_positive` (both 1.0, legacy
+  `lambda_pos` shim retained).
+- **A Residual accepted two historical contexts** (`STATE_CARDINALITY`
+  `(0,1,2)`), a three-expert composition inference can never reproduce. Now
+  `(0,1)` / `MAX_RESIDUAL_ACTIVE_EXPERTS = 2`.
+- **The key loss was epoch-global**, so the gradient-gating table described the
+  epoch rather than the batch that ran. `build_key_targets` is per-batch now, a
+  zero-target batch skips `backward()` (a real crash the new tests caught), and
+  `TrainReport` reports `key_batches` / `key_role_samples`.
+- **`teacher_oracle_metric` and `actual_top2_inference_metric` are now formally
+  separate** in `analysis.json` (`metric_report`, `v8_task_run.py:1184`). The
+  headline 94.14 / 87.11 are *oracle* numbers — a route chosen with the answer in
+  hand at per-sample cardinality 0/1/2 — and may not be quoted as a deployed
+  Top-2 accuracy. The deployable number is opt-in (`--top2-inference-eval`) and
+  is `null` with a stated reason for every completed run, because no artefact was
+  rewritten to add it. Inference itself is unchanged: still cosine over all keys
+  → max per expert → Top-2 distinct experts, no weighting, no dynamic K.
+- **Artefact schemas versioned rather than migrated**: `CACHE_VERSION = 2` with
+  a backward-compatible reader (`SUPPORTED_CACHE_VERSIONS = (1, 2)`),
+  `RECALL_SCHEMA_VERSION` / `TEACHER_RESULT_SCHEMA_VERSION = 2`, plus the new
+  unambiguous `teacher_visible_expert_ids` (the legacy `visible_expert_ids` has
+  always held the whole active pool; the scope lives in `excluded_expert_ids`).
+  An unknown version raises and the file is left untouched.
+- Tests: **621 passed**, V8 multi-key 45 → 57 with twelve new oracle tests A–L,
+  and the **V7 regression row unchanged at 548** — the round touched no V7 path.
+  Test D walks the whole chain `teacher_result → key_targets → create_alias_keys
+  → alias_key_loss → tensor gradient` for a Residual's context expert in a batch
+  with no solver positive, and checks the step *direction* rather than merely
+  that a gradient exists. Report §26 records the before/after, the CURRENT →
+  REQUIRED mapping and the revised validation plan; §14/§17/§19.1 carry
+  PRE-ORACLE-SEMANTICS banners.
+- `experiments/runs/0911_v8a_formal/*` untouched; no long run started.
+
 ## 2026-09-11 — V8: origin-task alias keys, the parity path bug, and the full V8-A campaign
 
 - **Fixed `create_alias_keys` building a key the pool rejects.** It created an
