@@ -431,8 +431,20 @@ class AnswerSupervisedTeacher:
             achieved = float(single_values[best_single][sample_id])
             achieved_nll = _pick(nll_cache, f"single_{best_single:02d}", sample_id)
             targets: Dict[int, str] = {}
-            for expert_id in recall:
-                expert_id = int(expert_id)
+            # The rule runs over every expert that was *scored* on this sample,
+            # which is ``tested_singles`` -- STEP C scores the pool-wide
+            # candidate list on each unsolved sample, so it is a superset of
+            # this sample's ``recall``.  Iterating only over ``recall`` and
+            # defaulting the rest to NEGATIVE got both edge cases wrong: an
+            # expert outside the recall that solved this sample is an
+            # alternative solver and must be IGNORE (PART 9 forbids
+            # "E5 = negative" -- that label pushes its key away from a query it
+            # demonstrably solves), and when the *best* single comes from
+            # outside the recall it would lose the POSITIVE label of the
+            # expert the teacher actually selected.
+            for expert_id in sorted(
+                {int(value) for value in tested_singles} | {int(value) for value in recall}
+            ):
                 if expert_id == best_single:
                     targets[expert_id] = TARGET_POSITIVE
                 elif expert_id in solved_singles:
@@ -441,10 +453,6 @@ class AnswerSupervisedTeacher:
                     targets[expert_id] = TARGET_IGNORE
                 else:
                     targets[expert_id] = TARGET_NEGATIVE
-            # Recall candidates are recorded in `recall`; experts outside this
-            # sample's recall were never considered, so they stay untouched.
-            for expert_id in tested_singles:
-                targets.setdefault(int(expert_id), TARGET_NEGATIVE)
             return TeacherSampleRecord(
                 sample_id=sample_id,
                 state=STATE_REUSE1,

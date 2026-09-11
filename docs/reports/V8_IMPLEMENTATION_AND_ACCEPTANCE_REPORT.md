@@ -337,6 +337,51 @@ Had this not been found, V8-B would have run with a key-learning stage that
 silently did nothing and the resulting numbers would have been attributed to
 "key geometry is insufficient" rather than to a bug.
 
+### 9.2 The three-valued rule, and a second defect found the same way
+
+The teacher scores the **pool-wide candidate list** on every unsolved sample:
+`teacher.py` STEP C loops over `candidates`, the union of every pending
+sample's recall, not over the sample's own Top-M. A sample's `recall` is thus
+its own 8 experts while `tested_singles` is the union actually scored — in the
+formal Task 4 run, 10 experts. `recall ⊆ tested_singles`, and only
+`tested_singles` carries evidence.
+
+The Reuse1 branch built its labels over `recall` alone and then ran
+`targets.setdefault(expert, NEGATIVE)` over `tested_singles`. Both consequences
+are spec violations:
+
+* an expert **outside** the recall that solved the sample is an alternative
+  solver and must be `IGNORE` — PART 9's "禁止：E5 = negative", because that
+  label pushes an alias key away from a query its expert demonstrably solves;
+* if the *best* single came from outside the recall, the expert the teacher
+  actually selected would be labelled `NEGATIVE` instead of `POSITIVE`.
+
+* **Measured, on real data.** In the smoke run (`0911_v8a_smoke/task4`), record
+  `v7_t4_val_10` recalled `[19,17,16,18,14,15,13,0]` and was scored on
+  `[0,3,13,14,15,16,17,18,19]`; expert 3 solved the sample, was not recalled,
+  and was recorded `negative`. One mismatch in 3 Reuse1 samples
+  (`samples_with_out_of_recall_solver: 1`) — the forbidden label occurred, it
+  was not merely latent.
+* **Fix.** The rule now runs over `sorted(tested_singles ∪ recall)`, which is
+  total over everything that was scored. `test_01`–`test_30` are unchanged
+  (in those fixtures `tested_singles == recall`); the new guard
+  `test_reuse1_targets_are_total_over_every_scored_expert_not_just_the_recall`
+  pins both edge cases — the out-of-recall solver becoming `IGNORE`, and the
+  out-of-recall *selected* expert keeping its `POSITIVE`.
+* **Blast radius.** `key_targets` feeds alias-key training only. It does not
+  enter `_decide`'s state, the selected set, the achieved metric or any V8-A
+  routing number, so the campaign's V8-A results are unaffected in either
+  direction. What it *does* touch is the key objective's IGNORE/NEGATIVE sets
+  and, if a selection ever fell outside the recall, the alias support counts in
+  §17. `compose/experiments/v8a_label_audit.py` recomputes the rule from each
+  record's stored evidence and reports mismatches per run, so the campaign's
+  runs can be checked one by one instead of argued about.
+
+Note on artifact provenance: run 1 of the formal campaign was already in flight
+when this fix landed, so its `teacher_result.json` was written by the pre-fix
+code; runs 2–4 use the fixed rule. The audit above is what quantifies the
+difference per run — no artifact is rewritten in place.
+
 ---
 
 ## 10. Freeze Audit
@@ -398,6 +443,43 @@ remainder are the integration tests described in §9.1, §12 and §10.2.
 Run with no deselection: nothing is skipped, xfailed or marked slow, including
 the tests that load the real committed V7 pool (`V7_FORMAL_KEYS` is present on
 this machine, so those run against the real artefact rather than being skipped).
+
+### 11.1 TEST 01–30, and what each one actually pins
+
+| Test | Pins |
+| --- | --- |
+| 01 | fixed query has zero trainable parameters (contract hash asserted) |
+| 02 | historical LoRA has `requires_grad == False` |
+| 03 | historical LoRA checksum unchanged after a real optimizer run |
+| 04 | historical committed key unchanged, and a 0.5 mutation is *detected* |
+| 05 | one expert can own several keys (the `1 Expert : N Keys` premise) |
+| 06 | router aggregates key scores per expert by max, not by sum |
+| 07 | one expert cannot occupy two Top-2 slots |
+| 08 | `solved` is decided by the task metric, not by any NLL |
+| 09 | a **low-NLL wrong** answer is not solved — the PART 3 prohibition, in code |
+| 10 | a **correct** answer with higher NLL stays solved |
+| 11 | multiple solved experts → best is POSITIVE, the rest IGNORE, unsolved NEGATIVE |
+| 12 | pair search is not executed once a single solved (`decision_reason`) |
+| 13 | a pair cannot be chosen on NLL improvement alone |
+| 14 | a pair must clear the task-specific marginal criterion |
+| 15 | base-solved → `selected_set == []` and stop |
+| 16–18 | candidate LoRA gradient is exactly zero for BaseOnly / Reuse1 / Reuse2 |
+| 19 | candidate LoRA gradient is non-zero for Residual |
+| 20 | a Reuse sample can still train a historical *alias* key |
+| 21 | the alternative solved expert receives no negative gradient |
+| 22 | a zero-support historical expert gets no alias key (lazy creation) |
+| 23 | alias-key centroid initialisation is the normalised positive mean |
+| 24 | the inference path never reads a ground-truth answer |
+| 25 | teacher-cache reload is deterministic |
+| 26 | resume preserves the expert/key mapping |
+| 27 | V7 checkpoint migration creates origin keys (no alias keys) correctly |
+| 28 | the task-0 no-history path runs |
+| 29 | the original V7 tests still pass |
+| 30 | gradient leakage on a mixed BaseOnly/Reuse/Residual batch is zero |
+
+The suite is not a smoke test: 09/10 are the two directions of the
+correctness-vs-NLL separation, 13/14 are the two directions of the pair-legality
+rule, and 16–19 plus 30 are the four gating states and their interaction.
 
 ---
 

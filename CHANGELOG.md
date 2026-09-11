@@ -28,6 +28,22 @@
   `grad is None`.
 - Report §9.1 records the defect, its cause, the fix and the evidence, so the
   finding is attributed to a bug rather than to "key geometry is insufficient".
+- **Fixed a second defect in the teacher's three-valued key targets.** STEP C
+  scores the pool-wide candidate list on every unsolved sample, so
+  `tested_singles` (10 experts on the formal Task 4 run) is a superset of the
+  sample's own `recall` (8). The Reuse1 branch applied POSITIVE/IGNORE/NEGATIVE
+  over `recall` only and defaulted the rest to NEGATIVE, which mislabels an
+  out-of-recall *solver* — the `E5 = negative` PART 9 forbids — and, if the best
+  single came from outside the recall, would strip the *selected* expert of its
+  POSITIVE. The rule now runs over `tested_singles ∪ recall`. Measured on the
+  smoke run: `v7_t4_val_10` recalled 8 experts, was scored on 9, and expert 3
+  solved it while not recalled — labelled `negative`, now `ignore`
+  (`samples_with_out_of_recall_solver: 1`). The 30 named tests are unaffected
+  (their fixtures have `tested_singles == recall`); a new guard test pins both
+  edge cases. `compose/experiments/v8a_label_audit.py` recomputes the rule from
+  each record's stored evidence and reports mismatches per run.
+- Tests now **607 passed** in `tests/compose` (V8 file 43, generation harness
+  16, V7 regression 548).
 
 ## 2026-09-11 — V8 Answer-Supervised Multi-Key: core, TEST 01–30, and the V8-A runner
 

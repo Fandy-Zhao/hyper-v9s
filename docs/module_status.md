@@ -118,6 +118,20 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
 - Tests: `tests/compose` 606 passed (V8 58, V7 regression 548). New: chained
   pipeline integration test, hinge guard test on exact basis-vector geometry,
   two trainer tests on the real `ComposeLinear` path.
+- `compose/v8/teacher.py`: the Reuse1 key-target rule was not total. STEP C
+  scores the pool-wide candidate list on every unsolved sample, so
+  `tested_singles` is a superset of the sample's own `recall` (10 vs 8 on the
+  formal Task 4 run); building the three-valued rule over `recall` and
+  defaulting the rest to NEGATIVE labelled an out-of-recall *solver* negative —
+  PART 9's forbidden `E5 = negative` — and would have stripped a
+  `POSITIVE` from the selected expert had it come from outside the recall. The
+  rule now runs over `tested_singles ∪ recall`. Measured pre-fix on the smoke
+  run: `v7_t4_val_10` → expert 3 `negative`, should be `ignore`.
+- `compose/experiments/v8a_label_audit.py` (new): recomputes the rule from each
+  record's stored evidence (`recall`, `tested_singles`, `single_values`,
+  `solved_threshold`, `selected_experts`) and reports mismatches per run, so the
+  pre-fix run 1 and the post-fix runs 2–4 are compared from artifacts rather
+  than by assertion. No artifact is rewritten.
 - V8-B is still **not run**: cost is ~12–14 GPU-hours per task (V7's own training
   is 5 h 58 min for 621 steps; the teacher would be 6–8 h single-GPU at the
   declared 2,000-sample budget). Recommendation in report §19.5 is a one-task,

@@ -457,6 +457,58 @@ def test_11_multiple_solved_experts_best_positive_others_ignore_unsolved_negativ
     assert chosen == 2
 
 
+def _decide_reuse1(single_values):
+    """Run ``_decide`` on a Reuse1 sample with a recall smaller than the scores.
+
+    ``recall`` is the sample's own Top-M; ``candidates`` is the pool-wide union
+    that STEP C actually scores, so ``tested_singles`` can be a strict superset.
+    """
+    teacher = AnswerSupervisedTeacher.__new__(AnswerSupervisedTeacher)
+    teacher.config = V8TeacherConfig()
+    return teacher._decide(
+        sample_id="s0",
+        task_id=0,
+        spec_solved_value=1.0,
+        base_value=0.0,
+        base_is_solved=False,
+        recall=[10, 11, 12],
+        candidates=[10, 11, 12, 13],
+        single_values={expert: {"s0": value} for expert, value in single_values},
+        pair_values={},
+        nll_cache={},
+        gain_floor=0.0,
+    )
+
+
+def test_reuse1_targets_are_total_over_every_scored_expert_not_just_the_recall():
+    """An expert outside the recall is still *scored*, so the rule still applies.
+
+    Both edge cases here were wrong while the rule iterated ``recall`` alone and
+    defaulted the remainder to NEGATIVE: the alternative solver 13 lost its
+    IGNORE label, and in the second case the expert the teacher actually
+    selected lost its POSITIVE label.
+    """
+    # 12 is inside the recall and 13 outside it; both solve, so 12 wins the
+    # lexicographic tie-break and 13 is an alternative solver -> IGNORE.
+    record = _decide_reuse1([(10, 0.0), (11, 0.0), (12, 1.0), (13, 1.0)])
+    assert record.state == STATE_REUSE1
+    assert record.selected_experts == [12]
+    assert record.key_targets[12] == TARGET_POSITIVE
+    assert record.key_targets[13] == TARGET_IGNORE
+    assert record.key_targets[10] == TARGET_NEGATIVE
+    assert record.key_targets[11] == TARGET_NEGATIVE
+
+    # Only 13 solves, and it is not in this sample's recall: the *selected*
+    # expert must still be POSITIVE.
+    record = _decide_reuse1([(10, 0.0), (11, 0.0), (12, 0.0), (13, 1.0)])
+    assert record.state == STATE_REUSE1
+    assert record.selected_experts == [13]
+    assert record.key_targets[13] == TARGET_POSITIVE
+    assert record.key_targets[10] == TARGET_NEGATIVE
+    assert record.key_targets[11] == TARGET_NEGATIVE
+    assert record.key_targets[12] == TARGET_NEGATIVE
+
+
 def test_12_pair_search_not_executed_when_a_single_solved():
     samples = ["s0", "s1", "s2"]
     task = FakeTeacherTask(
