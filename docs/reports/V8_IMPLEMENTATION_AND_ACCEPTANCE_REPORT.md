@@ -607,6 +607,10 @@ $ pytest tests/ -q
 609 passed, 3 warnings, 8 subtests passed in 75.32s (0:01:15)
 ```
 
+Wall time is the least stable number here — repeated runs of the same tree
+report 75.32 s and 76.52 s — so it is quoted once, above, and the pass count is
+what the rest of this report relies on.
+
 Split:
 
 | Suite | Collected | Result |
@@ -715,16 +719,17 @@ and compares against the routing V7 recorded in its own
 
 The route check needs no generation, so it stands on its own. The *answer*
 check — regenerate each sample through V8's engine under the identical route and
-diff the text against the answers V7 actually produced — has now been attempted
-twice and **still has no result**, and the report says so rather than leaving a
-blank. The second attempt found a genuine code defect, which is the more useful
-outcome and is recorded here in full.
+diff the text against the answers V7 actually produced — took four attempts. It
+is worth reading the failures in full, because two of them were environmental and
+one was a real defect that no test would have caught, and because a report that
+showed only the final MATCH would be describing a different experiment.
 
 | Attempt | When | Outcome |
 | --- | --- | --- |
 | 1, route only | 07:56 | `task0_parity.json` written with `route_parity` and no `answer_parity` — this is the MATCH above, and it is unaffected by what follows |
 | 2, `--generate` | 07:56 | `RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR` inside `prepare_inputs_labels_for_multimodal` (the vision conv): the shared device was too full for cuDNN to get a workspace |
-| 3, `--generate` | 14:51 | Got an **exclusively-owned** device (the exclusivity gate below worked — the model loaded and all 256 answers were generated), then died at scoring: `KeyError: 'v7_t0_val_0'` |
+| 3, `--generate` | 14:51 | Got an **exclusively-owned** device (the exclusivity gate below worked — the model loaded and all 256 answers were generated), then died at scoring: `KeyError: 'v7_t0_val_0'` on a path defect, below |
+| 4, `--generate` | 15:11 | Ran the repaired path end to end on GPU 3, exit 0 in 8 m 33 s → **`answer_parity` written, 256/256 identical** |
 
 #### The defect the third attempt exposed
 
@@ -1965,7 +1970,7 @@ all remain on disk as they were produced.
 
 Every row cites the artefact that decides it — a test name, a file:line, or a
 section of this report. "Test" means it is decided by a test that runs in the
-608-test suite (§11); "report" means it is decided by a measured run.
+609-test suite (§11); "report" means it is decided by a measured run.
 
 | # | Requirement | Decided by | Status |
 | --- | --- | --- | --- |
@@ -2016,10 +2021,12 @@ something that can fail rather than by a comment:
 | Inference reads no ground truth, NLL, oracle or task label | AST scan `assert_inference_purity`, `test_24`, with negative controls that prove the scanner has teeth | No |
 | Deterministic resume | `test_25`, `test_26` | No |
 
-Suite: **609 passed** in 75.32 s; **548** of them pre-date this work and pass
-unchanged. `git diff --stat 9ff2b28..HEAD` = 34 files, 11,874 insertions,
-**0 deletions**, and **0 files** under `compose/v7/`, `compose/adapters/`,
-`compose/eval/` or `llava/`. V7 is not merely still passing — it is
+Suite: **609 passed**; **548** of them pre-date this work and pass
+unchanged. `git diff --stat 9ff2b28..HEAD` = 34 files, **0 deletions**, and
+**0 files** under `compose/v7/`, `compose/adapters/`, `compose/eval/` or
+`llava/`; the insertion count is given against a named commit in §12 and §1
+rather than here, because it grows with every commit on this branch while the
+zero-deletion invariant does not. V7 is not merely still passing — it is
 byte-unchanged, which is why its tests pass by construction.
 
 **Four defects were found during the campaign, and all four are in the record.**
