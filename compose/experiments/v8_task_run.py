@@ -725,20 +725,24 @@ class V8TaskRun:
         self.cache_hits = engine.cache_hits
         self.nll_computed = nll.computed
         self.nll_reused = nll.reused
-        _write_json(self.out / "teacher_result.json", {
-            "task_id": self.task,
-            "schema_version": TEACHER_RESULT_SCHEMA_VERSION,
-            "teacher_search_mode": result.search_mode,
-            "historical_experts_visible": list(result.visible_experts),
-            "config": dataclasses.asdict(teacher_config),
-            "states": result.state_counts(),
-            "state_rates": result.state_rate(),
-            "coverage": teacher_coverage_report(result),
-            "records": [record.to_dict() for record in result.records],
-        })
+        _write_json(self.out / "teacher_result.json",
+                    teacher_result_payload(result, teacher_config))
         self.log("teacher: mode={} visible={} {} states={} generated={} nll_live={}".format(
             result.search_mode, len(result.visible_experts), len(result.records),
             result.state_counts(), self.generated, self.nll_computed))
+
+    def _diagnostic_covers_this_run(self, diagnostic_metric: Mapping[str, Any]) -> bool:
+        """Is the diagnostic's V7 metric measured on *this* run's samples?
+
+        Checked against the diagnostic's own prediction file rather than
+        inferred from the sample count, so the answer is about the sample set and
+        not about two integers happening to agree.  If the file cannot be read
+        the comparison is refused -- an unverifiable baseline is not a baseline.
+        """
+        ids = _prediction_ids(diagnostic_metric.get("prediction_file") or "")
+        if ids is None:
+            return False
+        return ids == set(self.sample_ids)
 
     # -- policy ---------------------------------------------------------
     def write_policy(self) -> None:
@@ -928,8 +932,19 @@ class V8TaskRun:
         recall_curve = teacher_expert_recall_at_k(solving, self.recall_map, ks=ks)
         pool_curve = full_pool_oracle_recall_at_k(solving, self.full_order, ks=ks)
 
+        # V7's comparator comes from a *different* artefact -- the diagnostic
+        # root's own run over its own split.  It is therefore only a comparator
+        # when this run covers the same samples: a `--limit 32` run that quoted
+        # the diagnostic's full-split 67.97 as its V7 baseline was comparing 32
+        # V8 samples against 256 V7 samples, and `gap_closed` below would have
+        # turned that into a published gap.  The sample sets are checked, not
+        # assumed, and a mismatch routes the number to a reference field instead
+        # of to the baseline.
         v7_metric: Optional[float] = None
+        v7_reference: Optional[float] = None
+        v7_comparable = False
         nll_oracle_metric: Optional[float] = None
+        nll_oracle_comparable = False
         diagnostic_complete = (
             Path(self.args.diagnostic_root) / "generation_accuracy" / "COMPLETE.json"
         )
@@ -938,22 +953,47 @@ class V8TaskRun:
                 if int(entry["task"]) != self.task:
                     continue
                 metrics = entry.get("metrics", {})
+                actual = metrics.get("actual", {})
+                oracle = metrics.get("oracle", {})
+                # both metrics are measured on the *same* split, so one
+                # comparison settles both
+                v7_comparable = bool(
+                    actual) and self._diagnostic_covers_this_run(actual)
                 if "actual" in metrics:
-                    v7_metric = float(metrics["actual"]["value"])
+                    value = float(metrics["actual"]["value"])
+                    if v7_comparable:
+                        v7_metric = value
+                    else:
+                        v7_reference = value
                 if "oracle" in metrics:
-                    nll_oracle_metric = float(metrics["oracle"]["value"])
+                    nll_oracle_comparable = v7_comparable
+                    if v7_comparable:
+                        nll_oracle_metric = float(metrics["oracle"]["value"])
+                if not v7_comparable and (actual or oracle):
+                    self.log(
+                        "V7 comparator NOT comparable: diagnostic split has {} "
+                        "samples, this run has {} -- V7 {} is reported as a "
+                        "reference, not as this run's baseline".format(
+                            actual.get("samples"), len(self.sample_ids),
+                            actual.get("value"),
+                        )
+                    )
 
         v8_metric = float(self.official["value"])
         teacher_positives = sum(
             1 for record in result.records if record.state != STATE_RESIDUAL
         )
         ceiling = nll_oracle_metric if nll_oracle_metric is not None else v8_metric
-        gap = gap_closed(v7_metric or 0.0, v8_metric, ceiling)
+        # No comparable V7 baseline -> no gap.  ``gap_closed`` against a number
+        # measured on a different sample set would be arithmetic on a fiction,
+        # so the honest answer is None, which is what a reader sees.
+        gap = (gap_closed(v7_metric, v8_metric, ceiling)
+               if v7_metric is not None else None)
         diagnosis = diagnose(
             full_pool_oracle_solves=teacher_positives,
             teacher_positives=teacher_positives,
             candidate_recall=float(recall_curve.get(int(self.args.recall_top_m), 0.0)),
-            v7_metric=v7_metric or 0.0,
+            v7_metric=v7_metric,
             v8_metric=v8_metric,
             samples=len(result.records),
         )
@@ -996,7 +1036,22 @@ class V8TaskRun:
             "teacher_search_mode": result.search_mode,
             "historical_experts_visible": list(result.visible_experts),
             "teacher_coverage": result.coverage_report(),
+            # Measured on *this run's* sample set, or None when the diagnostic
+            # covers a different one.  A non-comparable number is kept in
+            # ``v7_actual_route_metric_reference`` with its scope named, so the
+            # value is still available without being quotable as this run's
+            # baseline.
             "v7_actual_route_metric": v7_metric,
+            "v7_actual_route_metric_comparable": v7_metric is not None,
+            "v7_actual_route_metric_reference": v7_reference,
+            "v7_actual_route_metric_reference_note": (
+                None if v7_reference is None else (
+                    "V7's diagnostic metric for this task, measured on the "
+                    "diagnostic root's own split -- NOT on this run's {} samples, "
+                    "so it is not a baseline for any number in this file".format(
+                        len(result.records))
+                )
+            ),
             "v7_nll_oracle_pair_metric": nll_oracle_metric,
             "v8_teacher_positive_samples": teacher_positives,
             "v8_teacher_positive_rate": teacher_positives / len(result.records),
@@ -1043,7 +1098,9 @@ class V8TaskRun:
         self.analysis = analysis
         _write_json(self.out / "analysis.json", analysis)
         self.log("analysis: states={} cardinality={} V8={} V7={} recall@M={:.4f}".format(
-            states, cardinality, v8_metric, v7_metric,
+            states, cardinality, v8_metric,
+            v7_metric if v7_metric is not None else "none (reference {})".format(
+                v7_reference),
             float(recall_curve.get(int(self.args.recall_top_m), 0.0))))
 
     # -- driver ---------------------------------------------------------
@@ -1059,7 +1116,14 @@ class V8TaskRun:
             "diagnostic_root": str(self.args.diagnostic_root),
             "recall_top_m": int(self.args.recall_top_m),
             "history_only": bool(self.args.history_only),
-            "excluded_expert_ids": list(getattr(self, "excluded_expert_ids", [])),
+            # Resolved here rather than read off ``self``: ``write_config`` runs
+            # before ``recall`` sets that attribute, and the previous
+            # ``getattr(self, "excluded_expert_ids", [])`` therefore wrote an
+            # empty exclusion list into the provenance file of *every*
+            # history-only run -- the same "scope read from the wrong field"
+            # trap that §16.1's audit fell into, in a second artefact.
+            # ``_excluded_experts`` is pure, so calling it is safe this early.
+            "excluded_expert_ids": list(self._excluded_experts()),
             "shortlist_ks": int(self.args.shortlist_ks),
             "max_new_tokens": int(self.args.max_new_tokens),
             "pair_min_metric_gain": self.args.pair_min_metric_gain,
@@ -1204,6 +1268,61 @@ def metric_report(
             TOP2_NOT_MEASURED_NOTE if top2_payload is None else TOP2_MEASURED_NOTE
         ),
         "metrics_are_separate": True,
+    }
+
+
+def _prediction_ids(path: str | Path) -> Optional[set]:
+    """Sample ids in a V7 prediction file, or ``None`` if it cannot be read.
+
+    The V7 generation files key samples as ``question_id``; the teacher and the
+    cache use ``sample_id``.  Both are accepted, and a file that has neither is
+    reported as unreadable rather than as a set of ``None`` -- an id-less file
+    must not be able to "match" anything.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return None
+    ids = set()
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                return None
+            for key in ("sample_id", "question_id"):
+                if row.get(key) is not None:
+                    ids.add(str(row[key]))
+                    break
+            else:
+                return None
+    return ids or None
+
+
+def teacher_result_payload(
+    result: TeacherResult,
+    teacher_config: Any,
+) -> Dict[str, Any]:
+    """The ``teacher_result.json`` body, built as a pure function.
+
+    Pure and module-level **on purpose**: the first version of this payload was
+    assembled inline in ``run_teacher`` and called a coverage helper that did not
+    exist, which is a ``NameError`` only a real run could reach.  Every unit test
+    passed, because no unit test builds this dict.  Extracting it lets a test
+    assert the artefact's shape without a model, a GPU or a teacher run.
+    """
+    return {
+        "task_id": int(result.task_id),
+        "schema_version": TEACHER_RESULT_SCHEMA_VERSION,
+        "teacher_search_mode": result.search_mode,
+        "historical_experts_visible": list(result.visible_experts),
+        "config": dataclasses.asdict(teacher_config),
+        "states": result.state_counts(),
+        "state_rates": result.state_rate(),
+        "coverage": result.coverage_report(),
+        "records": [record.to_dict() for record in result.records],
     }
 
 

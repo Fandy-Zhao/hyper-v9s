@@ -29,11 +29,11 @@ metric adapters, lazy alias-key creation, the gradient gating, the freeze ledger
 the trainer, the inference router — 18 modules under `compose/v8/`, plus 10
 drivers under `compose/experiments/v8*`, all new files
 beside V7 rather than edits to it. `git diff --stat 9ff2b28..HEAD -- compose/ tests/`
-is **30 files, 11,682 insertions, 0 deletions** — purely additive — and **zero**
+is **30 files, 12,033 insertions, 0 deletions** — purely additive — and **zero**
 files anywhere in the branch are under `compose/v7/`, `compose/adapters/`,
-`compose/eval/` or `llava/`. The suite is **621 tests passing** (70.75 s), 548 of
+`compose/eval/` or `llava/`. The suite is **625 tests passing** (71.71 s), 548 of
 them pre-dating this work (the V7 row has been 548 in every round, including the
-§26 semantics round).
+§26 semantics round and the oracle smoke after it).
 
 **What was measured.** Four full teacher runs — Task 3 (IconQA) and Task 4
 (CLEVR-Math), each in an all-experts and a history-only scope — over the frozen
@@ -500,9 +500,12 @@ silently did nothing and the resulting numbers would have been attributed to
 The teacher scores the **pool-wide candidate list** on every unsolved sample:
 `teacher.py` STEP C loops over `candidates`, the union of every pending
 sample's recall, not over the sample's own Top-M. A sample's `recall` is thus
-its own 8 experts while `tested_singles` is the union actually scored — in the
-formal Task 4 run, 10 experts. `recall ⊆ tested_singles`, and only
-`tested_singles` carries evidence.
+its own 8 experts while `tested_singles` is the union actually scored — 10
+experts in the Task 4 all-experts run, **8 of 16 in the Task 4 history-only run**
+(§26.3 tabulates all four). `recall ⊆ tested_singles`, and only
+`tested_singles` carries evidence. The scope matters and is named here because
+quoting the all-experts 10 for the history-only run is precisely the error §26.3
+had to correct.
 
 The Reuse1 branch built its labels over `recall` alone and then ran
 `targets.setdefault(expert, NEGATIVE)` over `tested_singles`. Both consequences
@@ -669,7 +672,7 @@ The "checksum before" column is V7's own recorded fingerprint from
 
 ```
 $ pytest tests/ -q
-621 passed, 3 warnings, 8 subtests passed in 70.75s (0:01:10)
+625 passed, 3 warnings, 8 subtests passed in 71.71s (0:01:11)
 ```
 
 Wall time is the least stable number here — repeated runs of the same tree
@@ -680,20 +683,23 @@ Split:
 
 | Suite | Collected | Result |
 | --- | --- | --- |
-| `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30 + A–L) | 57 | all pass |
+| `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30 + A–P) | 61 | all pass |
 | `tests/compose/test_v8_generation_harness.py` | 16 | all pass |
 | V7 regression (rest of `tests/compose/`) | 548 | all pass |
 
-The three rows sum to 621, which is the suite total, and the V7 row is
-**unchanged at 548** across the §26 semantics round — which is the point of
-quoting it: the corrections of §26 touched no V7 code path. `57 = 45 + 12`: the
-45 of the pre-§26 file (`30` names from PART 15, plus the integration tests of
-§9.1, §10.2 and §12, plus the regression tests this campaign's own defects
-produced — `test_22b_current_task_expert_gets_no_alias_key` (§17) and
-`test_22c_full_pool_audit_honours_the_history_only_scope` (§16)) plus the twelve
-oracle tests A–L of §26.8. The file defines 57 `def test_` and contains no
+The three rows sum to 625, which is the suite total, and the V7 row is
+**unchanged at 548** across both the §26 semantics round and the oracle smoke
+after it — which is the point of quoting it: neither touched a V7 code path.
+`61 = 45 + 16`: the 45 of the pre-§26 file (`30` names from PART 15, plus the
+integration tests of §9.1, §10.2 and §12, plus the regression tests this
+campaign's own defects produced — `test_22b_current_task_expert_gets_no_alias_key`
+(§17) and `test_22c_full_pool_audit_honours_the_history_only_scope` (§16)), the
+twelve oracle tests A–L of §26.8, and the four the smoke itself forced: M and N
+(the teacher-result payload and its coverage legibility), O (a subset run may not
+borrow the full split's V7 baseline) and P (the provenance file must declare the
+real scope). The file defines 61 `def test_` and contains no
 `pytest.mark.parametrize`, so defined and collected counts agree — verified with
-`grep -c '^def test_'` and `pytest --collect-only -q`, which both report 57.
+`grep -c '^def test_'` and `pytest --collect-only -q`, which both report 61.
 
 
 Two earlier drafts of this table were wrong and are corrected here rather than
@@ -762,7 +768,7 @@ edited:
 
 ```
 $ git diff --stat 9ff2b28..HEAD -- compose/ tests/
-30 files changed, 11682 insertions(+), 0 deletions(-)
+30 files changed, 12033 insertions(+), 0 deletions(-)
 ```
 
 30 files — `compose/v8/*`, `compose/experiments/v8*.py`, the two new test files —
@@ -1110,7 +1116,9 @@ headline number are the same function — and it is also what makes the
 `BaseOnly` column above directly comparable with the metric columns.
 
 **One quantified upper-bound caveat.** STEP C scores the pool-wide candidate
-union (10 experts on Task 4, 18 on Task 3) rather than each sample's own Top-8,
+union (10 experts on Task 4 and 18 on Task 3, both in the *all-experts* scope;
+8 of 16 and 12 of 12 in the history-only scope, §26.3) rather than each sample's
+own Top-8,
 so a sample can be solved using an expert its own recall window never contained.
 That happened on 3 samples (1.17 %) in Task 4 / all-experts, 3 (1.17 %) in
 Task 3 / all-experts and 11 (4.30 %) in Task 3 / history-only
@@ -2170,7 +2178,7 @@ something that can fail rather than by a comment:
 | Oracle metric and deployable Top-2 metric never conflated | `metric_report`, `test_oracle_K` | No — the deployable field is `null` unless explicitly measured |
 | Inference chain is supervision-free, fixed Top-2 | `test_oracle_I`, `test_oracle_J` | No — the scan covers `inference.py`, `routing.py`, `query.py`, `generate.py` |
 
-Suite: **621 passed**; **548** of them pre-date this work and pass
+Suite: **625 passed**; **548** of them pre-date this work and pass
 unchanged — the same 548 as before §26, which is this round's evidence that no
 V7 path was touched. `git diff --numstat 9ff2b28..HEAD | awk '$2 != 0'` is
 empty: **0 deletions** anywhere in the branch, and
@@ -2411,9 +2419,25 @@ the prompt assumed.
 
 **Before.** `candidates = sorted(union of recall_map[s] for s in pending)`; STEP C
 looped `for expert_id in candidates`. The per-sample `recall` was the sample's own
-Top-M and the union was the search universe. In the formal Task 4 run that union
-was 10 experts out of 16 visible — so 6 historical experts were never scored on
-any sample, and the campaign's Residual count (141/256) is a **lower bound**.
+Top-M and the union was the search universe. Measured on the four campaign runs
+by re-reading their own artefacts — two independent ways (`tested_singles` and
+`single_values`) that agree exactly:
+
+| Campaign run | Visible historical | Scored by the v1 teacher | Never scored | Residual | Is the Residual count a bound? |
+| --- | --- | --- | --- | --- | --- |
+| Task 4, history-only | 16 | **8** | **8** | 141 | **yes — lower bound** |
+| Task 4, all-experts | 23 | 10 | 13 | 15 | **yes — lower bound** |
+| Task 3, history-only | 12 | **12** | 0 | 170 | **no — already exact** |
+| Task 3, all-experts | 23 | 18 | 5 | 33 | **yes — lower bound** |
+
+The result that matters is the asymmetry. **Task 3's history-only run was already
+a full oracle by accident** — its recall union happened to cover all 12 of its
+visible experts, so its 170 Residual and its 33.59 % are exact and survive §26
+unchanged. **Task 4's was not**: it scored 8 of its 16, so the 8 experts
+{4, 5, 6, 7, 8, 9, 10, 11} were never scored on any sample and its 141 Residual
+(and the 44.92 % it produces) is a genuine **lower bound**. The unbounded search
+can only find more capability, never less, so the direction is safe — but the
+magnitude is unknown until Task 4 is re-run, which is what §26.10 step 3 is for.
 
 **After.** `visible_experts` is a **required argument** (`teacher.run(..., visible_experts=...)`)
 so no caller can fall back to a recall-limited search by omission. STEP C loops
@@ -2511,8 +2535,12 @@ generalisation result and no number from it may be reported as one.
 
 **Survives unchanged** (these do not depend on the search universe):
 
-* the historical capability evidence *as a lower bound* — §14/§16's Residual
-  counts can only grow when the search universe grows;
+* **Task 3's history-only numbers are exact, not bounds.** Its v1 teacher scored
+  all 12 of its visible experts, so the 170 Residual, the 14.06 % BaseOnly and
+  the 33.59 % history-only metric are what a full-history oracle produces on that
+  split. This is measured (§26.3), not argued.
+* the historical capability evidence for the other three runs *as a lower bound* —
+  their Residual counts can only grow when the search universe grows;
 * the origin-key routing deficit — §15's recall curves are a property of the
   frozen keys, measured identically either way;
 * §17's same-split alias geometry upper bound (with §17's new label);
@@ -2597,3 +2625,63 @@ cheaper than the next, and each has a stop rule.
 Steps 2–3 are the cheap falsification of this round's own change: if the oracle
 teacher does not find materially more capability than the bounded one, DECISION-1
 bought nothing and that is worth knowing before spending 12 GPU-hours.
+
+### 26.11 The oracle smoke — executed, and what it found
+
+Step 2 was run on 2026-09-11 on GPU 3 (`CUDA_VISIBLE_DEVICES=3`, verified idle:
+no compute process owned by another user and 24,560 MiB free), Task 4,
+`--history-only --limit 32 --top2-inference-eval`, fresh root
+`experiments/runs/0911_v8a_oracle_smoke_task4/`. This is the only experiment
+executed in this round, and the only one PART 13 permits without a prior review.
+It cost **105 s** of GPU time (the generation and NLL caches were warm from the
+first attempt; the cold pass had taken ~13 min to reach the same point).
+
+**It found two further defects, both fixed, both now regression-tested.**
+
+1. **`NameError: teacher_coverage_report is not defined`** — `run_teacher`
+   assembled the `teacher_result.json` body inline and called a free function
+   that does not exist; the real API is `TeacherResult.coverage_report()`. The
+   module imported cleanly and all 45 unit tests passed, because no unit test
+   builds that dict; the failure appeared only after 13 minutes of GPU
+   generation, at the moment the teacher tried to write its artefact. Fixed by
+   extracting [`teacher_result_payload`](compose/experiments/v8_task_run.py), a
+   pure function, and pinned by `test_oracle_M`/`_N`.
+2. **A `--limit` run published V7's full-split number as its own baseline.**
+   `analyse` read V7's metric from the *diagnostic root's* `COMPLETE.json` — 256
+   samples — so the 32-sample smoke reported `v7 = 67.97` as if measured on its
+   own samples, and fed it to `gap_closed` against a 32-sample V8 number. Fixed
+   by checking the diagnostic's prediction-file sample ids against this run's
+   (refusing when they cannot be compared), routing a non-comparable value to
+   `v7_actual_route_metric_reference` with its scope named, and giving
+   `diagnose` an explicit `CASE_UNCLASSIFIED_NO_V7_BASELINE` — the A/B/D cases
+   are all comparisons *against V7*, so none is decidable without one. Pinned by
+   `test_oracle_O`.
+3. **A third, found while auditing the fix: `run_config.json` misdeclared the
+   scope of every history-only run.** `write_config` runs before `recall` sets
+   `excluded_expert_ids`, and read it with `getattr(..., [])` — so all four
+   campaign runs' provenance files say `excluded_expert_ids: []` while the runs
+   actually excluded 7 and 11 experts. That is the §16.1 trap in a second
+   artefact, and in the file a reader opens to learn what a run *was*. Fixed;
+   pinned by `test_oracle_P`.
+
+**What the smoke confirms on real data.** All three decisions, end to end, on
+the committed V7 pool rather than on a fixture:
+
+| Decision | Evidence from `teacher_result.json` (schema v2) |
+| --- | --- |
+| DECISION-1 | `teacher_search_mode: full_history_single_oracle`; `historical_experts_visible == historical_experts_tested == [0…15]`; `never_tested: []`; `tested_set_sizes: [16]`; `full_coverage: true`; `fully_covered_samples == searched_samples == 28`. The run's own log: "16 visible historical experts; router Top-8 recorded for 32 samples as a diagnostic only" |
+| DECISION-2 | Per state: BaseOnly 32 IGNORE / Reuse1 8 positive + 107 negative + 13 IGNORE / Reuse2 — / Residual **20 `context_positive` + 300 IGNORE + 0 negative**. **Zero** Residual samples carry any `negative` label, every Residual's context expert is `context_positive`, and `max len(residual_context) == 1` |
+| DECISION-3 | `actual_top2_inference_metric: 12.5` in `COMPLETE.json`, produced by the `--top2-inference-eval` path with no supervision anywhere in the chain |
+
+And the number that justifies the §26.5 correction, now measured rather than
+argued: on this split the **teacher oracle is 37.5** while the **deployable fixed
+Top-2 is 12.5**. That 25-point gap is exactly the quantity the old single
+`v8_policy_metric` field was hiding, and it is why 94.14 / 87.11 may not be
+quoted as V8's accuracy.
+
+**What it does not tell us.** 32 samples is a smoke, not a measurement: the
+37.5 / 12.5 pair are not estimates of anything and neither is comparable with the
+256-sample campaign numbers — which is precisely what the new comparability check
+refuses to do, reporting `v7_actual_route_metric: null` with `67.97` kept in the
+reference field. `seed_verification: MATCH`, `max_abs_diff 0.0` over 8 trials,
+`generated: 0 / nll_live: 0` (fully cache-served), peak 15.6 GiB.

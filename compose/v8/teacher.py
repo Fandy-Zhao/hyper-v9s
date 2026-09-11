@@ -264,10 +264,19 @@ class TeacherResult:
             >= set(int(v) for v in record.historical_experts_visible)
         ]
         sizes = sorted({len(record.historical_experts_tested) for record in searched})
+        visible = set(int(value) for value in self.visible_experts)
+        tested: set = set()
+        for record in searched:
+            tested.update(int(value) for value in record.historical_experts_tested)
         return {
             "teacher_search_mode": self.search_mode,
             "historical_experts_visible": list(self.visible_experts),
             "num_visible_experts": len(self.visible_experts),
+            #: Union over unsolved samples.  Recorded alongside the visible set so
+            #: a reader can name the experts a bounded search would have missed,
+            #: rather than only observing that a set size differed.
+            "historical_experts_tested": sorted(tested),
+            "never_tested": sorted(visible - tested),
             "base_only_samples": len(self.records) - len(searched),
             "searched_samples": len(searched),
             "fully_covered_samples": len(fully),

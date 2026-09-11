@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, List, Mapping, Sequence
 
@@ -44,6 +45,7 @@ from compose.v8.config import (
     STATE_RESIDUAL,
     STATE_REUSE1,
     STATE_REUSE2,
+    TEACHER_SEARCH_FULL_HISTORY,
     TARGET_CONTEXT_POSITIVE,
     TARGET_IGNORE,
     TARGET_NEGATIVE,
@@ -2296,3 +2298,206 @@ def test_oracle_L_mixed_batch_leakage_is_still_probed():
         sys.modules[__name__],
         "test_30_gradient_leakage_on_mixed_baseonly_reuse_residual_batch",
     )
+
+
+def test_oracle_M_teacher_result_artifact_is_buildable_without_a_run():
+    """M: the ``teacher_result.json`` body is constructible off-line.
+
+    Regression for a defect the first oracle smoke found and no unit test could:
+    ``run_teacher`` assembled this dict inline and called ``teacher_coverage_report``,
+    a function that does not exist -- the real API is ``TeacherResult.coverage_report()``.
+    It is a ``NameError``, so the module imported fine, every unit test passed, and
+    the failure appeared only after ~13 minutes of GPU generation, at the moment the
+    teacher tried to write its artefact.  ``teacher_result_payload`` is that dict as a
+    pure function, so the shape is assertable without a model: this test fails with
+    ``NameError`` on the pre-fix code and passes on the fixed one.
+    """
+    from compose.experiments.v8_task_run import (
+        TEACHER_RESULT_SCHEMA_VERSION,
+        teacher_result_payload,
+    )
+    from compose.v8.teacher import TeacherResult, TeacherSampleRecord
+
+    record = TeacherSampleRecord(
+        sample_id="s0", state=STATE_REUSE1, selected_experts=[1],
+        base_solved=False, base_value=0.0, recall=[1, 2], single_values={"1": 1.0},
+        pair_values={}, tested_singles=[1, 2], tested_pairs=[],
+        achieved_value=1.0, achieved_nll=None, delta_nll=None, teacher_gain=1.0,
+        key_targets={"1": TARGET_POSITIVE, "2": TARGET_CONTEXT_POSITIVE},
+        decision_reason="single_solved_stop_before_pairs",
+        residual_context=[2],
+        historical_experts_visible=[1, 2],
+        historical_experts_tested=[1, 2],
+    )
+    # ``search_mode`` and ``visible_experts`` are *views* on the result, read off
+    # ``config`` and the per-record visible sets -- not constructor fields.  The
+    # config is built exactly as ``AnswerSupervisedTeacher.run`` builds it.
+    teacher_config = V8TeacherConfig()
+    result = TeacherResult(
+        task_id=4, records=[record], config=asdict(teacher_config),
+    )
+    payload = teacher_result_payload(result, teacher_config)
+
+    # the artefact must carry the evidence that lets a reader audit the search
+    # without re-running it, and the schema that says which semantics produced it
+    assert payload["schema_version"] == TEACHER_RESULT_SCHEMA_VERSION
+    assert payload["teacher_search_mode"] == TEACHER_SEARCH_FULL_HISTORY
+    assert payload["historical_experts_visible"] == [1, 2]
+    coverage = payload["coverage"]
+    assert coverage["teacher_search_mode"] == TEACHER_SEARCH_FULL_HISTORY
+    assert coverage["historical_experts_visible"] == [1, 2]
+    # both visible experts were tested on the unsolved sample -> full coverage
+    assert coverage["full_coverage"] is True
+    assert coverage["historical_experts_tested"] == [1, 2]
+    assert coverage["never_tested"] == []
+    assert coverage["searched_samples"] == 1
+    assert payload["config"]["search_mode"] == TEACHER_SEARCH_FULL_HISTORY
+    assert payload["records"][0]["sample_id"] == "s0"
+    assert payload["states"][STATE_REUSE1] == 1
+    # and the payload carries no answer string, by the cache's own rule
+    from compose.v8.cache import _forbid_answer_fields
+    _forbid_answer_fields(payload)
+
+
+def test_oracle_N_incomplete_coverage_is_visible_in_the_artifact():
+    """N: a search that missed a visible expert must be legible in the payload."""
+    from compose.experiments.v8_task_run import teacher_result_payload
+    from compose.v8.teacher import TeacherResult, TeacherSampleRecord
+
+    record = TeacherSampleRecord(
+        sample_id="s0", state=STATE_RESIDUAL, selected_experts=[1],
+        base_solved=False, base_value=0.0, recall=[1], single_values={"1": 1.0},
+        pair_values={}, tested_singles=[1], tested_pairs=[],
+        achieved_value=1.0, achieved_nll=None, delta_nll=None, teacher_gain=0.0,
+        key_targets={"1": TARGET_CONTEXT_POSITIVE},
+        decision_reason="no_single_or_pair_solved",
+        residual_context=[1],
+        historical_experts_visible=[1, 2, 3],
+        historical_experts_tested=[1],          # 2 and 3 were never scored
+    )
+    result = TeacherResult(
+        task_id=4, records=[record], config=asdict(V8TeacherConfig()),
+    )
+    coverage = teacher_result_payload(result, V8TeacherConfig())["coverage"]
+    assert coverage["full_coverage"] is False
+    assert coverage["historical_experts_visible"] == [1, 2, 3]
+    assert coverage["historical_experts_tested"] == [1]
+    # the artefact must *name* the experts the search skipped, not just report
+    # that some set size differed -- this is the list a reader audits
+    assert coverage["never_tested"] == [2, 3]
+    assert coverage["searched_samples"] == 1
+    assert coverage["fully_covered_samples"] == 0
+
+
+def test_oracle_O_a_subset_run_may_not_borrow_the_full_split_v7_baseline(tmp_path):
+    """O: a ``--limit`` run must not publish V7's full-split number as its baseline.
+
+    Found by the first oracle smoke.  ``analyse`` read V7's metric from the
+    *diagnostic root's* ``COMPLETE.json``, which is measured on the diagnostic's
+    own 256-sample split -- so a 32-sample smoke reported ``v7=67.97``, a number
+    it had not measured on its own samples, and fed it to ``gap_closed`` against
+    a 32-sample V8 number.  The measurement is fine; treating it as this run's
+    baseline is not.  Comparability is now checked against the diagnostic's own
+    prediction file, and a mismatch routes the value to a reference field.
+    """
+    from compose.experiments.v8_task_run import _prediction_ids
+
+    # V7 generation files key samples as ``question_id``; the teacher uses
+    # ``sample_id``.  Both must be readable, or the check cannot be made at all.
+    by_question = tmp_path / "v7_q.jsonl"
+    by_question.write_text("\n".join(json.dumps({"question_id": "v7_t4_val_{}".format(i),
+                                                 "text": "1"}) for i in range(4)) + "\n",
+                           encoding="utf-8")
+    assert _prediction_ids(by_question) == {"v7_t4_val_0", "v7_t4_val_1",
+                                            "v7_t4_val_2", "v7_t4_val_3"}
+    by_sample = tmp_path / "v7_s.jsonl"
+    by_sample.write_text(json.dumps({"sample_id": "a", "text": "1"}) + "\n", encoding="utf-8")
+    assert _prediction_ids(by_sample) == {"a"}
+
+    # an id-less file must not be able to "match" anything -- the previous draft
+    # collected ``str(row.get("sample_id"))``, i.e. the literal string "None",
+    # which is a match waiting to happen
+    id_less = tmp_path / "v7_none.jsonl"
+    id_less.write_text(json.dumps({"text": "1"}) + "\n", encoding="utf-8")
+    assert _prediction_ids(id_less) is None
+    assert _prediction_ids(tmp_path / "missing.jsonl") is None
+    assert _prediction_ids(tmp_path) is None
+
+    # the prediction-file id sets of a limit-32 run and of the full split differ,
+    # which is exactly the condition that must refuse the baseline
+    subset = {"v7_t4_val_{}".format(i) for i in range(32)}
+    full = {"v7_t4_val_{}".format(i) for i in range(256)}
+    assert subset != full
+
+    # and with no comparable baseline, diagnose must not fall into the A/B/D
+    # cases -- all three are comparisons *against V7*
+    diagnosis = v8_audit.diagnose(full_pool_oracle_solves=20, teacher_positives=20,
+                                  candidate_recall=0.75, v7_metric=None,
+                                  v8_metric=37.5, samples=32)
+    assert diagnosis["case"] == "CASE_UNCLASSIFIED_NO_V7_BASELINE"
+    assert diagnosis["v7_metric"] is None
+    assert diagnosis["v7_metric_comparable"] is False
+    # capability 0 is still decidable without a baseline: that case is about the
+    # pool, not about the comparison
+    assert v8_audit.diagnose(full_pool_oracle_solves=0, teacher_positives=0,
+                             candidate_recall=0.0, v7_metric=None, v8_metric=12.5,
+                             samples=32)["case"] == "CASE_C"
+    # and a run that *does* have a baseline still classifies as before
+    assert v8_audit.diagnose(full_pool_oracle_solves=20, teacher_positives=20,
+                             candidate_recall=0.75, v7_metric=67.97,
+                             v8_metric=37.5, samples=256)["case"] == "CASE_B"
+
+
+def test_oracle_P_run_config_declares_the_real_scope(tmp_path):
+    """P: the provenance file must not claim a narrower exclusion than the run used.
+
+    ``write_config`` runs before ``recall``, and read the scope with
+    ``getattr(self, "excluded_expert_ids", [])`` -- so every history-only run
+    wrote ``excluded_expert_ids: []`` into its own ``run_config.json`` while the
+    run actually excluded seven experts.  That is the §16.1 trap (read the scope
+    from a field that does not hold it) reappearing in a second artefact, and it
+    is worse than the first: ``run_config.json`` is the file a reader opens to
+    find out what a run *was*.  The scope is now computed from
+    ``_excluded_experts``, which is pure and available this early.
+    """
+    from compose.experiments.v8_task_run import V8TaskRun, _parser
+
+    args = _parser().parse_args([
+        "--task", "4", "--root", str(tmp_path), "--history-only",
+    ])
+    runner = V8TaskRun(args)
+    # the two things ``_excluded_experts`` reads, as ``setup`` would leave them:
+    # 23 live experts, task 4's own are 16-19 and later tasks own 20/21/23
+    runner.expert_ids = list(range(22)) + [23]
+    runner.pool = type("P", (), {"expert_records": {
+        expert_id: {"origin_task": (0 if expert_id < 4 else
+                                    1 if expert_id < 8 else
+                                    2 if expert_id < 12 else
+                                    3 if expert_id < 16 else
+                                    4 if expert_id < 20 else 5)}
+        for expert_id in runner.expert_ids
+    }})()
+    runner.checkpoint_dir = tmp_path / "ckpt"
+    runner.question_file = tmp_path / "val_full.json"
+    runner.query_path = tmp_path / "queries.pt"
+    runner.query_contract_hash = "0" * 64
+    runner.write_config()
+
+    written = json.loads((runner.out / "run_config.json").read_text(encoding="utf-8"))
+    assert written["history_only"] is True
+    assert written["excluded_expert_ids"] == [16, 17, 18, 19, 20, 21, 23]
+    # and it must agree with what the scope resolution actually produces
+    assert written["excluded_expert_ids"] == runner._excluded_experts()
+
+    # the all-experts scope genuinely excludes nothing, and still says so
+    all_args = _parser().parse_args(["--task", "4", "--root", str(tmp_path / "all")])
+    all_runner = V8TaskRun(all_args)
+    all_runner.expert_ids = runner.expert_ids
+    all_runner.pool = runner.pool
+    all_runner.checkpoint_dir = tmp_path / "ckpt"
+    all_runner.question_file = tmp_path / "val_full.json"
+    all_runner.query_path = tmp_path / "queries.pt"
+    all_runner.query_contract_hash = "0" * 64
+    all_runner.write_config()
+    assert json.loads((all_runner.out / "run_config.json").read_text(
+        encoding="utf-8"))["excluded_expert_ids"] == []

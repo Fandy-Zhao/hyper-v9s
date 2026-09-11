@@ -230,11 +230,21 @@ def diagnose(
     full_pool_oracle_solves: int,
     teacher_positives: int,
     candidate_recall: float,
-    v7_metric: float,
+    v7_metric: Optional[float],
     v8_metric: float,
     samples: int,
 ) -> Dict[str, Any]:
-    """Classify the V8-A outcome into the four cases of PART 36."""
+    """Classify the V8-A outcome into the four cases of PART 36.
+
+    Three of the four cases are statements *about V7* -- "the router misses the
+    experts" only means something if the recalled ones are compared against a
+    baseline.  ``v7_metric`` is therefore optional, and ``None`` means the
+    baseline was measured on a different sample set and cannot be compared
+    (see ``V8TaskRun.analyse``).  In that situation only the capability question
+    is answerable, so a run with capability and no baseline is reported as
+    ``CASE_UNCLASSIFIED_NO_V7_BASELINE`` rather than being pushed into CASE_B or
+    CASE_D by comparison with a fabricated zero.
+    """
     if samples <= 0:
         raise ValueError("diagnose needs a positive sample count")
     oracle_rate = full_pool_oracle_solves / samples
@@ -242,6 +252,13 @@ def diagnose(
         case, interpretation = "CASE_C", (
             "the full-pool teacher finds essentially no reusable historical "
             "capability: the bottleneck is expert formation, not the router"
+        )
+    elif v7_metric is None:
+        case, interpretation = "CASE_UNCLASSIFIED_NO_V7_BASELINE", (
+            "reusable historical capability exists, but this run has no "
+            "comparable V7 baseline (the diagnostic was measured on a different "
+            "sample set), so the A/B/D cases -- which are all comparisons "
+            "against V7 -- are not decidable from it"
         )
     elif candidate_recall < 0.5:
         case, interpretation = "CASE_A", (
@@ -265,7 +282,8 @@ def diagnose(
         "full_pool_oracle_solve_rate": oracle_rate,
         "teacher_positives": int(teacher_positives),
         "candidate_recall": float(candidate_recall),
-        "v7_metric": float(v7_metric),
+        "v7_metric": None if v7_metric is None else float(v7_metric),
+        "v7_metric_comparable": v7_metric is not None,
         "v8_metric": float(v8_metric),
     }
 

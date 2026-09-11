@@ -273,3 +273,63 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
   (`--limit 32`, ~15–25 min) → Phase-0 re-analysis of cached generations →
   Task-1 V8-B pilot (~12–14 GPU-h) → six-task loop (~35–40 GPU-h). No step past
   the suite was executed.
+
+# 2026-09-11 (final, 2) Oracle smoke: three more defects, all real, all fixed
+
+- Status: implemented, tested, **not committed at the time of writing**.
+- The smoke of the previous entry (Task 4, `--history-only --limit 32
+  --top2-inference-eval`, GPU 3, 105 s warm / ~13 min cold) was the only
+  experiment of this round, and it found three defects no unit test could reach.
+- **`compose/experiments/v8_task_run.py`: `NameError: teacher_coverage_report is
+  not defined`.** `run_teacher` assembled the `teacher_result.json` body inline
+  and called a free function that does not exist; the API is
+  `TeacherResult.coverage_report()`. The module imported fine and all 45 tests
+  passed because no test builds that dict — the failure surfaced only after
+  ~13 minutes of GPU generation, when the teacher tried to write its artefact.
+  The body is now the pure module-level function `teacher_result_payload`, and
+  `test_oracle_M` / `test_oracle_N` assert its shape (schema version, search
+  mode, visible set, coverage) without a model. `coverage_report()` also gained
+  `historical_experts_tested` and `never_tested`, so a reader can *name* the
+  experts a bounded search skipped instead of only seeing that a size differed.
+- **A `--limit` run published V7's full-split number as its own baseline.**
+  `analyse` read V7's metric from the diagnostic root's `COMPLETE.json`, measured
+  on the diagnostic's own 256 samples, so the 32-sample smoke reported
+  `v7 = 67.97` as if it had measured it, and `gap_closed` then compared 32 V8
+  samples against 256 V7 samples. Comparability is now checked against the
+  diagnostic's own prediction-file sample ids (`_prediction_ids`, which accepts
+  the V7 files' `question_id` and refuses a file with no id field rather than
+  collecting the literal string `"None"`); a mismatch routes the value to
+  `v7_actual_route_metric_reference` with its scope named, sets
+  `gap_closed` to `None`, and makes `diagnose` return
+  `CASE_UNCLASSIFIED_NO_V7_BASELINE` — the A/B/D cases are all comparisons
+  *against V7*, so none is decidable without a baseline. `diagnose` and
+  `V8TaskRun.analyse` took `v7_metric: Optional[float]` accordingly;
+  `diagnosis["v7_metric_comparable"]` records which happened. Pinned by
+  `test_oracle_O` (a limit-32 id set is asserted to differ from the full split's).
+- **`run_config.json` misdeclared the scope of every history-only run.**
+  `write_config` runs before `recall` sets `excluded_expert_ids` and read it with
+  `getattr(self, "excluded_expert_ids", [])`, so all four campaign runs' own
+  provenance files say `excluded_expert_ids: []` while the runs excluded 7 and 11
+  experts. That is the §16.1 trap — read the scope from a field that does not hold
+  it — reappearing in the file a reader opens to learn what a run *was*. It now
+  calls the pure `_excluded_experts()`. Pinned by `test_oracle_P`.
+- **Corrected a number in report §26.3.** It claimed the pre-oracle Task-4 teacher
+  searched "10 of 16 visible" experts; re-reading all four campaign runs'
+  artefacts (two independent ways, `tested_singles` and `single_values`, which
+  agree exactly) gives **8 of 16** for Task 4 history-only — the 10 was the
+  *all-experts* scope. The full table: Task 4 history 8/16 (8 never scored),
+  Task 4 all 10/23, **Task 3 history 12/12 (nothing missed)**, Task 3 all 18/23.
+  Consequence, now measured rather than argued: **Task 3's history-only numbers
+  are exact**, and only the other three runs' Residual counts are lower bounds.
+- Smoke results on the real committed pool: `full_coverage: true`,
+  `never_tested: []`, `tested_set_sizes: [16]`; per state, BaseOnly 32 IGNORE /
+  Reuse1 8 positive + 107 negative + 13 IGNORE / **Residual 20 `context_positive`
+  + 300 IGNORE + 0 negative**, every Residual's context expert is
+  `context_positive`, `max len(residual_context) == 1`. `teacher_oracle_metric`
+  37.5 vs `actual_top2_inference_metric` 12.5 — the 25-point gap the old single
+  `v8_policy_metric` field hid. `seed_verification: MATCH` (8 trials, max diff
+  0.0), `generated: 0 / nll_live: 0`, peak 15.6 GiB.
+- Tests: `tests/` **625 passed** (V8 multi-key 61, generation harness 16, V7
+  regression **548 unchanged**). No long run started; `experiments/runs/0911_v8a_formal/*`
+  untouched. The smoke writes only to
+  `experiments/runs/0911_v8a_oracle_smoke_task4/`.

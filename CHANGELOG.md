@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-09-11 (final, 2) — the oracle smoke finds three more defects
+
+The round's only experiment (Task 4, `--history-only --limit 32
+--top2-inference-eval`, GPU 3, 105 s) was run to falsify the §26 change cheaply.
+It did that, and it also found three defects that no unit test could reach.
+
+- **`NameError: teacher_coverage_report is not defined`** — `run_teacher`
+  assembled the `teacher_result.json` body inline and called a function that does
+  not exist (the API is `TeacherResult.coverage_report()`). The module imported
+  cleanly and all 45 tests passed, because no test builds that dict; it failed
+  only after ~13 minutes of GPU generation, at the moment the teacher wrote its
+  artefact. The body is now the pure function `teacher_result_payload`, pinned by
+  `test_oracle_M`/`_N`. `coverage_report()` also now reports
+  `historical_experts_tested` and `never_tested`, so the artefact *names* the
+  experts a bounded search skipped rather than only showing that a size differed.
+- **A `--limit` run published V7's full-split metric as its own baseline.**
+  `analyse` read V7's number from the diagnostic root's 256-sample `COMPLETE.json`,
+  so a 32-sample run reported `v7 = 67.97` as if it had measured it and compared
+  32 V8 samples against 256 V7 samples in `gap_closed`. Comparability is now
+  checked against the diagnostic's own prediction-file sample ids; a mismatch
+  moves the value to `v7_actual_route_metric_reference`, sets `gap_closed` to
+  `None`, and makes `diagnose` return `CASE_UNCLASSIFIED_NO_V7_BASELINE` — the
+  A/B/D cases are comparisons against V7, so none is decidable without a
+  baseline. `test_oracle_O`.
+- **`run_config.json` declared `excluded_expert_ids: []` for every history-only
+  run** — `write_config` ran before `recall` set that attribute and used
+  `getattr(..., [])`, so all four campaign runs' provenance files understate their
+  own scope. The §16.1 trap, in the file a reader opens to learn what a run was.
+  Now computed from the pure `_excluded_experts()`. `test_oracle_P`.
+- **Report §26.3 corrected, and the correction changes a conclusion.** It had
+  claimed the pre-oracle Task-4 teacher searched 10 of 16 visible experts; the
+  measured value is **8 of 16** (the 10 was the all-experts scope). Re-reading all
+  four runs' artefacts: Task 4 history 8/16, Task 4 all 10/23, **Task 3 history
+  12/12 — nothing missed**, Task 3 all 18/23. So **Task 3's history-only numbers
+  are exact**, and only the other three runs' Residual counts are lower bounds.
+- **Smoke evidence, on the real committed pool**: `full_coverage: true`,
+  `never_tested: []`, `tested_set_sizes: [16]`; BaseOnly 32 IGNORE / Reuse1 8
+  positive + 107 negative + 13 IGNORE / **Residual 20 `context_positive` + 300
+  IGNORE + 0 negative**; `max len(residual_context) == 1`. **Teacher oracle 37.5
+  vs deployable fixed Top-2 12.5** — the 25-point gap the old single
+  `v8_policy_metric` field was hiding. `seed_verification: MATCH`.
+- Tests: **625 passed** (V8 multi-key 61, V7 regression 548 unchanged). No long
+  run started; `experiments/runs/0911_v8a_formal/*` untouched.
+
 ## 2026-09-11 (final) — V8 method-semantics convergence: the teacher becomes a Capability Discovery Oracle
 
 Three method decisions were finalised and the implementation was audited against
