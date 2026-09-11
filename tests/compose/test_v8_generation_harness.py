@@ -9,6 +9,7 @@ be generated under its own selection rather than one batch-wide route.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 from typing import List, Mapping, Sequence
@@ -246,3 +247,34 @@ def test_experts_from_route_rejects_non_canonical_routes():
     for bad in ("", "e", "x03", "e1_3", "e03_", "e_03", "e03_13_03", "pair_03_13"):
         with pytest.raises(GenerationError):
             experts_from_route(bad)
+
+
+# ----------------------------------------------------------------------
+# the routing scope
+# ----------------------------------------------------------------------
+def test_history_only_excludes_the_task_own_and_later_experts():
+    """V8-A must not credit the router with experts the task has not trained.
+
+    At task ``t`` the pool holds the experts of tasks ``< t``.  The committed
+    V7 pool, however, is the pool *after* task 5, so it contains every task's
+    experts -- including the ones the current task would have produced itself.
+    ``--history-only`` removes them from the routing candidates.
+    """
+    from compose.experiments.v8_task_run import V8TaskRun
+
+    run = V8TaskRun.__new__(V8TaskRun)
+    run.task = 3
+    run.expert_ids = [0, 1, 12, 13, 16, 20]
+
+    class Pool:
+        expert_records = {
+            0: {"origin_task": 0}, 1: {"origin_task": 1},
+            12: {"origin_task": 3}, 13: {"origin_task": 3},
+            16: {"origin_task": 4}, 20: {"origin_task": 5},
+        }
+
+    run.pool = Pool()
+    run.args = argparse.Namespace(history_only=False)
+    assert run._excluded_experts() == []
+    run.args = argparse.Namespace(history_only=True)
+    assert run._excluded_experts() == [12, 13, 16, 20]

@@ -520,38 +520,74 @@ class V8TaskRun:
             self.spec.metric_name, self.spec.solved_value))
 
     # -- recall ---------------------------------------------------------
-    def recall(self) -> None:
-        router = MultiKeyRouter(V8Config().routing)
-        queries = torch.stack([self.queries[sample_id] for sample_id in self.sample_ids])
-        result = router(queries, self.pool)
-        # The router's own Top-K is fixed at V7's budget of 2.  V8's teacher
-        # needs the whole ordering so the recall curve at K = 1, 2, 4, 8 can be
-        # read off a single pass, so the ordering is reconstructed from the
-        # max-aggregated per-expert scores rather than from the Top-2 cut.
-        per_expert = result.per_expert_scores
-        order = torch.argsort(per_expert, dim=-1, descending=True, stable=True)
-        pool_ids = result.pool_expert_ids.tolist()
-        full_order = {
-            sample_id: [int(pool_ids[int(col)]) for col in order[row]]
-            for row, sample_id in enumerate(self.sample_ids)
-        }
+    def _excluded_experts(self) -> List[int]:
+        """Experts the current task must not be credited with reusing.
 
+        In the real continual setting the pool at task ``t`` holds the experts of
+        tasks ``< t``: the task's own experts do not exist yet.  Asking which of
+        this task's samples the *historical* pool can already solve against a
+        pool that happens to contain the task's own experts would credit V8 with
+        reuse it never had the chance to perform, so ``--history-only`` drops
+        them from the routing candidates (their keys are excluded, not deleted).
+        Task 0 has no history at all and becomes BaseOnly throughout.
+        """
+        if not self.args.history_only:
+            return []
+        return sorted(
+            expert_id for expert_id in self.expert_ids
+            if int(self.pool.expert_records[expert_id]["origin_task"]) >= self.task
+        )
+
+    def recall(self) -> None:
         top_m = int(self.args.recall_top_m)
-        self.recall_map = {
-            sample_id: full_order[sample_id][:top_m] for sample_id in self.sample_ids
-        }
-        self.full_order = full_order
-        self.route_rows = result.as_rows(self.sample_ids)
+        excluded = self._excluded_experts()
+        self.excluded_expert_ids = excluded
+        if len(excluded) >= len(self.expert_ids):
+            # No historical pool exists yet (task 0).  V8's policy is BaseOnly
+            # for every sample by construction, so the router is never asked to
+            # rank an empty candidate set.
+            self.recall_map = {sample_id: [] for sample_id in self.sample_ids}
+            self.full_order = {sample_id: [] for sample_id in self.sample_ids}
+            self.route_rows = []
+            self.log("recall: task {} has no historical experts ({} excluded); "
+                     "every sample is BaseOnly".format(self.task, len(excluded)))
+        else:
+            router = MultiKeyRouter(V8Config().routing)
+            queries = torch.stack(
+                [self.queries[sample_id] for sample_id in self.sample_ids])
+            result = router(queries, self.pool, excluded_experts=excluded)
+            # The router's own Top-K is fixed at V7's budget of 2.  V8's teacher
+            # needs the whole ordering so the recall curve at K = 1, 2, 4, 8 can
+            # be read off a single pass, so the ordering is reconstructed from
+            # the max-aggregated per-expert scores rather than the Top-2 cut.
+            per_expert = result.per_expert_scores
+            order = torch.argsort(per_expert, dim=-1, descending=True, stable=True)
+            pool_ids = result.pool_expert_ids.tolist()
+            full_order = {
+                sample_id: [int(pool_ids[int(col)]) for col in order[row]]
+                for row, sample_id in enumerate(self.sample_ids)
+            }
+            self.recall_map = {
+                sample_id: full_order[sample_id][:top_m]
+                for sample_id in self.sample_ids
+            }
+            self.full_order = full_order
+            self.route_rows = result.as_rows(self.sample_ids)
+            self.log("recall: Top-{} over {} candidate experts{}".format(
+                top_m, len(pool_ids),
+                " ({} excluded: history-only)".format(len(excluded))
+                if excluded else ""))
         _write_json(self.out / "recall.json", {
             "task_id": self.task,
             "recall_top_m": top_m,
+            "history_only": bool(self.args.history_only),
+            "excluded_expert_ids": excluded,
             "visible_expert_ids": self.expert_ids,
             "query_contract_hash": self.query_contract_hash,
             "recall": self.recall_map,
-            "full_order": full_order,
+            "full_order": self.full_order,
             "routing_rows": self.route_rows,
         })
-        self.log("recall: Top-{} over {} experts".format(top_m, len(self.expert_ids)))
 
     # -- scoring --------------------------------------------------------
     def _diagnostic_dir(self) -> Path:
@@ -822,6 +858,14 @@ class V8TaskRun:
             "v7_nll_oracle_pair_metric": nll_oracle_metric,
             "v8_teacher_positive_samples": teacher_positives,
             "v8_teacher_positive_rate": teacher_positives / len(result.records),
+            "full_pool_oracle_solves": teacher_positives,
+            "full_pool_oracle_solves_note": (
+                "proxy, not an exhaustive sweep: it counts the samples the "
+                "teacher solved with a Top-M recalled expert.  Establishing "
+                "whether some non-recalled expert could also have solved a "
+                "sample would cost one generation per expert per sample, which "
+                "is outside this experiment's budget"
+            ),
             "states": states,
             "state_rates": result.state_rate(),
             "policy_cardinality_histogram": dict(sorted(cardinality.items())),
@@ -861,6 +905,8 @@ class V8TaskRun:
             "query_contract_hash": self.query_contract_hash,
             "diagnostic_root": str(self.args.diagnostic_root),
             "recall_top_m": int(self.args.recall_top_m),
+            "history_only": bool(self.args.history_only),
+            "excluded_expert_ids": list(getattr(self, "excluded_expert_ids", [])),
             "shortlist_ks": int(self.args.shortlist_ks),
             "max_new_tokens": int(self.args.max_new_tokens),
             "pair_min_metric_gain": self.args.pair_min_metric_gain,
@@ -937,6 +983,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint-dir", default=None)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--recall-top-m", type=int, default=8)
+    parser.add_argument("--history-only", action="store_true",
+                        help="route only over experts of earlier tasks, as the "
+                             "pool stands when the task is being learned")
     parser.add_argument("--shortlist-ks", type=int, default=4)
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--pair-min-metric-gain", type=float, default=None)
