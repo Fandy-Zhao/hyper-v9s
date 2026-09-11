@@ -153,11 +153,30 @@ def main() -> None:
             max_new_tokens=args.max_new_tokens,
         )
         answers = engine.generate_route(v8_routes, records_by_id)
+        # NB: ``diagnostic`` already ends in ``task0`` (it is the per-task
+        # directory that holds ``selection_plan.json``); the generations live in
+        # a sibling ``generation_accuracy/task0/actual`` under the run *root*.
+        # Composing the two gave ``.../task0/generation_accuracy/task0/...``,
+        # which does not exist -- and because ``_jsonl`` returns ``[]`` for a
+        # missing file, that surfaced 30 lines later as a bare ``KeyError`` on
+        # the first sample rather than as "the V7 answers were not found".
+        v7_answers_path = (Path(args.diagnostic_root) / "generation_accuracy"
+                           / "task0" / "actual" / "answers.jsonl")
+        if not v7_answers_path.is_file():
+            raise FileNotFoundError(
+                "answer parity has nothing to diff against: V7's own task-0 "
+                "generations are not at {}".format(v7_answers_path)
+            )
         v7_answers = {
             str(row["question_id"]): str(row["text"])
-            for row in _jsonl(diagnostic / "generation_accuracy" / "task0" / "actual" / "answers.jsonl")
+            for row in _jsonl(v7_answers_path)
         }
         compared = [sample_id for sample_id in sample_ids if sample_id in v7_answers]
+        if not compared:
+            raise ValueError(
+                "{} shares no sample id with the task-0 validation split; "
+                "scoring it would silently compare nothing".format(v7_answers_path)
+            )
         agree = [sample_id for sample_id in compared
                  if answers.get(sample_id, "").strip() == v7_answers[sample_id].strip()]
 

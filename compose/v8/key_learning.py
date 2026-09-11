@@ -137,6 +137,15 @@ def create_alias_keys(
 
     Experts with ``|P(k, t)| == 0`` receive **no** key: unconditional per-expert
     creation would add keys that encode nothing and silently dilute the router.
+
+    An expert *originating on ``task_id``* receives no key either: its origin key
+    already sits on this task, so a ``task_alias`` key there would be a second,
+    redundant key on the same task -- and
+    :meth:`MultiKeyExpertPool.validate` rejects it outright ("alias key ...
+    sits on the origin task; use the origin key").  The function therefore
+    enforces the invariant rather than building a pool that cannot validate.
+    This only became reachable when the pool contained the *current* task's own
+    experts; before that every caller passed a strictly historical pool.
     """
     config = config or V8PruningConfig()
     positives = teacher_result.positives_by_sample()
@@ -149,6 +158,13 @@ def create_alias_keys(
     skipped: Dict[int, str] = {}
     for expert_id in sorted(support):
         sample_ids = sorted(support[expert_id])
+        origin_task = pool.expert_records.get(int(expert_id), {}).get("origin_task")
+        if origin_task is not None and int(origin_task) == int(task_id):
+            skipped[expert_id] = (
+                "expert originates on the current task: its origin key already "
+                "sits on task {}, so no task alias key exists to create".format(task_id)
+            )
+            continue
         if len(sample_ids) < int(config.alias_support_threshold):
             skipped[expert_id] = (
                 f"support {len(sample_ids)} below threshold "

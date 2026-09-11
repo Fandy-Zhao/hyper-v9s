@@ -870,6 +870,53 @@ def test_22_zero_support_historical_expert_gets_no_alias_key():
     assert blocked["skipped"][1].startswith("support 1 below threshold")
 
 
+def test_22b_current_task_expert_gets_no_alias_key():
+    """A task alias key on the expert's *origin* task is not a key V8 has.
+
+    The pool's own invariant says so -- ``validate`` raises "alias key ... sits
+    on the origin task; use the origin key" -- so ``create_alias_keys`` must skip
+    such experts instead of building a pool that cannot validate.  The campaign's
+    all-experts scope is what made this reachable: it is the only pool that
+    contains the current task's own experts.
+    """
+    from compose.v8.teacher import TeacherResult, TeacherSampleRecord
+
+    pool = make_pool(num_experts=4, per_task=2, seed=5)   # experts 2,3 originate on task 1
+
+    def record_for(expert_id: int) -> TeacherResult:
+        return TeacherResult(
+            task_id=1,
+            records=[
+                TeacherSampleRecord(
+                    sample_id="s0", state=STATE_REUSE1, selected_experts=[expert_id],
+                    base_solved=False, base_value=0.0, recall=[expert_id],
+                    single_values={str(expert_id): 1.0}, pair_values={},
+                    tested_singles=[expert_id], tested_pairs=[], achieved_value=1.0,
+                    achieved_nll=None, delta_nll=None, teacher_gain=1.0,
+                    key_targets={str(expert_id): TARGET_POSITIVE},
+                    decision_reason="single_solved_stop_before_pairs",
+                ),
+            ],
+            config={},
+        )
+
+    # expert 2 originates on task 1: no alias key, and the skip carries the reason
+    report = create_alias_keys(record_for(2), pool, task_id=1,
+                               queries_by_sample={"s0": unit(0)})
+    assert report["num_created"] == 0
+    assert report["num_skipped"] == 1
+    assert "originates on the current task" in report["skipped"][2]
+    assert pool.has_alias(2, 1) is False
+    pool.validate()          # the pool the old code built could not pass this
+
+    # the same expert under a *different* task is a legitimate historical reuse
+    other = create_alias_keys(record_for(2), pool, task_id=0,
+                              queries_by_sample={"s0": unit(0)})
+    assert other["num_created"] == 1
+    assert "e2_t0_task_alias" in other["created"]
+    pool.validate()
+
+
 def test_23_alias_key_centroid_initialization_correct():
     generator = torch.Generator().manual_seed(11)
     positives = torch.randn(5, DIM, generator=generator)
