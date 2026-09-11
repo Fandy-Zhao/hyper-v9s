@@ -51,6 +51,43 @@ from compose.v8.metric_adapter import TaskMetricAdapter  # noqa: E402
 from compose.v8.pool import MultiKeyExpertPool  # noqa: E402
 
 
+def resolve_scope(recall: Mapping[str, Any]) -> Dict[str, List[int]]:
+    """Split a run's ``recall.json`` into pool / visible / excluded expert ids.
+
+    ``recall.json``'s ``visible_expert_ids`` is misleadingly named: the writer
+    stores the **full committed pool order** there (``v8_task_run.py:585``) and
+    records the history-only scope separately in ``excluded_expert_ids``.
+    Reading the former as "visible" makes this audit test the very experts a
+    history-only run must exclude -- on Task 4, its own experts 16-19 -- and
+    then count the samples they solve as retrieval failures.  That is precisely
+    the self-reuse confound §14 exists to remove, so the exclusion is applied
+    here rather than trusted to the field name.  Every other consumer of the
+    field (``v8a_alias_keys.py:98``, ``v8a_scope_gap.py:87``,
+    ``v8a_recall_audit.py:87``) reads the exclusion; this was the only one that
+    did not.
+    """
+    pool_order = [int(value) for value in recall["visible_expert_ids"]]
+    excluded = [int(value) for value in recall.get("excluded_expert_ids", [])]
+    visible = [expert for expert in pool_order if expert not in set(excluded)]
+    return {"pool": pool_order, "visible": visible, "excluded": excluded}
+
+
+def audit_plan(recall: Mapping[str, Any],
+               record: Mapping[str, Any]) -> List[int]:
+    """Experts to test for one Residual sample: in scope, and not yet tested.
+
+    Both filters matter and both were defects waiting to happen.  The scope
+    filter keeps the audit honest (above); the ``tested_singles`` filter keeps
+    it useful -- re-testing what the teacher already scored would only re-derive
+    the teacher's own verdict.  The teacher's ``tested_singles`` is a superset
+    of the sample's recall window (STEP C scores the pool-wide candidate list),
+    so this is usually a strict subset of the visible set rather than all of it.
+    """
+    visible = resolve_scope(recall)["visible"]
+    tested = {int(value) for value in record.get("tested_singles", [])}
+    return [expert for expert in visible if expert not in tested]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", type=int, required=True)
@@ -72,8 +109,8 @@ def main() -> None:
     run_dir = Path(args.run_root) / "task{}".format(args.task)
     teacher = _read_json(run_dir / "teacher_result.json")
     recall = _read_json(run_dir / "recall.json")
-    visible = [int(value) for value in recall["visible_expert_ids"]]
-    excluded = [int(value) for value in recall.get("excluded_expert_ids", [])]
+    scope = resolve_scope(recall)
+    visible, excluded, pool_order = scope["visible"], scope["excluded"], scope["pool"]
 
     records = _read_json(formal / "task{}".format(args.task) / "data" / "val_full.json")
     records_by_id = {
@@ -92,15 +129,10 @@ def main() -> None:
         print("no Residual samples")
         return
 
-    # Everything the teacher already tested for these samples is skipped: the
-    # audit answers "what did the recall window hide", so re-testing what was
-    # already tested would only re-derive the teacher's own verdict.
-    plan: Dict[str, List[int]] = {}
-    for record in audited:
-        sample_id = str(record["sample_id"])
-        tested = {int(value) for value in record.get("tested_singles", [])}
-        plan[sample_id] = [expert for expert in visible
-                           if expert not in tested]
+    plan: Dict[str, List[int]] = {
+        str(record["sample_id"]): audit_plan(recall, record)
+        for record in audited
+    }
 
     engine = GenerationEngine(
         _load_bundle(checkpoint_dir, args.device),
@@ -129,12 +161,19 @@ def main() -> None:
         })
 
     payload = {
+        # v1 wrote ``visible_expert_ids`` = the *full* pool order (the field name
+        # it copied from ``recall.json``), so a v1 artefact's failures include
+        # in-scope-excluded experts.  v2 is the first version whose
+        # ``visible_expert_ids`` is the scope-filtered set; ``pool_expert_ids``
+        # carries the raw order it was filtered from.
+        "schema_version": 2,
         "task": args.task,
         "run_root": str(args.run_root),
         "residual_samples_total": len(residual),
         "residual_samples_audited": len(audited),
         "declared_sample_limit": int(args.sample_limit),
         "visible_expert_ids": visible,
+        "pool_expert_ids": pool_order,
         "excluded_expert_ids": excluded,
         "retrieval_failure": sum(1 for row in findings if row["verdict"] == "retrieval_failure"),
         "capability_failure": sum(1 for row in findings if row["verdict"] == "capability_failure"),

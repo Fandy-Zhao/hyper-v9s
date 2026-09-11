@@ -162,7 +162,18 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
   history-only scopes), 256 samples each, 7.02 GPU-hours total, seed verification
   `MATCH` on all four. Post-campaign audits (label / recall / scope-gap / cases /
   alias counterfactual) written to `experiments/runs/0911_v8a_formal/`.
-- Tests: `tests/` 608 passed (V8 60, V7 regression 548). Report §1 and §25 added;
+- `compose/experiments/v8_full_pool_recall.py`: the Residual audit read
+  `recall.json`'s `visible_expert_ids` as the run's scope. That field holds the
+  full committed pool (`v8_task_run.py:585`); the scope is in
+  `excluded_expert_ids`, which every other consumer reads. The Task-4 history-only
+  audit consequently tested Task 4's own experts 16–19 and the future-task experts
+  20/21/23, and 21 of its 22 "retrieval failure" verdicts were samples solved only
+  by an excluded expert. Scope resolution (`resolve_scope`) and plan construction
+  (`audit_plan`) are now separate and covered by
+  `test_22c_full_pool_audit_honours_the_history_only_scope`; output carries
+  `schema_version: 2`. The v1 artefact is kept as evidence and the re-run writes
+  `_v2`. Corrected Task-4 split: 1 retrieval / 29 capability of 30 audited.
+- Tests: `tests/` 609 passed (V8 61, V7 regression 548). Report §1 and §25 added;
   §12.1, §14–§18, §20–§21, §23 rewritten with two-task data.
 - Headline correction recorded in report §14/§25: the all-experts V8-A numbers
   (94.14 / 87.11) are roughly half self-reuse; genuine cross-task reuse is

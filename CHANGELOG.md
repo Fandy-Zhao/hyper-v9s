@@ -19,6 +19,21 @@
   `KeyError: 'v7_t0_val_0'` thirty lines later instead of naming the missing
   file. The path is fixed and both the missing-file and zero-overlap cases now
   raise with the path in the message. **Not yet re-run end to end.**
+- **Fixed the full-pool Residual audit ignoring the run's scope.**
+  `v8_full_pool_recall.py` read `recall.json`'s `visible_expert_ids` as the set of
+  experts the run could use. That field actually holds the **full committed
+  pool** (`v8_task_run.py:585`); the scope lives in `excluded_expert_ids`, and
+  every other consumer reads it from there (`v8a_alias_keys.py:98`,
+  `v8a_scope_gap.py:87`, `v8a_recall_audit.py:87`). The Task-4 artefact therefore
+  tested experts 16–19 — Task 4's *own* experts — plus the future-task experts
+  20/21/23, and scored their solutions as retrieval failures: 21 of its 22
+  retrieval verdicts were samples solved *only* by an excluded expert. Re-derived
+  from the recorded artefact (filtering a solve set is exact, since solving does
+  not depend on what else was tested), the split is **1 retrieval / 29
+  capability**, not 22 / 8. Scope resolution and plan construction are now
+  separate functions with `test_22c_full_pool_audit_honours_the_history_only_scope`;
+  the output gains a `schema_version` so v1 artefacts cannot be confused with v2.
+  The buggy artefact is kept as the defect's evidence; the re-run writes `_v2`.
 - **V8-A campaign complete on two tasks and two scopes.** Four teacher runs over
   the frozen 23-expert pool, 256 validation samples each, 7.02 GPU-hours, all
   seed verifications `MATCH` (`max_abs_diff 0.0` over 64,768 seeded pair NLLs per
@@ -30,7 +45,7 @@
   alias counterfactual: one untrained alias key per solving expert raises
   historical recall@1 from 0.164 to 0.603 and from 0.100 to 0.800, with every
   winning key an alias.
-- Tests: `tests/` **608 passed** (V8 60, V7 regression 548). §1 Executive Summary
+- Tests: `tests/` **609 passed** (V8 61, V7 regression 548). §1 Executive Summary
   and §25 Final Verdict added, with the code and method verdicts kept separate.
 
 ## 2026-09-11 — V8: alias-key gradient fix, the missing training loop, and pipeline tests

@@ -917,6 +917,47 @@ def test_22b_current_task_expert_gets_no_alias_key():
     pool.validate()
 
 
+def test_22c_full_pool_audit_honours_the_history_only_scope():
+    """The audit must not test the experts the run's own scope excludes.
+
+    ``recall.json`` stores the **full** committed pool in ``visible_expert_ids``
+    and the scope in ``excluded_expert_ids``.  The first version of
+    ``v8_full_pool_recall`` read the former as the scope, so a Task-4
+    history-only audit tested experts 16-19 -- Task 4's *own* experts -- and
+    counted the samples they solved as retrieval failures, which is exactly the
+    self-reuse confound the history-only scope exists to remove.  The recorded
+    artefact from that version reported ``retrieval_failure: 22`` with
+    ``solved_outside_window: [16, 17, 18, 19]`` on its first sample.
+    """
+    from compose.experiments.v8_full_pool_recall import audit_plan, resolve_scope
+
+    # the shape ``v8_task_run.py:584-585`` actually writes: visible = the pool
+    recall = {
+        "visible_expert_ids": list(range(22)) + [23],       # 0..21, 23
+        "excluded_expert_ids": [16, 17, 18, 19, 20, 21, 23],
+    }
+    scope = resolve_scope(recall)
+    assert scope["pool"] == list(range(22)) + [23]          # raw field preserved
+    assert scope["visible"] == list(range(16))              # 0..15 only
+    assert not set(scope["visible"]) & set(scope["excluded"])
+
+    # the confound itself: an expert the run excluded is never a test target,
+    # even though it sits in the pool field and the teacher left it untested
+    record = {"sample_id": "v7_t4_val_0", "tested_singles": [4, 5, 6, 7],
+              "recall": [19, 17, 16, 18, 15, 14, 13, 0]}
+    plan = audit_plan(recall, record)
+    assert not set(plan) & set(recall["excluded_expert_ids"]), plan
+    assert 16 not in plan and 19 not in plan
+
+    # and the test is not vacuous in either direction: in-scope experts the
+    # teacher already scored are skipped, in-scope ones it did not are tested
+    assert plan == [0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15]
+    assert 4 not in plan and 12 in plan
+
+    # a run with no exclusions (the all-experts scope) is unaffected
+    assert audit_plan({"visible_expert_ids": [0, 1, 2]}, {"tested_singles": [1]}) == [0, 2]
+
+
 def test_23_alias_key_centroid_initialization_correct():
     generator = torch.Generator().manual_seed(11)
     positives = torch.randn(5, DIM, generator=generator)

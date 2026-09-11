@@ -26,17 +26,19 @@ historical LoRA, its committed origin keys, and the base model stay frozen.
 
 **What was built.** `compose/v8/*` — the multi-key pool, the teacher, the
 metric adapters, lazy alias-key creation, the gradient gating, the freeze ledger,
-the trainer, the inference router — plus eight experiment drivers, all new files
+the trainer, the inference router — 18 modules under `compose/v8/`, plus 10
+drivers under `compose/experiments/v8*`, all new files
 beside V7 rather than edits to it. `git diff --stat 9ff2b28..HEAD` is **34 files,
 11,874 insertions, 0 deletions**, and **zero** of those files are under
 `compose/v7/`, `compose/adapters/`, `compose/eval/` or `llava/`. The suite is
-**608 tests passing** (75.76 s), 548 of them pre-dating this work.
+**609 tests passing** (75.32 s), 548 of them pre-dating this work.
 
 **What was measured.** Four full teacher runs — Task 3 (IconQA) and Task 4
 (CLEVR-Math), each in an all-experts and a history-only scope — over the frozen
 23-expert pool, 256 validation samples each, 7.02 GPU-hours total, with the
-official evaluator scoring every route. 64,768 seeded pair NLLs replayed
-byte-exactly in all four (`max_abs_diff 0.0`).
+official evaluator scoring every route. Each run seeds 64,768 pair NLLs and then
+re-computes **8 of them live**; all four runs report `MATCH` with
+`max_abs_diff 0.0` across all 32 replayed trials.
 
 **The headline result, and the correction it needs.** Against the NLL-oracle
 ceiling, V8's policy closes **95.7 %** of the gap on Task 4 (94.14 % vs V7's
@@ -592,28 +594,31 @@ The "checksum before" column is V7's own recorded fingerprint from
 
 ```
 $ pytest tests/ -q
-608 passed, 3 warnings, 8 subtests passed in 75.76s (0:01:15)
+609 passed, 3 warnings, 8 subtests passed in 75.32s (0:01:15)
 ```
 
 Split:
 
 | Suite | Collected | Result |
 | --- | --- | --- |
-| `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30) | 44 | all pass |
+| `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30) | 45 | all pass |
 | `tests/compose/test_v8_generation_harness.py` | 16 | all pass |
 | V7 regression (rest of `tests/compose/`) | 548 | all pass |
 
-44 = 30 names from PART 15, plus the integration tests of §9.1, §10.2 and §12,
-plus `test_22b_current_task_expert_gets_no_alias_key` — the regression test added
-when §17 exposed the `create_alias_keys` defect. Nothing in that file is
-parameterised, so collected and defined counts agree. The three rows sum to 608,
-which is the suite total. An earlier draft said 42 for the first row and 607 for
-the total; that draft did not add up (42 + 548 + 16 = 606), and the corrected
-numbers here are the ones `pytest --collect-only` reports.
+The three rows sum to 609, which is the suite total. `45 = 30` names from PART 15,
+plus the integration tests of §9.1, §10.2 and §12, plus the regression tests this
+campaign's own defects produced: `test_22b_current_task_expert_gets_no_alias_key`
+(§17) and `test_22c_full_pool_audit_honours_the_history_only_scope` (§16). The
+file defines 45 `def test_` and contains no `pytest.mark.parametrize`, so defined
+and collected counts agree — verified with `grep -c '^def test_'` and
+`pytest --collect-only -q`, which both report 45.
 
-The 30 named tests from PART 15 all exist and all run. Several are parameterised
-over states or configs, which is why the file collects 42 tests for 30 names; the
-remainder are the integration tests described in §9.1, §12 and §10.2.
+Two earlier drafts of this table were wrong and are corrected here rather than
+quietly replaced: one said 42 for the first row and 607 for the total, which does
+not add up (42 + 548 + 16 = 606); the next corrected the arithmetic but left
+behind a sentence claiming the file was parameterised and "collects 42 tests for
+30 names", which the same file's zero `parametrize` markers contradict. The
+numbers above are the measured ones.
 
 Run with no deselection: nothing is skipped, xfailed or marked slow, including
 the tests that load the real committed V7 pool (`V7_FORMAL_KEYS` is present on
@@ -1623,8 +1628,12 @@ work actually done, not a nominal count.
 | Task 3, history-only | 96.8 | 448.6 | 4,830.8 | 7,411.3 | 8,523.1 | **8,527.9 s** (142.1 min) | 3,814 | 12 × 210 = 2,520 | 1.739 | 0.401 |
 
 Total campaign GPU time: **25,255.9 s = 7.02 h** for four teacher runs, two
-tasks, 512 sample-route evaluations, ~13,600 generations and 64,768 seeded pair
-NLLs replayed per run with `max_abs_diff 0.0` in all four.
+tasks — 256 samples x 4 runs = 1,024 sample evaluations over 512 distinct
+samples — and 13,588 generations. Each run seeds 64,768 pair
+NLLs and re-computes 8 of them live against the seed; all four report `MATCH`
+with `max_abs_diff 0.0`, i.e. 32 of 32 replayed trials agree exactly. The live
+checks are a sample of the seeded set, not a full replay — the seed is verified,
+not certified.
 
 **Why the two tasks cost different amounts, and it is not contention.** The four
 runs were strictly sequential (08:54, 10:01, 12:28, 14:50 completion), so they
@@ -1807,7 +1816,7 @@ treating a poor final number as evidence about any one of them.
 
 **The 311-sample worklist.** Task 4's 141 and Task 3's 170 history-only Residual
 sets are disjoint in the sense that matters: they are different samples of
-different tasks, and together 311 of 512 sample evaluations describe capability
+different tasks, and together 311 of the two tasks' 512 samples describe capability
 that the frozen pool does not have. On Task 3 that set is *certified* complete
 with respect to the visible pool; on Task 4 it is bounded above by what 8
 untried experts could add. If a V8-B pilot is run, this is the set it has to
@@ -1849,7 +1858,7 @@ section of this report. "Test" means it is decided by a test that runs in the
 | 13 | Alias key created lazily, only with support | `test_22_zero_support_historical_expert_gets_no_alias_key`; `key_learning.py:create_alias_keys` | PASS |
 | 14 | Zero-support alias not committed | `test_pruning_retires_zero_support_alias_but_never_strands_an_expert` | PASS |
 | 15 | Inference never reads ground truth | `test_24_inference_path_never_reads_ground_truth_answer` (AST scan, with negative controls) | PASS |
-| 16 | Full-pool recall audit works | `compose/experiments/v8_full_pool_recall.py`; §16 | see §16 |
+| 16 | Full-pool recall audit works | `compose/experiments/v8_full_pool_recall.py`; `resolve_scope`/`audit_plan` + `test_22c`; §16 | PASS after a fix — v1 ignored the run's scope and was re-run; see §16 and §25.1 |
 | 17 | V7 regression passes | 548 tests; §12 | PASS |
 | 18 | Resume is deterministic | `test_25_teacher_cache_reload_deterministic`, `test_26_resume_preserves_expert_key_mapping` | PASS |
 | 19 | V8-A evidence collected | §13–§18 | see §14–§18 |
@@ -1881,23 +1890,43 @@ something that can fail rather than by a comment:
 | Inference reads no ground truth, NLL, oracle or task label | AST scan `assert_inference_purity`, `test_24`, with negative controls that prove the scanner has teeth | No |
 | Deterministic resume | `test_25`, `test_26` | No |
 
-Suite: **608 passed** in 75.76 s; **548** of them pre-date this work and pass
+Suite: **609 passed** in 75.32 s; **548** of them pre-date this work and pass
 unchanged. `git diff --stat 9ff2b28..HEAD` = 34 files, 11,874 insertions,
 **0 deletions**, and **0 files** under `compose/v7/`, `compose/adapters/`,
 `compose/eval/` or `llava/`. V7 is not merely still passing — it is
 byte-unchanged, which is why its tests pass by construction.
 
-**Three defects were found during the campaign, and all three are in the record.**
+**Four defects were found during the campaign, and all four are in the record.**
 The three-valued key-target rule was not total and had already written 33
 mislabelled targets into a pre-fix artefact (§9.2); `create_alias_keys` created a
 key on an expert's own origin task, which the pool's own `validate()` then
-refused — a defect reachable only once the all-experts scope existed (§17); and
-the Task-0 parity harness composed V7's answer path with a duplicated `task0`
+refused — a defect reachable only once the all-experts scope existed (§17); the
+Task-0 parity harness composed V7's answer path with a duplicated `task0`
 segment, which `_jsonl`'s tolerant missing-file handling turned into a bare
-`KeyError` thirty lines later (§12.1). The first two are fixed with regression
-tests. The third is fixed and **its fix has not yet been executed end to end** —
-that is the one open item in this verdict, and it is a *cross-check*, not a
-result: no claim in this report depends on it.
+`KeyError` thirty lines later (§12.1); and the full-pool Residual audit read
+`recall.json`'s `visible_expert_ids` as the run's scope when that field holds the
+full committed pool, so it tested the experts a history-only run must exclude and
+scored their solutions as retrieval failures (§16).
+
+The first, second and fourth are fixed with regression tests — the fourth's is
+`test_22c`, which asserts that no excluded id can reach a test target. The third
+is fixed and **its fix has not yet been executed end to end** — that is the one
+open item in this verdict, and it is a *cross-check*, not a result: no claim in
+this report depends on it.
+
+The fourth defect deserves its own sentence, because of how it was caught and
+what it would have cost. It was found by reading the artefact it had already
+written, not by a test: 21 of its 22 Task-4 "retrieval failures" were samples
+solved *only* by experts 16–19 — Task 4's own experts — which the history-only
+scope excludes precisely so that self-reuse cannot be mistaken for cross-task
+reuse. Had the number been published, §16's central claim ("the Residual set is
+not a retrieval artefact") would have been supported by evidence manufactured
+from the confound that claim denies. **No number from the defective version
+appears anywhere in this report**; the veto was `grep` over this file, not
+memory. The buggy artefact is kept at
+`experiments/runs/0911_v8a_formal/full_pool_recall_task4.json` as the defect's
+evidence, and the corrected re-run writes to a `_v2` path with a
+`schema_version` field so the two cannot be confused.
 
 **Code acceptance: PASS**, with one declared open item (§12.1, answer parity
 pending) that does not gate any other claim.
