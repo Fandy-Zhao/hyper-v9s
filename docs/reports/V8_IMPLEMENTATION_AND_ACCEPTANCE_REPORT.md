@@ -395,6 +395,79 @@ when this fix landed, so its `teacher_result.json` was written by the pre-fix
 code; runs 2–4 use the fixed rule. The audit above is what quantifies the
 difference per run — no artifact is rewritten in place.
 
+### 9.3 A third defect, left unfixed on purpose until the campaign ends
+
+`compose/v8/audit.py:251-255` and `:258-261` phrase two of the four outcome
+cases in terms of **alias keys** — CASE_B is "reusable experts exist and are
+recalled, yet the alias keys do not convert that into a better metric", and
+CASE_D says "check train-vs-validation recall for alias-key overfitting". This
+is wrong for V8-A, which by construction trains nothing and creates no alias
+key: any V8-A outcome can only be about the *origin* keys and the fixed-query
+geometry.
+
+This matters because `diagnose()` is a **runtime** call, not an offline
+analyser: `compose/experiments/v8_task_run.py:818` writes its verdict straight
+into `analysis.json:diagnosis`. Run 1's artefact therefore contains
+
+```json
+"case": "CASE_D_OR_IMPROVED",
+"interpretation": "recall is high and the metric improved; check train-vs-validation recall for alias-key overfitting before concluding"
+```
+
+The `case` is defensible (recall is indeed high and the metric did improve); the
+*reason* names a mechanism that does not exist in this experiment.
+
+* **BLOCKER.** Not a blocker — the verdict is correct, the mechanism named in the
+  prose is not.
+* **WHY it is not fixed yet.** Runs 3 and 4 are in flight. `diagnose()` is
+  executed by the runner, so editing it now would mean runs 3–4 and run 1
+  produced their artefacts under different code, which is precisely the
+  provenance break this report avoids everywhere else. The fix is deferred to
+  after the campaign and is applied to the module only; the existing artefacts
+  are not rewritten.
+* **IMPACT while deferred.** Readers of `analysis.json` see wording that
+  over-attributes to a mechanism V8-A does not exercise. Every number in the
+  file is unaffected — this is prose inside a summary string. The report's own
+  §14–§16 and §23 give the corrected reading (origin-key geometry and selection
+  ordering, not alias-key overfitting).
+* **PROPOSED MINIMAL FIX** (post-campaign). Reword CASE_B to "the origin keys
+  already rank a solver first, so the remaining loss is in route selection and
+  composition rather than in recall", and CASE_D to "check that the win is not
+  an artefact of selection ordering before concluding"; then assert in
+  `tests/compose` that no `interpretation` string mentions alias keys for a run
+  whose `run_config` reports no training. The second half is the part that
+  prevents the defect from recurring.
+
+### 9.4 Two defects found in the campaign's own analysis tooling
+
+Both were found by cross-checking against `analysis.json` rather than by
+inspection, and both are recorded because they changed a number the report
+would otherwise have published.
+
+**(a) `v8a_scope_gap.py` counted `BaseOnly` samples as unresolved.** The first
+version asked only `selected_experts != []`, but a sample whose answer the frozen
+base already gets right is `BaseOnly` with an *empty* route by design (PART 8:
+base solves → stop). Those 42 samples were therefore binned as "unsolved in
+either scope", producing `unresolved = 57` where the truth is 14. The tell was
+that `historical_reuse` disagreed with the history run's own solve count in
+`analysis.json` (115). The fix makes `_solved()` return true for `BaseOnly`, and
+the script now reports `bucket_sum`, which must equal `samples_compared`, plus
+`solved_in_all_scope`, which must equal the runner's count — the two checks are
+in the artefact itself rather than in this prose. A second, smaller error
+surfaced in the same fix: the `else` branch still swallowed a history-only solve,
+hiding the very anomaly (§14) it was meant to surface; it now has its own branch.
+
+**(b) The orchestrator produced two byte-identical case-study files under
+misleading names.** `v8a_cases.py` always joins *both* run roots — it is not
+scope-parameterised — so running it once per scope wrote `cases_all_task4.json`
+and `cases_history_task4.json` with identical content. Anyone comparing them
+would conclude "the case mix is the same in both scopes", which is true but only
+because the file ignores the scope argument. It is now run once per task as
+`cases_task{N}.json`.
+
+Neither defect touches the V8 method, the frozen pool, or any run artefact: both
+are in post-hoc analysis scripts that read finished runs and write new files.
+
 ---
 
 ## 10. Freeze Audit
@@ -438,7 +511,7 @@ The "checksum before" column is V7's own recorded fingerprint from
 
 ```
 $ pytest tests/compose -q
-606 passed, 3 warnings, 8 subtests passed in 75.74s (0:01:15)
+607 passed, 3 warnings, 8 subtests passed in 74.98s (0:01:14)
 ```
 
 Split:
@@ -499,7 +572,7 @@ rule, and 16–19 plus 30 are the four gating states and their interaction.
 ## 12. V7 Regression and Task 0 Parity
 
 **V7 regression**: 548 tests under `tests/compose/` that predate this work still
-pass. `git diff --stat 9ff2b28..HEAD` reports **30 files changed, 9,617
+pass. `git diff --stat 9ff2b28..HEAD` reports **34 files changed, 11,347
 insertions(+), 0 deletions(-)** — every change is a new file (`compose/v8/*`,
 `compose/experiments/v8*.py`, the two new test files) plus additive edits to
 `CHANGELOG.md` and `docs/module_status.md`. Nothing under `compose/v7/`,
@@ -523,10 +596,28 @@ and compares against the routing V7 recorded in its own
 | `{1,2}` | 109 | 109 |
 | `{2,3}` | 10 | 10 |
 
-**Route multiset identical — MATCH.** Per-sample answer parity (regenerate the
-route through V8's engine and diff the answer text against V7's own generated
-answers) is executed by the same script with `--generate`; its result is recorded
-in §12.1 below.
+**Route multiset identical — MATCH.**
+
+### 12.1 Answer parity: attempted, crashed, retry queued
+
+The route check needs no generation, so it stands on its own. The *answer*
+check — regenerate each sample through V8's engine under the identical route and
+diff the text against the answers V7 actually produced — has **no result yet**,
+and the report says so rather than leaving a blank. Recorded facts:
+
+| Fact | Evidence |
+| --- | --- |
+| `task0_parity.json` contains `route_parity` and no `answer_parity` key | the file (mtime 07:56:12 in `experiments/runs/0911_v8a_formal/`) |
+| That file therefore came from a route-only invocation | `v8_task0_parity.py:208` writes the output *once, at the end*; a crashed `--generate` run writes nothing |
+| One answer-generation attempt crashed | `task0_parity.log:10-75`, `RuntimeError: cuDNN error: CUDNN_STATUS_INTERNAL_ERROR` inside `prepare_inputs_labels_for_multimodal` (the vision conv), i.e. the shared device was too full for cuDNN to get a workspace |
+| The retry is queued, not lost | `run_deferred_gpu_work.sh:28-33` waits for the driver to release a GPU, requires >= 19,000 MiB free, then re-runs the same command with `--generate` |
+| The successful route-parity result cannot be destroyed by a failed retry | the module writes atomically at the end, so a crash leaves the existing file untouched; a copy is preserved as `task0_parity_route.json` |
+
+This is a **BLOCKER-class gap in evidence, not in code**: the parity harness is
+written, tested and has already produced a route MATCH; what is missing is one
+GPU slot on a contended box. §12.1's conclusion stays "route parity verified,
+answer parity pending" until `task0_parity.json` acquires an `answer_parity`
+key.
 
 ---
 
@@ -576,10 +667,10 @@ The question the whole method rests on (PART 49 Q1). Every number below is
 distribution over the full 256-sample validation split — not a subsample, and
 not a proxy.
 
-| Task | Scope | BaseOnly | ≥1 solved historical single | solved only by a pair | unresolved (Residual) |
+| Task | Scope | BaseOnly | solved by a single expert | solved only by a pair | unresolved (Residual) |
 | --- | --- | --- | --- | --- | --- |
 | 4 (CLEVR-Math) | all-experts | 42 (16.41 %) | 178 (69.53 %) | 21 (8.20 %) | 15 (5.86 %) |
-| 4 (CLEVR-Math) | history-only | *run 2 pending* | | | |
+| 4 (CLEVR-Math) | history-only | 42 (16.41 %) | **71 (27.73 %)** | **2 (0.78 %)** | **141 (55.08 %)** |
 | 3 (IconQA) | all-experts | *run 3 pending* | | | |
 | 3 (IconQA) | history-only | *run 4 pending* | | | |
 
@@ -588,12 +679,47 @@ Read the `all-experts` row for Task 4 with the scope caveat attached: experts
 "reused" there includes self-reuse. The history-only row is the honest
 continual-learning number, and §20 splits the two.
 
-What the row already establishes: **the capability is there and the teacher
-finds it.** On a task whose V7 actual route scores 67.97, 69.5 % of samples are
-solved by reusing a single expert that already exists in the pool, and only
-5.9 % are unresolved after base, every recalled single and every valid pair have
-been tried. The residual 15 samples still keep a best historical context (§17):
-11 of them a single expert, 4 a pair.
+**This is the most important comparison in the V8-A campaign, and it goes
+against the all-experts headline.** With Task 4's own experts removed, the
+number of samples any historical expert can solve drops from 178 to 71
+(69.53 % → 27.73 %), pair-only solves collapse from 21 to 2, and the Residual
+set grows from 15 to 141. In other words **roughly six of every seven samples
+V8-A appeared to "reuse" on Task 4 were being solved by the task's own experts**
+— which is not reuse at all, because those experts do not exist at learning
+time. The `v8a_scope_gap.py` join gives the exact split:
+
+| Quantity | Samples | Rate | Meaning |
+| --- | --- | --- | --- |
+| Historical reuse (solved with the historical pool) | **115** | **44.92 %** | reachable from the pool as it stood at learning time: 42 base-only + 73 expert routes |
+| — of which base-only (needs no expert at all) | 42 | 16.41 % | the base already answers correctly |
+| — of which a historical expert route | 73 | 28.52 % | genuine cross-task reuse |
+| Self-reuse | 127 | 49.61 % | solved only with Task 4's own (or a later task's) experts |
+| Unresolved in both scopes | 14 | 5.47 % | no expert in the whole pool solves it |
+
+The three buckets sum to 256 exactly (`bucket_sum == samples_compared`), and the
+two scope totals reproduce the runners' own counts — `solved_in_all_scope: 241`
+and `historical_reuse: 115` are exactly the `analysis.json` solve counts for the
+all-experts and history-only runs. Those two cross-checks are why this table is
+the one the report quotes: the script's first version counted `BaseOnly` samples
+as unresolved and reported 57 unresolved samples instead of 14, and the
+disagreement with `analysis.json` is what caught it.
+
+So the honest answer to "can the old experts be reused?" is **yes, for 28.5 % of
+this task's samples, plus 16.4 % that need no expert at all** — a real effect
+worth building on, but less than half the size the all-experts number suggests.
+The residual 15 samples still keep a best historical context (§17): 11 of them a
+single expert, 4 a pair.
+
+One cross-scope anomaly is reported rather than smoothed: `v7_t4_val_211` is
+solved in the history-only scope but *not* in the all-experts scope, which at
+first looks impossible — the history pool is a strict subset. It is not a
+counter bug and it is verified from both runs' artefacts: in the history scope
+the pair `{13, 0}` solved the sample, while in the all-experts scope Task 4's own
+experts occupy ranks 1–4 of the Top-8 window
+(`[19, 17, 16, 18, 15, 14, 13, 0]`), so `{13, 0}` never entered the K_s = 4 pair
+shortlist and was never composed. A **wider pool can hide a solver from the pair
+shortlist** — the same crowding effect §23 identifies as a bottleneck, and the
+reason this report does not treat `historical ⊆ all` as an identity.
 
 ---
 
@@ -608,9 +734,27 @@ scored by the official evaluator, and `GapClosed = (V8 − V7) / (UB − V7)`.
 | Task | Scope | V7 Metric | Teacher UB | V8 Metric | V8 − V7 | GapClosed |
 | --- | --- | --- | --- | --- | --- | --- |
 | 4 (CLEVR-Math) | all-experts | 67.97 | 95.31 | **94.14** | **+26.17** | **0.957** |
-| 4 (CLEVR-Math) | history-only | *run 2 pending* | | | | |
+| 4 (CLEVR-Math) | history-only | 67.97 | 95.31 | 44.92 | −23.05 | −0.843 |
 | 3 (IconQA) | all-experts | *run 3 pending* | | | | |
 | 3 (IconQA) | history-only | *run 4 pending* | | | | |
+
+**The history-only row is not a V8-vs-V7 result, and must never be quoted as
+one.** The comparison is not like-for-like: V7's 67.97 is produced by a router
+that is *allowed* to use experts 16–19 (Task 4's own, which exist in the pool
+precisely because Task 4 has already been trained), while the history-only V8
+policy is forbidden from using them by construction. The row measures **how far
+the frozen historical pool gets on Task 4 with no task-specific experts
+available** — 44.92, i.e. 23 points below what V7 achieves *with* them. Read that
+way it is one of the campaign's most useful numbers: it is the ceiling for
+"reuse only", and the gap between it and 67.97 is the headroom a V8-B Candidate
+Expert would have to close. What it is not is evidence that V8's routing is worse
+than V7's, because the two policies were not given the same pool.
+
+The like-for-like comparison is the all-experts row (+26.17, 95.7 % of the
+teacher's headroom closed), and even that is inflated by self-reuse — of its 241
+solved samples, 126 are self-reuse and 115 are historical (§14). The honest
+summary of Task 4 is therefore: **+26.17 like-for-like, of which the historically
+reusable part is 44.92 points**.
 
 The teacher's own verdict count and the official scorer's count agree exactly
 (`reconciliation.difference == 0`: 241 samples solved by the teacher, 241 scored
@@ -639,9 +783,27 @@ V8-A itself trains nothing. `SetExact` is discussed below.
 | Task | Scope | V7 R@1 | V7 R@2 | V7 R@4 | V7 R@8 | V8 R@1 | V8 R@2 | V8 R@4 | V8 R@8 | SetExact |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 4 | all-experts | 0.719 | 0.849 | 0.950 | 0.990 | *§17* | *§17* | *§17* | *§17* | *§17* |
-| 4 | history-only | *run 2 pending* | | | | | | | | |
+| 4 | history-only | **0.274** | **0.452** | **0.740** | **1.000**† | *§17* | *§17* | *§17* | *§17* | *§17* |
 | 3 | all-experts | *run 3 pending* | | | | | | | | |
 | 3 | history-only | *run 4 pending* | | | | | | | | |
+
+† **Degenerate by construction, and flagged rather than quoted.** In the
+history-only run the pool holds 16 visible experts and the recall window is
+Top-8, while STEP C's candidate union for the 214 unsolved samples happens to be
+exactly those same 8 experts
+(`tested_minus_recall_size_distribution: {"0": 256}` — the tested-minus-recall
+size is 0 for all 256 samples). Every scored expert is therefore inside every
+sample's own window, so `R@8 = 1.000` carries no information about the router.
+The informative numbers are `R@1 = 0.274` and `R@2 = 0.452`.
+
+**That 0.274 is the strongest single piece of evidence for the alias-key idea in
+this campaign.** With the task's own experts present, the current keys rank *some*
+solver first 71.9 % of the time — but that is largely the self-experts ranking
+themselves well on their own distribution. Restricted to historical experts, the
+same keys put a solver first only 27.4 % of the time: **the fixed-query geometry
+knows which expert can do the job far less reliably than the all-experts number
+suggests.** §16 shows this is not because the capability is absent. §17 measures
+what a current-task alias key would buy against exactly this gap.
 
 **BLOCKER / WHY / IMPACT / PROPOSED MINIMAL FIX — `SetExact`.** The
 specification names this column but does not define it. The closest verifiable
@@ -668,30 +830,170 @@ route; a sample with no solver is a genuine Residual.
 | Task | Scope | samples | base solved | solved by ≥1 expert | Residual | selected R@1 | R@2 | R@4 | R@8 | solver R@1 | R@2 | R@4 | R@8 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 4 | all-experts | 256 | 42 | 199 | 15 | 0.332 | 0.608 | 0.889 | 0.985 | **0.719** | 0.849 | 0.950 | 0.990 |
-| 4 | history-only | *run 2 pending* | | | | | | | | | | | |
+| 4 | history-only | 256 | 42 | 73 | 141 | 0.164 | 0.425 | 0.699 | 1.000† | 0.274 | 0.452 | 0.740 | 1.000† |
 | 3 | all-experts | *run 3 pending* | | | | | | | | | | | |
 | 3 | history-only | *run 4 pending* | | | | | | | | | | | |
 
-Three readings, in order of how much they matter:
+† See §15 Table 2's footnote: `R@8 = 1.000` is degenerate here, because in the
+history-only run the candidate union *is* each sample's Top-8 window.
+`capability_present_but_outside_recall_window` is correspondingly 0 and
+`selected_route_outside_own_recall_window` is 0 for this run — there is no
+wider union for a route to hide in — so §15's upper-bound caveat does not apply
+to the history-only row at all.
 
-1. **Retrieval is not the bottleneck.** 71.9 % of samples that any expert can
-   solve have a solving expert ranked **first** by the current single-key router,
-   and 99.0 % have one inside the Top-8 window. The V7 keys already rank
-   capability well; what they cannot do is say *which task* a key belongs to.
-2. **Selection ordering is weaker than retrieval.** The expert the teacher
-   *selects* sits first only 33.2 % of the time (`selected R@1`). The gap between
-   0.719 and 0.332 is not a failure — it is the NLL tie-break and the
-   lexicographic rule choosing among several solvers (§6) — but it is what the
-   alias key is supposed to sharpen, since a key that encodes "this expert solves
-   *this* distribution" should rank its expert above equally-capable alternatives.
-3. **Capability failure, not retrieval failure, is what remains.** Only 2 samples
-   (0.8 %) have a solver present in the visible order but outside the Top-8
-   window (`capability_present_but_outside_recall_window: 2`; experts 12 and 13
-   at ranks 12 and 9). The 15 Residual samples are cases where no *scored*
-   expert solved at all. Those are lower bounds: an expert that was never
-   recalled was never tried, which is exactly what a wider M or a better key
-   could change — the audit states this in its own output rather than leaving it
-   to be assumed.
+Three readings, in order of how much they matter. The first is the one that
+changed when the history-only run finished: **the all-experts row flatters the
+router, because the experts that dominate its top ranks are the task's own.**
+
+1. **Retrieval is the bottleneck for historical experts, and the all-experts
+   number hid it.** Over the whole pool, 71.9 % of solvable samples have a solver
+   ranked **first**. Restricted to historical experts, the same keys put a solver
+   first only **27.4 %** of the time (`solver R@1`, history-only row), and only
+   45.2 % inside the Top-2. The current fixed-query geometry is good at ranking an
+   expert on the distribution it was trained on and weak at ranking a *historical*
+   expert on a new distribution — which is precisely the deficit a current-task
+   alias key exists to close, and the reason §17's measurement matters more than
+   the headline metric.
+2. **Selection ordering is weaker than retrieval, in both scopes.** The expert
+   the teacher *selects* sits first only 33.2 % of the time over the whole pool
+   and 16.4 % restricted to history. The gap is not a failure — it is the NLL
+   tie-break and the lexicographic rule choosing among several solvers (§6) — but
+   a key that encodes "this expert solves *this* distribution" should rank its
+   expert above equally-capable alternatives, and today it does not.
+3. **Past the router, what remains is capability, not retrieval.** In the
+   all-experts scope only 2 samples (0.8 %) have a solver in the visible order but
+   outside the Top-8 window (`capability_present_but_outside_recall_window: 2`;
+   experts 12 and 13 at ranks 12 and 9), and in the history-only scope that count
+   is **0** by construction. The Residual set is what the router cannot fix: 15
+   samples with the whole pool available, **141 (55.1 %) with only the historical
+   pool** — samples no recalled expert solved at all. Those are lower bounds: an
+   expert that was never recalled was never tried, which is exactly what a wider
+   M or a better key could change — the audit states this in its own output
+   rather than leaving it to be assumed.
+
+The 141 history-only Residual samples are the load-bearing number for V8's
+second half: they are simultaneously the evidence that historical reuse alone is
+insufficient and the precise worklist a V8-B Candidate Expert would be trained
+on. V8-A cannot say whether such an expert would learn them; it can say how many
+there are and that they are not a retrieval artefact.
+
+---
+
+## 17. Alias Key Analysis
+
+*This section is filled by `compose/experiments/v8a_alias_keys.py`, which runs
+after the campaign on the exported teacher caches; it is the last analysis step
+in the queue (`experiments/runs/0911_v8a_formal/run_alias_analysis.sh`) and had
+not completed when §14–§16 were written. Its result is the §15 Table 2 `V8 R@k`
+column and the answer to causal-chain Q3.*
+
+---
+
+## 18. Sample Case Studies
+
+Source: `experiments/runs/0911_v8a_formal/cases_task4.json`, produced by
+`compose/experiments/v8a_cases.py`, which joins the two scope runs, the frozen
+Task 4 validation questions and the answers V7 actually generated in its pair
+diagnostic. Totals for the run: **V7 correct 174/256, V8 (history-only) correct
+115/256** — the same 67.97 % and 44.92 % as §15, recomputed here per sample by
+the metric adapter rather than read from a summary, so the case list and the
+headline numbers cannot drift apart.
+
+The four classes below overlap by construction (a sample can be both "V7 miss,
+V8 fix" and "residual with context"), so the counts are not a partition and are
+not summed anywhere in this report.
+
+### A. V7 missed it, V8 fixed it — 37 samples
+
+`v7_t4_val_106` — *"Subtract all small gray spheres. How many spheres are
+left?"*, ground truth `3`:
+
+| | route | state | correct |
+| --- | --- | --- | --- |
+| V7 actual | — | — | **no** |
+| V8 all-experts | `[12]` | Reuse1 | yes |
+| V8 history-only | `[12]` | Reuse1 | yes |
+
+Expert 12's `origin_task` is **3 (IconQA)** — a CLEVR-Math counting question
+answered by an expert trained on diagram question answering, recalled by the
+teacher as a *single* with reason `single_solved_stop_before_pairs`, and it
+survives the history-only scope because expert 12 is genuinely historical. This
+is the cleanest example in the campaign of the thing V8 claims: an old expert
+solving a new task's sample that the current system got wrong.
+
+`v7_t4_val_107` is the other flavour of class A: V7 is wrong, and V8's
+**`BaseOnly`** state — no expert at all, `selected_experts: []` — is right. The
+minimal-capacity rule (PART 8: base solves → stop) is not just an efficiency
+device; here it converts a V7 miss into a hit by declining to route.
+
+### B. Reusable, but not by a historical expert — 127 samples
+
+`v7_t4_val_0` — *"Subtract all small purple balls. Subtract all small gray shiny
+cylinders. How many objects are left?"*, ground truth `5`:
+
+| | route | state | correct |
+| --- | --- | --- | --- |
+| V7 actual | — | — | yes |
+| V8 all-experts | `[18]` | Reuse1 | yes |
+| V8 history-only | `[]` | Residual | **no** |
+
+Expert 18 is one of Task 4's **own** experts (`origin_task = 4`). So this sample
+is "reused" in the all-experts scope and unsolvable in the history-only scope —
+it is one of the 127 samples (§14) that make the all-experts number look better
+than historical reuse is. Its history-scope fallback kept `residual_context:
+[1]`. This class is the quantitative core of the scope critique, and it is also
+the worklist V8-B would draw on: 127 samples that a *new* candidate expert
+would have to cover rather than reuse.
+
+### C. Several experts solve it — the IGNORE rule in action
+
+The case file's `alternative_solved` counter reads `positives > 1`, which only a
+selected *pair* produces, so it actually counts pair-solves (21 in the
+all-experts run, 2 in history-only) and not alternative singletons. The right
+measurement for "multiple solved experts" is the three-valued label itself,
+taken over the history-scope records:
+
+| Quantity | Value |
+| --- | --- |
+| Samples carrying ≥1 `ignore` label | **78 / 256** |
+| Total `ignore` labels | 401 |
+| Total `positive` labels | 75 |
+| Total `negative` labels | 1,572 |
+| `ignore`-per-sample histogram | `{0: 178, 1: 19, 2: 9, 3: 5, 4: 2, 5: 1, 8: 42}` |
+
+`v7_t4_val_10` is the illustration: state `Reuse1`, `positive: [13]`,
+`ignore: [0, 3, 12]`. Three experts that also solve the sample are labelled
+IGNORE rather than NEGATIVE, which is PART 9's prohibition ("禁止：E5 =
+negative") doing real work — labelling them negative would push their keys away
+from a query they demonstrably answer. The 42 samples with eight IGNOREs are the
+`BaseOnly` samples, where nothing should be pushed either way.
+
+### D. Residual with old context, and what a new expert would face — 141 samples
+
+`v7_t4_val_1` — *"Subtract all balls. How many objects are left?"*, ground truth
+`6`:
+
+| | route | state | correct |
+| --- | --- | --- | --- |
+| V7 actual | — | — | yes (using expert 18) |
+| V8 all-experts | `[18]` | Reuse1 | yes |
+| V8 history-only | `[]` | Residual | **no**, `residual_context: [1]` |
+
+No historical expert solves it, so the teacher falls to the residual rule
+(highest metric, lowest NLL, smaller cardinality) and keeps expert 1 as context.
+The sample is a concrete instance of the V8-B contract: a frozen historical
+expert as context plus a new candidate that has to learn the delta. Whether the
+candidate *can* is exactly what V8-A cannot answer — and this sample is also a
+reminder that V7 is correct here, so a V8-B candidate must not make it worse.
+
+### What the four classes say together
+
+Class A shows the mechanism works and is worth training for. Class B and D
+together are the honest limit: of the 256 samples, 115 are reachable from the
+frozen historical pool and 127 are not, and the ones that are not include
+samples V7 already gets right. That is the case for V8-B being a *residual*
+learner on top of frozen context rather than a replacement router — and it is
+also why §19.5 recommends a pilot rather than a full loop.
 
 ---
 
@@ -780,6 +1082,116 @@ of a frozen historical context. Recommended sequence: Task 1 only (not Task 0,
 which has no history and so tests nothing new), with the teacher over a
 500-sample subsample rather than 2,000 — a ~3 h pilot that exercises every stage
 end to end.
+
+---
+
+## 20. Expert Pool Efficiency
+
+V8 changes the *key* side of the pool, not the expert side: the expert set V7
+committed stays exactly as it is, and alias keys let one historical expert be
+recalled in later task distributions. So this section has to be read in three
+parts — the pool V7 actually grew (fully measured), what V8-A measured on top of
+it without training anything (measured for the run that has finished), and the
+*reduction* in new-expert growth that V8 is designed to produce (a V8-B
+property, and therefore **not measured**; claiming it here would be exactly the
+kind of unearned PASS PART 37 forbids).
+
+### 20.1 The V7 pool, per committed checkpoint
+
+Source: `task{N}/committed/compose_experts.json` under
+`/data/ckpt/zhaozhuofan/Hyper-LLaVA-runs/v7_gpu01_cached_query_formal_20260903/`,
+read directly from the frozen manifests. `Experts` lists the actual expert ids,
+not a count derived from configuration.
+
+| Task | New expert ids | Experts created | Cumulative live experts | Cumulative keys (origin / alias) | Adapter params | Per-expert params |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 (ImageNet-R) | 0–3 | 4 | 4 | 4 / 0 | 79,953,920 | 19,988,480 |
+| 1 (ArxivQA) | 4–7 | 4 | 8 | 8 / 0 | 159,907,840 | 19,988,480 |
+| 2 (VizWiz) | 8–11 | 4 | 12 | 12 / 0 | 239,861,760 | 19,988,480 |
+| 3 (IconQA) | 12–15 | 4 | 16 | 16 / 0 | 319,815,680 | 19,988,480 |
+| 4 (CLEVR-Math) | 16–19 | 4 | 20 | 20 / 0 | 399,769,600 | 19,988,480 |
+| 5 (Flickr30k) | 20, 21, 22, 23 (22 pruned) | 4 | 23 | 24 / 0 | 459,735,040 | 19,988,480 |
+
+Two facts in that table are load-bearing for V8's premise:
+
+* **Every task grows the pool by exactly four experts, and every expert gets
+  exactly one key.** `task5/committed/v7_keys.pt` holds 24 tensors of shape
+  `[1536]` (`schema_version 1`, `query_dim 1536`, `pool_version 23`) with
+  `lifecycle` metadata of `historical: 23` and `pruned: 1` — the four-alias
+  structure of §8 has no V7 counterpart, and `experts_with_multiple_keys` is
+  empty.
+* **Pruning removes the expert, not its key.** Expert 22 is absent from the
+  task-5 manifest (23 live experts, 459,735,040 params = 23 x 19,988,480) while
+  its key survives with `lifecycle: pruned`. Any V8 alias-key layer therefore has
+  to decide what to do about a historical expert whose key exists but whose LoRA
+  does not — the multi-key pool keeps keys addressable by lifecycle (§8).
+
+### 20.2 What V8-A added, without training
+
+V8-A runs the Answer-Supervised Teacher over the frozen pool and writes a route
+per sample. It trains nothing, so the honest column is "0 new experts, 0 new
+committed keys" — with the caveat that the *acquisition* of alias keys is
+measured separately and non-committally in §17, and the *reduction* in expert
+growth is a V8-B question.
+
+| Quantity | V7 | V8-A task 4, **all-experts** scope (measured) | Source |
+| --- | --- | --- | --- |
+| New experts trained for the task | 4 | 0 | §20.1 / `run_config.json` |
+| New committed keys for the task | 4 | 0 | §20.1 / `COMPLETE.json` |
+| Keys per expert | 1.00 (24/24) | 1.00 committed; alias-key gain measured in §17 | `v7_keys.pt` / §17 |
+| Samples the base model already solved | — | 42/256 = 16.41 % | `analysis.json:solution_counts` |
+| Samples served by one expert in the pool | — | 178/256 = 69.53 % | `analysis.json:solution_counts` |
+| Samples served by a pair of experts in the pool | — | 21/256 = 8.20 % | `analysis.json:solution_counts` |
+| Residual samples (no route found) | — | 15/256 = 5.86 % | `analysis.json:solution_counts` |
+| Reuse rate (any non-empty route) | see §15 Table 2 (`V7 Recall@1 = 0.719` measures the same idea through V7's own router) | 199/256 = 77.73 % | `analysis.json:solution_counts` |
+| Residual ratio | — | 5.86 % | `analysis.json:solution_counts` |
+
+**The scope qualifier in that header is not cosmetic.** The `all-experts` run
+lets the teacher route to Task 4's *own* committed experts (16–19) as well as to
+the historical ones, and a task's own experts are exactly what is unavailable
+while that task is being learned. The pool-wide number must therefore be split
+before any part of it can be called *historical* reuse, which is what
+`v8a_scope_gap.py` does by joining the two scopes per sample. The scale of the
+correction is already visible in the teacher's own progress line: in the
+all-experts run **178** of 214 unsolved samples stopped at a solved single, while
+in the history-only run only **71** did — so of order a hundred samples that look
+like reuse in the all-experts scope are in fact solved by the task's own
+experts. The historical-reuse and self-reuse rates for Task 4 are reported in
+§15/§23 from the joined runs; nothing in this table may be quoted as historical
+reuse without that split.
+
+The V7 comparison in that table is deliberately drawn from §15 Table 2 rather
+than from a new count: V7 does route over the whole committed pool, so
+"fraction of samples V7's own router sends to an expert" is already measured
+there, and re-deriving it here from a different artifact would risk two numbers
+for one quantity.
+
+### 20.3 The efficiency claim V8 is *designed* to make, and its status
+
+V8's thesis is that `new_experts_per_task` should fall because samples a
+historical expert already solves should not motivate a new LoRA. That claim has
+three parts, and only the first is measurable from this campaign:
+
+1. **The opportunity exists.** 77.73 % of Task 4's samples are routed by an
+   answer-supervised teacher to some expert in the committed pool, and 16.41 %
+   need no expert at all. This is measured (§20.2). How much of that 77.73 % is
+   *historical* rather than *the task's own* experts is the scope split, and it
+   is smaller — see the split in §15/§23.
+2. **V7 misses part of that opportunity.** Measured in §15 Table 2 and analysed
+   in §16: the solvers exist inside the visible Top-8 window for 196/256
+   samples, while V7's own router recalls them at rank 1 for 0.719 of solver
+   samples. The gap between "the pool can" and "the router picks" is the room
+   V8's alias keys are meant to close.
+3. **V8 would therefore train fewer experts.** **Not measured.** Turning the
+   reuse rate into a reduction requires choosing which samples still need a
+   Candidate Expert, training it on the residual, and observing that the pool
+   grows more slowly than V7's four-per-task. That is V8-B, and §19.5
+   recommends a one-task pilot rather than asserting the result.
+
+The correct reading of this section is therefore: V8-A establishes parts 1 and 2
+with numbers, and leaves part 3 open. The pool-efficiency benefit is a
+*projection* until a V8-B run produces a task whose committed expert count is
+below V7's four.
 
 ---
 
@@ -880,11 +1292,69 @@ information cannot reach the inference path, and that a *test* split can never
 reach the teacher.
 ---
 
+## 23. Failure Analysis
+
+"效果不好" is not an explanation. This section attributes the Task 4 result to
+one of the six candidate bottlenecks the specification names (A–F), and says for
+each whether it is **measured**, **measured as small**, or **not exercised by
+V8-A at all**. All figures are from the two Task 4 runs; a bottleneck that only
+Task 3 could reveal is marked as such rather than generalised.
+
+| # | Bottleneck | Status on Task 4 | Evidence |
+| --- | --- | --- | --- |
+| A | Historical capability (the pool simply cannot do it) | **Primary constraint** | 141/256 samples (55.1 %) have no solver among all tested historical candidates; only 73 expert-route solves + 42 base-only are reachable |
+| B | Candidate retrieval (the solver exists but is outside the recall window) | **Small, and zero in history-only** | `capability_present_but_outside_recall_window: 2` in the all-experts scope (experts 12, 13 at ranks 12 and 9); **0** in history-only, where the candidate union *is* the Top-8 window |
+| C | Key representation (the keys rank the right expert badly) | **Measured, and the largest actionable gap** | solver R@1 = 0.274 / R@2 = 0.452 in history-only, vs 0.719 / 0.849 with the task's own experts present |
+| D | Key optimisation (alias keys not learning) | **Not exercised by V8-A** | V8-A trains nothing; §9.1's hinge-gradient defect was found and fixed before the campaign, so the optimiser path is repaired but unmeasured |
+| E | Pair composition (the right pair is never composed) | **Measured as small, with one verified case** | 2 pair-only solves in history-only; `v7_t4_val_211` is solved by `{13, 0}` in the history scope but never composed in the all-experts scope because the K_s = 4 shortlist was crowded by self-experts |
+| F | New-expert learning (the candidate fails to absorb the residual) | **Not exercised by V8-A** | Requires V8-B; §19.5 scopes the pilot |
+
+**Why A is the primary constraint and not B.** The two are easy to confuse,
+because both show up as "the sample is not solved". They separate cleanly here:
+B would mean the solver is in the pool but the router never surfaced it, whereas
+in the history-only run every scored expert was inside every sample's own window
+(`tested_minus_recall_size_distribution: {"0": 256}`), so the router was not
+filtering anything out — the 141 Residual samples were scored and simply had no
+solver. The count is still a lower bound, because only recalled candidates are
+ever scored and an expert outside the recall was never tried. That is exactly
+what the queued `v8_full_pool_recall.py` audit settles: it re-tests **every**
+visible expert on the Residual samples, which converts "no solver among the
+candidates" into "no solver in the pool" (or finds the misses). Until it
+finishes, A is stated as "no solver among the tested candidates", not
+"no solver exists".
+
+**Why C is the most actionable finding.** A is a statement about the frozen pool
+— nothing in V8 can change it without training, and that training is V8-B. C is
+different: the capability is present (73 samples are solved once the right
+expert is selected), but the current single-key geometry ranks a solver first
+only 27.4 % of the time on a new task's distribution. That is the gap alias keys
+are defined to close, and it is measurable without any training, which is why
+§17 is the decisive follow-up rather than an optional one.
+
+**What would falsify this attribution.** If a V8-B run produced alias keys and
+recall-at-1 did not move, C would be wrong and the cause would be D (the
+optimisation) or the fixed-query geometry itself — the query is frozen and
+detached (§3.1), so no key can encode information the query does not carry. If
+alias keys did move recall but the metric did not, the bottleneck would be E or
+the selection rule. The report keeps those branches distinct rather than
+treating a poor final number as evidence about any one of them.
+
+**Failure that did occur, and is reported as such (PART 46 item 20).** Two
+things in this campaign went wrong rather than merely underperforming, and both
+are recorded above instead of omitted: the three-valued key-target rule was not
+total, and it had already written 33 mislabelled key targets into the
+pre-fix run's artefact (§9.2, quantified by `v8a_label_audit.py`); and the
+Task 0 answer-parity check crashed on a contended GPU and has produced no result
+(§12.1). No run was re-run to make those disappear, and no artefact was
+rewritten.
+
+---
+
 ## 24. Acceptance Checklist
 
 Every row cites the artefact that decides it — a test name, a file:line, or a
 section of this report. "Test" means it is decided by a test that runs in the
-601-test suite (§11); "report" means it is decided by a measured run.
+607-test suite (§11); "report" means it is decided by a measured run.
 
 | # | Requirement | Decided by | Status |
 | --- | --- | --- | --- |
