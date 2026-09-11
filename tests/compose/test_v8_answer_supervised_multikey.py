@@ -1482,3 +1482,163 @@ def test_alias_key_ranking_loss_is_a_gradient_carrying_hinge():
     satisfied = alias_key_loss(queries, pool, targets, config=config)
     assert satisfied.ranking_pairs == 1
     assert float(satisfied.ranking) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# The training loop itself: compose/v8/trainer.py
+# ---------------------------------------------------------------------------
+def _trainer_scenario(tmp_path):
+    """A 4-expert pool, one candidate, five samples, one alias key per solver."""
+    from compose.v8.trainer import TrainBatch
+
+    sample_ids = ["s0", "s1", "s2", "s3", "s4"]
+    recall = {sample_id: [0, 1, 2] for sample_id in sample_ids}
+    task = FakeTeacherTask(
+        base_solved=["s2"],
+        singles={0: ["s0", "s1"], 1: ["s0"]},
+        pairs={(0, 1): ["s3"]},
+    )
+    teacher = AnswerSupervisedTeacher(TaskMetricAdapter(), V8TeacherConfig())
+    result = teacher.run(
+        task_id=1, sample_ids=sample_ids, recall_map=recall,
+        scorer=task.scorer, nll_scorer=task.nll_scorer,
+    )
+    pool = make_pool(num_experts=3, per_task=3, seed=51)
+    queries_by_sample = {
+        sample_id: torch.nn.functional.normalize(unit(100 + index), dim=-1)
+        for index, sample_id in enumerate(sample_ids)
+    }
+    create_alias_keys(result, pool, task_id=1, queries_by_sample=queries_by_sample)
+    # a key that ends up with no support: created here, pruned in finalize()
+    pool.add_key(expert_id=2, task_id=1, key_type="task_alias", value=unit(2),
+                 lifecycle="candidate", trainable=True, support_count=0)
+    pool.add_expert(expert_id=3, origin_task=1, lifecycle="candidate")
+    pool.add_key(expert_id=3, task_id=1, key_type="origin", value=unit(3),
+                 lifecycle="candidate", trainable=True)
+
+    model, manager = make_manager([0, 1, 2, 3])
+    states = {
+        "s0": STATE_REUSE1, "s1": STATE_REUSE1, "s2": STATE_BASE_ONLY,
+        "s3": STATE_REUSE2, "s4": STATE_RESIDUAL,
+    }
+    experts = {"s0": [0], "s1": [0], "s2": [], "s3": [0, 1], "s4": [3]}
+    inputs = torch.randn(len(sample_ids), 8,
+                         generator=torch.Generator().manual_seed(7))
+    order = {sample_id: index for index, sample_id in enumerate(sample_ids)}
+
+    def forward_fn(requested):
+        rows = [order[str(sample_id)] for sample_id in requested]
+        return model(inputs[rows]).pow(2).mean(dim=1)
+
+    batch = TrainBatch(list(sample_ids), states, experts)
+    return dict(model=model, manager=manager, pool=pool, result=result,
+                queries=queries_by_sample, states=states, experts=experts,
+                batch=batch, forward_fn=forward_fn, teacher=result)
+
+
+def test_v8_trainer_trains_the_candidate_and_the_alias_keys_only(tmp_path):
+    from compose.v8.trainer import V8TaskTrainer
+    from compose.v8.pruning import plan_key_pruning
+
+    scenario = _trainer_scenario(tmp_path)
+    pool, manager, model = scenario["pool"], scenario["manager"], scenario["model"]
+    historical = {
+        expert_id: {
+            "{}.{}".format(layer_name, name): tensor.detach().clone()
+            for layer_name, layer in sorted(manager.layers.items())
+            for name, tensor in layer.experts[str(expert_id)].state_dict().items()
+        }
+        for expert_id in (0, 1, 2)
+    }
+    candidate_before = {
+        name: tensor.detach().clone()
+        for layer in manager.layers.values()
+        for name, tensor in layer.experts["3"].state_dict().items()
+    }
+
+    trainer = V8TaskTrainer(
+        model=model, manager=manager, pool=pool, config=V8Config(),
+        current_task=1, candidate_expert_ids=[3],
+        forward_fn=scenario["forward_fn"],
+        queries_by_sample=scenario["queries"],
+    )
+    report = trainer.train_epoch([scenario["batch"]], teacher_result=scenario["result"])
+
+    # gating: only the residual sample carried weight, the other four did not
+    assert report.residual_samples == 1 and report.covered_samples == 4
+    assert report.states == {
+        STATE_BASE_ONLY: 1, STATE_REUSE1: 2, STATE_REUSE2: 1, STATE_RESIDUAL: 1,
+    }
+    assert all(entry["mismatched_samples"] == [] for entry in report.gating)
+    assert report.gating[0]["gradient_active_counts"] == {STATE_RESIDUAL: 1}
+
+    # the trainable surface actually moved, and only it
+    assert report.gradient_experts == [3], report.gradient_experts
+    # Both supported keys are refined -- e1's has a single positive and is
+    # moved purely by the ranking term, which is the signal the detached-hinge
+    # bug in §9.1 removed.  e2's key has no positives, so it gets nothing.
+    assert report.gradient_keys == [
+        "e0_t1_task_alias", "e1_t1_task_alias",
+    ], report.gradient_keys
+    assert report.frozen_gradient_offenders == []
+    assert any(
+        not torch.equal(candidate_before[name], tensor)
+        for layer in manager.layers.values()
+        for name, tensor in layer.experts["3"].state_dict().items()
+    ), "the candidate expert must actually be updated"
+    for expert_id in (0, 1, 2):
+        for layer_name, layer in sorted(manager.layers.items()):
+            for name, tensor in layer.experts[str(expert_id)].state_dict().items():
+                key = "{}.{}".format(layer_name, name)
+                assert torch.equal(historical[expert_id][key], tensor), key
+
+    # finalize: prune the support-less key, verify the ledger, commit
+    assert [decision.key_id for decision in plan_key_pruning(pool)] == ["e2_t1_task_alias"]
+    outcome = trainer.finalize(checkpoint_path=tmp_path / "v8_checkpoint.pt")
+    assert outcome["pruned_keys"] == ["e2_t1_task_alias"]
+    assert outcome["ledger"]["status"] == "UNCHANGED"
+    assert outcome["ledger"]["changed_keys"] == []
+    assert outcome["ledger"]["changed_lora"] == []
+    assert outcome["commit"]["committed_experts"] == [3]
+    assert "e0_t1_task_alias" in outcome["commit"]["committed_alias_keys"]
+    assert pool.trainable_key_ids() == []
+    # a reopened checkpoint restores the same pool identity
+    assert Path(outcome["checkpoint"] and tmp_path / "v8_checkpoint.pt").is_file()
+    from compose.v8.checkpoint import load_checkpoint, verify_resume_identity
+    loaded = load_checkpoint(tmp_path / "v8_checkpoint.pt", current_task=1)
+    assert verify_resume_identity(loaded, outcome["checkpoint"])["status"] == "IDENTICAL"
+
+
+def test_v8_trainer_leakage_probe_shows_mixed_batches_change_nothing(tmp_path):
+    from compose.v8.trainer import TrainBatch, V8TaskTrainer
+
+    scenario = _trainer_scenario(tmp_path)
+    trainer = V8TaskTrainer(
+        model=scenario["model"], manager=scenario["manager"], pool=scenario["pool"],
+        config=V8Config(), current_task=1, candidate_expert_ids=[3],
+        forward_fn=scenario["forward_fn"],
+    )
+    residual_only = TrainBatch(["s4"], {"s4": STATE_RESIDUAL}, {"s4": [3]})
+    mixed = TrainBatch(
+        ["s4", "s2", "s0"],
+        {"s4": STATE_RESIDUAL, "s2": STATE_BASE_ONLY, "s0": STATE_REUSE1},
+        {"s4": [3], "s2": [], "s0": [0]},
+    )
+    report = trainer.leakage_probe(residual_only, mixed)
+    assert report["leakage"] is False
+    # Not exactly 0: covering samples adds zero-weight terms, and float addition
+    # reassociates.  1.5e-08 is the noise floor, four orders below the 1e-6
+    # threshold -- an actual leak (see below) moves the gradient by ~1e-1.
+    assert report["max_abs_delta"] < 1e-6
+    # a probe that cannot fail would be worthless: giving a covered sample the
+    # residual weight by hand must move the candidate gradient, and the probe
+    # must raise rather than report
+    with pytest.raises(GradientGatingError, match="gradient leakage"):
+        trainer.leakage_probe(
+            residual_only,
+            TrainBatch(
+                ["s4", "s0"],
+                {"s4": STATE_RESIDUAL, "s0": STATE_RESIDUAL},
+                {"s4": [3], "s0": [3]},
+            ),
+        )

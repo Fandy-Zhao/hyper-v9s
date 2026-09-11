@@ -301,6 +301,42 @@ The trainable-parameter whitelist is `audit_trainable_parameters`
 `enforce_freeze_policy` (`gating.py:162`) applies it to real tensors and returns
 `audit.ok`, which must be true before training starts.
 
+### 9.1 The alias-key objective, and a defect the integration test found
+
+Alias keys are trained with `L_key = lambda_pos * L_pos + lambda_rank * L_rank`
+(`key_learning.py:202`, `lambda_pos = 1.0`, `lambda_rank = 0.1`,
+`ranking_margin = 0.2`). `L_pos` pulls the key toward its positive queries'
+centroid; `L_rank` is a margin hinge that pushes it away from the
+highest-scoring *other* key on each sample where it is NEGATIVE.
+
+Writing the chained integration test exposed a real defect here, which is
+recorded rather than smoothed over:
+
+* **Symptom.** `L_key` had a gradient of ~0 (measured norm `5.16e-08`, float
+  noise) on a freshly created alias key, for both a 3-support and a 1-support
+  key. Training could not have moved the keys at all.
+* **Cause.** Two facts compounded. (i) `L_rank` was built from `float(...)`
+  values, so it was a *constant* with no gradient w.r.t. any key. (ii) The only
+  differentiable term left, `L_pos = mean(1 - cos(q_i, k))`, has its exact
+  stationary point at `Normalize(mean(q_i))` — precisely the centroid
+  `create_alias_keys` (`key_learning.py:128`) initialises a key with. The
+  objective was therefore inert at initialisation by construction.
+* **Fix (commit `050ee42`).** The hinge now uses `(query @ key)` for the current
+  key, so the gradient stays attached, and the tensor similarity of the hardest
+  competitor — which remains **detached**, because a historical key must receive
+  no update, not even an incidental one from being pushed away. Numeric loss
+  values are unchanged; only the gradient path changed.
+* **Evidence after the fix.** The same probe now measures gradient norms
+  `3.3e-02` and `4.7e-02`, an SGD step moves exactly the two alias keys and no
+  historical key, and every historical key still holds `grad is None`.
+  `test_alias_key_ranking_loss_is_a_gradient_carrying_hinge` pins the hinge
+  arithmetic on exact basis-vector geometry (violated margin `= 1.2` exactly,
+  satisfied margin `= 0.0` exactly, gradient reaches the current key only).
+
+Had this not been found, V8-B would have run with a key-learning stage that
+silently did nothing and the resulting numbers would have been attributed to
+"key geometry is insufficient" rather than to a bug.
+
 ---
 
 ## 10. Freeze Audit
@@ -343,33 +379,39 @@ The "checksum before" column is V7's own recorded fingerprint from
 ## 11. Test Results
 
 ```
-$ pytest tests/compose -x -q
-601 passed, 3 warnings, 8 subtests passed in 78.73s (0:01:18)
+$ pytest tests/compose -q
+606 passed, 3 warnings, 8 subtests passed in 75.74s (0:01:15)
 ```
 
 Split:
 
-| Suite | Tests | Result |
+| Suite | Collected | Result |
 | --- | --- | --- |
-| `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30) | 37 | 53 passed |
-| `tests/compose/test_v8_generation_harness.py` | 16 | (same run) |
-| V7 regression (rest of `tests/compose/`) | 548 | passed |
+| `tests/compose/test_v8_answer_supervised_multikey.py` (TEST 01–30) | 42 | all pass |
+| `tests/compose/test_v8_generation_harness.py` | 16 | all pass |
+| V7 regression (rest of `tests/compose/`) | 548 | all pass |
 
 The 30 named tests from PART 15 all exist and all run. Several are parameterised
-over states or configs, which is why the file reports 37 collected tests for 30
-names.
+over states or configs, which is why the file collects 42 tests for 30 names; the
+remainder are the integration tests described in §9.1, §12 and §10.2.
+
+Run with no deselection: nothing is skipped, xfailed or marked slow, including
+the tests that load the real committed V7 pool (`V7_FORMAL_KEYS` is present on
+this machine, so those run against the real artefact rather than being skipped).
 
 ---
 
 ## 12. V7 Regression and Task 0 Parity
 
 **V7 regression**: 548 tests under `tests/compose/` that predate this work still
-pass. `git diff --stat 9ff2b28..HEAD` reports **24 files changed, 7,989
+pass. `git diff --stat 9ff2b28..HEAD` reports **30 files changed, 9,617
 insertions(+), 0 deletions(-)** — every change is a new file (`compose/v8/*`,
 `compose/experiments/v8*.py`, the two new test files) plus additive edits to
 `CHANGELOG.md` and `docs/module_status.md`. Nothing under `compose/v7/`,
 `compose/adapters/`, `compose/eval/` or `llava/` was modified, which is why
-`test_29_v7_original_tests_still_pass` passes by construction.
+`test_29_v7_original_tests_still_pass` passes by construction. Zero deleted
+lines is the mechanical statement of "V8 does not break V7": no V7 code path was
+edited, only new modules were added beside it.
 
 **Task 0 parity** (`compose/experiments/v8_task0_parity.py`). Task 0 is the one
 place where V7 and V8 are *supposed* to agree: there is no history to reuse, the
@@ -429,6 +471,94 @@ per-sample `solved` decision.
 pass is run. It measures *whether the historical pool already contains the
 capability*, which is Q1 of the causal chain and the precondition for everything
 downstream.
+
+---
+
+## 19. V8-B (minimal continual loop, Task 0 → Task 2)
+
+**Verdict: NOT RUN.** This section states what V8-B is, what it now costs, and
+why it was not launched — the specification forbids starting a multi-day
+training without an explicit request ("除非用户明确要求：不要自动启动预计持续多天的完整训练。
+先给 evidence-based recommendation"), and the user has not given one.
+
+### 19.1 What V8-B is
+
+Task 0 → Task 2 as a continual loop, one task at a time, each task:
+
+1. **Teacher** over the current task's *training* split: STEP A base, STEP B
+   Top-M historical recall (M = 8), STEP C historical singles, then pairs over
+   the K_s = 4 shortlist only if no single solved. Verdicts are written to the
+   canonical cache (`write_teacher_result`, `stores_ground_truth: false`).
+2. **Alias keys** created lazily from teacher positives
+   (`create_alias_keys`, support ≥ `alias_support_threshold`).
+3. **Gated training** (`compose/v8/trainer.py`): mixed batches, per-sample
+   weight `r_i`, candidate LoRA + alias keys only, frozen ledger verified after
+   the last step.
+4. **Prune → commit → checkpoint**, then the *next* task, with the committed
+   pool as its history.
+
+Task 0 has no history, so its teacher is degenerate (BaseOnly/Residual only,
+`selected_set = []`) and steps 1–2 reduce to the V7 recipe; the loop's novel
+content is tasks 1 and 2.
+
+### 19.2 Cost, derived from measurements rather than guessed
+
+| Component | Measurement | Source |
+| --- | --- | --- |
+| V7 training, one task | 621 optimizer steps × 34.55 s = **5 h 58 min** (≈0.54 s/sample at accumulation 64) | `…/task4/logs/training.log`, `metrics/train_steps.rank*.jsonl` |
+| V8-A teacher, one run | 3,840 route generations (256 samples × 15 routes); wall-clock from run 1 | §21 (measured) |
+| Teacher budget for a *training* split | 2,000 samples (the repo's own declared budget, `compose/experiments/task_run.py:157`) | legacy config |
+| ⇒ V8-B teacher, one task | 2,000 × ≤15 routes ≈ **6–8 h single-GPU**, ~1.5–2 h sharded over 4 | derived |
+| ⇒ V8-B training, one task | ≈ V7's own ≈ **6 h** on the same 8-GPU recipe | derived |
+
+**One task ≈ 12–14 GPU-hours; the Task 0 → Task 2 loop ≈ 35–40 GPU-hours**, plus
+evaluation. Against a cluster where GPUs 2–7 are held by other users and only
+one device was free for this work, that is a multi-day wall-clock commitment —
+which is exactly the case the specification says not to enter unasked.
+
+### 19.3 What is ready, and what the first run would still need
+
+Ready and tested: the teacher and its cache, lazy alias keys, the gating and the
+whitelist, the frozen ledger, pruning, commit, checkpoint/resume, the inference
+router, and — added in this campaign — the training loop itself
+(`compose/v8/trainer.py`, §19.4). Not written, because it belongs to the media
+side that V8 reuses from V7 unchanged: the current-task dataloader that turns
+`val_full`-style records into teacher-forced batches. In a real run
+`forward_fn` is a thin adapter over the frozen backbone and
+`compose.v7.training.teacher_forcing_token_nll`.
+
+### 19.4 The training loop that was missing, and is no longer
+
+Until this campaign V8 had no training loop at all: the primitives were tested
+in isolation and nothing assembled them, so V8-B had no entry point and the
+"B. current-task Candidate Expert LoRA / A. alias keys" trainable set of PART 4
+was enforced only in the abstract. `compose/v8/trainer.py` now provides it:
+`V8TaskTrainer` enforces the freeze and captures the ledger *before* building the
+optimizer, runs mixed (never filtered) batches with `residual_answer_loss`,
+trains candidate LoRA and alias keys in two parameter groups, checks the
+gradient footprint after every step, offers `leakage_probe` for the audit trail,
+and `finalize()` prunes, re-verifies the ledger, commits and checkpoints.
+
+It is exercised by two tests on the real `ComposeLinear` path
+(`test_v8_trainer_trains_the_candidate_and_the_alias_keys_only`,
+`test_v8_trainer_leakage_probe_shows_mixed_batches_change_nothing`): after a full
+epoch, only the candidate expert's gradient is non-zero, both supported alias
+keys move, the historical LoRA tensors are bit-identical, the support-less key is
+pruned, the ledger reports `UNCHANGED`, the task commits, and the checkpoint
+resumes with `IDENTICAL` identity.
+
+### 19.5 Recommendation
+
+**Do not launch the full loop yet; do run a one-task V8-B pilot first.** The
+V8-A evidence (§14–§17) determines whether the pilot is worth its ~12 GPU-hours,
+and the pilot answers the two things V8-A structurally cannot: whether alias keys
+*learned from the current distribution* raise recall (§16/§17 measure the
+untrained centroid, which is an upper bound on retrieval but not a measurement of
+learning), and whether the candidate expert can absorb residual capability on top
+of a frozen historical context. Recommended sequence: Task 1 only (not Task 0,
+which has no history and so tests nothing new), with the teacher over a
+500-sample subsample rather than 2,000 — a ~3 h pilot that exercises every stage
+end to end.
 
 ---
 

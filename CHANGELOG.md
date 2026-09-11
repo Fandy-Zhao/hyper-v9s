@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-09-11 — V8: alias-key gradient fix, the missing training loop, and pipeline tests
+
+- **Fixed a defect that made alias-key learning inert.** `alias_key_loss` built
+  its ranking hinge from `float(...)` values, so `L_rank` was a constant with no
+  gradient; the only differentiable term left, `L_pos`, has its exact stationary
+  point at the centroid `create_alias_keys` initialises keys with. A freshly
+  created key therefore had a gradient of ~0 (measured `5.16e-08`, float noise)
+  and could not be trained. The hinge now stays attached to the current key,
+  while the hardest competitor remains **detached** so a historical key receives
+  no update. Loss values are unchanged (verified: `ranking` 0.405291 before and
+  after); gradients are now `3.3e-02` / `4.7e-02` on the same probe.
+- **New `compose/v8/trainer.py` — the V8 current-task training loop.** Until now
+  the V8 primitives were all tested in isolation but nothing assembled them, so
+  V8-B had no entry point. `V8TaskTrainer` enforces the freeze and captures the
+  frozen ledger *before* building the optimizer, runs mixed (never filtered)
+  batches through `residual_answer_loss`, trains candidate LoRA and current-task
+  alias keys in two parameter groups, audits the gradient footprint each step,
+  exposes `leakage_probe`, and `finalize()` prunes, re-verifies the ledger,
+  commits and checkpoints.
+- Tests: `tests/compose` now reports **606 passed** (V8 58, V7 regression 548).
+  Added a chained pipeline integration test (teacher verdicts → canonical cache
+  → lazy alias keys → ledger → one gated step → pruning → commit → `UNCHANGED`),
+  a hinge-arithmetic guard test on exact basis-vector geometry, and two trainer
+  tests on the real `ComposeLinear` path. Every historical tensor is asserted
+  bit-identical after a training epoch and every historical key keeps
+  `grad is None`.
+- Report §9.1 records the defect, its cause, the fix and the evidence, so the
+  finding is attributed to a bug rather than to "key geometry is insufficient".
+
 ## 2026-09-11 — V8 Answer-Supervised Multi-Key: core, TEST 01–30, and the V8-A runner
 
 - New package `compose/v8/` (config, query, pool, routing, selection, teacher,

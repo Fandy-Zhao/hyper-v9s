@@ -97,3 +97,28 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
   protocol are unchanged. The repaired S9 completed with 896 finite entries
   and roughly 16.0 GiB observed peak before the pipeline resumed at S11.
 - Safety: no seed43/44 experiment, no formal seed42 overwrite, no commit.
+
+# 2026-09-11 V8 alias-key gradient fix + training loop
+
+- Status: implemented, tested, committed on `exp/v8-answer-supervised-multikey`.
+- `compose/v8/key_learning.py`: `alias_key_loss`'s ranking term was a constant
+  (`float(...)` in the hinge), so `L_key` had no usable gradient at the centroid
+  initialisation. The hinge now stays attached to the current key; the hardest
+  competitor is still detached so frozen historical keys receive no update.
+  Loss values unchanged.
+- `compose/v8/trainer.py` (new): `V8TaskTrainer` assembles the parts that were
+  previously only tested in isolation — freeze enforcement and ledger capture
+  before the optimizer exists, mixed (never filtered) batches with per-sample
+  gating, candidate LoRA + current-task alias keys in two parameter groups,
+  per-step gradient-footprint audit, `leakage_probe`, and
+  `finalize()` = prune → re-verify ledger → commit → checkpoint.
+  Scope boundary documented in the module docstring: candidate *redundancy*
+  pruning is planned and reported (`candidate_redundancy`) but not applied
+  automatically, because the redundancy threshold is unvalidated on this pool.
+- Tests: `tests/compose` 606 passed (V8 58, V7 regression 548). New: chained
+  pipeline integration test, hinge guard test on exact basis-vector geometry,
+  two trainer tests on the real `ComposeLinear` path.
+- V8-B is still **not run**: cost is ~12–14 GPU-hours per task (V7's own training
+  is 5 h 58 min for 621 steps; the teacher would be 6–8 h single-GPU at the
+  declared 2,000-sample budget). Recommendation in report §19.5 is a one-task,
+  500-sample pilot rather than the full loop.
