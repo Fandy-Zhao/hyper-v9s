@@ -136,3 +136,34 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
   is 5 h 58 min for 621 steps; the teacher would be 6–8 h single-GPU at the
   declared 2,000-sample budget). Recommendation in report §19.5 is a one-task,
   500-sample pilot rather than the full loop.
+
+# 2026-09-11 (later) V8 alias-key origin-task fix, parity path fix, second campaign
+
+- Status: implemented, tested, committed on `exp/v8-answer-supervised-multikey`.
+- `compose/v8/key_learning.py`: `create_alias_keys` created an alias for **every**
+  expert with positive support, including experts whose `origin_task` *is* the
+  current task. `MultiKeyExpertPool.validate()` rejects exactly that key
+  ("alias key ... sits on the origin task; use the origin key"), so the function
+  could build a pool that cannot validate. Unreachable until the all-experts
+  scope existed, because every earlier caller passed a strictly historical pool.
+  An origin-task expert is now skipped with that reason recorded. Regression test
+  `test_22b_current_task_expert_gets_no_alias_key`; the old behaviour is verified
+  to raise by constructing the bad pool directly.
+- `compose/experiments/v8_task0_parity.py`: the answer-parity branch composed
+  V7's answer path as `<diagnostic_root>/task0/generation_accuracy/task0/actual/…`
+  — one `task0` too many, since `generation_accuracy/task0/…` hangs off the run
+  *root* (the same layout read correctly by `v8_task_run.py:800` and
+  `v8a_cases.py:97`). `_jsonl()` returns `[]` for a missing file, so the empty
+  dict surfaced 30 lines later as `KeyError: 'v7_t0_val_0'`. Fixed, and the
+  missing-file and zero-overlap cases now raise with the path in the message.
+  **The fix has not been executed end to end** — the retry is queued behind the
+  exclusive-GPU gate in `experiments/runs/0911_v8a_formal/run_parity_retry.sh`.
+- Campaign: all four V8-A teacher runs complete (Tasks 3 and 4, all-experts and
+  history-only scopes), 256 samples each, 7.02 GPU-hours total, seed verification
+  `MATCH` on all four. Post-campaign audits (label / recall / scope-gap / cases /
+  alias counterfactual) written to `experiments/runs/0911_v8a_formal/`.
+- Tests: `tests/` 608 passed (V8 60, V7 regression 548). Report §1 and §25 added;
+  §12.1, §14–§18, §20–§21, §23 rewritten with two-task data.
+- Headline correction recorded in report §14/§25: the all-experts V8-A numbers
+  (94.14 / 87.11) are roughly half self-reuse; genuine cross-task reuse is
+  73/256 (Task 4) and 40/256 (Task 3).

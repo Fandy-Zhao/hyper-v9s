@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-09-11 — V8: origin-task alias keys, the parity path bug, and the full V8-A campaign
+
+- **Fixed `create_alias_keys` building a key the pool rejects.** It created an
+  alias for every expert with positive support, including experts whose
+  `origin_task` is the current task — and `MultiKeyExpertPool.validate()` raises
+  on exactly that ("alias key ... sits on the origin task; use the origin key").
+  Unreachable until this campaign's all-experts scope existed; every earlier
+  caller passed a strictly historical pool. Origin-task experts are now skipped
+  with a recorded reason, enforced by
+  `test_22b_current_task_expert_gets_no_alias_key`. The pre-fix behaviour is
+  reproduced by constructing the bad pool directly, so the test is not vacuous.
+- **Fixed a path bug that made two Task-0 answer-parity attempts fail.** The
+  answers were read from `<root>/task0/generation_accuracy/task0/actual/…` — one
+  `task0` too many; the directory hangs off the run *root*, as
+  `v8_task_run.py:800` and `v8a_cases.py:97` already assume. Because `_jsonl()`
+  returns `[]` for a missing file, the empty result surfaced as
+  `KeyError: 'v7_t0_val_0'` thirty lines later instead of naming the missing
+  file. The path is fixed and both the missing-file and zero-overlap cases now
+  raise with the path in the message. **Not yet re-run end to end.**
+- **V8-A campaign complete on two tasks and two scopes.** Four teacher runs over
+  the frozen 23-expert pool, 256 validation samples each, 7.02 GPU-hours, all
+  seed verifications `MATCH` (`max_abs_diff 0.0` over 64,768 seeded pair NLLs per
+  run). Findings in `docs/reports/V8_IMPLEMENTATION_AND_ACCEPTANCE_REPORT.md`:
+  the all-experts headline (94.14 / 87.11 vs V7's 67.97) is about half
+  *self*-reuse; with the task's own experts removed the policy scores 44.92 /
+  33.59 against a frozen-base baseline of 16.41 / 17.97, and genuine cross-task
+  reuse is 28.5 % / 15.6 % of samples. The strongest positive result is §17's
+  alias counterfactual: one untrained alias key per solving expert raises
+  historical recall@1 from 0.164 to 0.603 and from 0.100 to 0.800, with every
+  winning key an alias.
+- Tests: `tests/` **608 passed** (V8 60, V7 regression 548). §1 Executive Summary
+  and §25 Final Verdict added, with the code and method verdicts kept separate.
+
 ## 2026-09-11 — V8: alias-key gradient fix, the missing training loop, and pipeline tests
 
 - **Fixed a defect that made alias-key learning inert.** `alias_key_loss` built
