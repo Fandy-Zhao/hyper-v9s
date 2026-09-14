@@ -23,6 +23,7 @@ old expert.  The migration is a pure re-labelling of V7's own bytes.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import torch
@@ -38,6 +39,13 @@ from compose.v8.config import (
 
 class MultiKeyPoolError(RuntimeError):
     """Raised when a pool invariant would be violated."""
+
+
+# V7 route keys are addressed by ``key_id``.  A canonical key id is still the
+# expert id, as it always was; a V7 *reuse* key -- the additional learnable
+# current-task routing key of a reusable historical expert -- is
+# ``e<expert>_t<task>_reuse`` and migrates one-to-one onto a V8 ``task_alias``.
+_V7_REUSE_KEY_ID = re.compile(r"^e(\d+)_t(\d+)_reuse$")
 
 
 LIFECYCLE_CANDIDATE = "candidate"
@@ -523,7 +531,23 @@ class MultiKeyExpertPool(nn.Module):
         if expert_manifest:
             for entry in expert_manifest.get("experts", []) or []:
                 manifest_experts[int(entry["expert_id"])] = entry
-        for raw_id, tensor in sorted(keys.items(), key=lambda item: int(item[0])):
+        canonical_keys: Dict[int, torch.Tensor] = {}
+        reuse_keys: List[Tuple[int, int, torch.Tensor]] = []
+        for raw_id, tensor in keys.items():
+            match = _V7_REUSE_KEY_ID.match(str(raw_id))
+            if match:
+                reuse_keys.append((int(match.group(1)), int(match.group(2)), tensor))
+            else:
+                try:
+                    canonical_keys[int(raw_id)] = tensor
+                except (TypeError, ValueError) as exc:
+                    raise MultiKeyPoolError(
+                        "unrecognised V7 key id {!r}; expected an expert id or "
+                        "e<expert>_t<task>_reuse".format(raw_id)
+                    ) from exc
+        if not canonical_keys:
+            raise MultiKeyPoolError("V7 state contains no canonical keys to migrate")
+        for raw_id, tensor in sorted(canonical_keys.items()):
             expert_id = int(raw_id)
             record = dict(metadata.get(expert_id) or metadata.get(str(expert_id)) or {})
             origin_task = int(record.get("origin_task", expert_id // 4))
@@ -551,6 +575,24 @@ class MultiKeyExpertPool(nn.Module):
                 trainable=not frozen,
                 support_count=int(entry.get("support_count", 0) or 0),
                 extra={"v7_lifecycle": lifecycle_v7},
+            )
+        # V7 reuse keys are exactly V8 task aliases: a second, task-scoped
+        # routing key for a historical expert.  Migrate them with identical
+        # bytes and frozen trainability; a V7 pool without reuse keys is
+        # untouched by this loop.
+        for expert_id, task_id, tensor in sorted(reuse_keys, key=lambda row: (row[0], row[1])):
+            if expert_id not in pool.expert_records:
+                raise MultiKeyPoolError(
+                    "reuse key for unknown V7 expert {}".format(expert_id)
+                )
+            pool.add_key(
+                expert_id=expert_id,
+                task_id=task_id,
+                key_type=KEY_TYPE_TASK_ALIAS,
+                value=tensor,
+                lifecycle=LIFECYCLE_HISTORICAL,
+                trainable=False,
+                extra={"migrated_from": "compose.v7.pool.V7ExpertKeyPool:reuse"},
             )
         pool.validate()
         return pool

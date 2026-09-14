@@ -45,7 +45,15 @@ def commit_retained_candidates(
     key_pool: V7ExpertKeyPool,
     retained_ids: Iterable[int],
     candidate_metrics: Mapping[int, Mapping[str, object]],
+    reuse_key_retention: Mapping[int, bool] = None,
 ) -> None:
+    """Commit retained candidates plus this task's reuse-key decisions.
+
+    ``reuse_key_retention`` decides, per reusable historical expert, whether its
+    current-task reuse key becomes an additional frozen historical routing key
+    (``True``) or is discarded (``False``).  Experts absent from the mapping are
+    left exactly as the trained pool left them.
+    """
     retained = {int(value) for value in retained_ids}
     historical = set(key_pool.historical_ids)
     if not retained.issubset(set(key_pool.current_ids)):
@@ -114,7 +122,7 @@ def commit_retained_candidates(
                 },
             }
     committed_pool = V7ExpertKeyPool.from_state(key_pool.export_state())
-    committed_pool.commit(retained, candidate_metrics)
+    committed_pool.commit(retained, candidate_metrics, reuse_key_retention)
     try:
         torch.save(filtered, temporary / WEIGHTS_NAME)
         manifest["metrics"]["checkpoint_bytes"] = os.path.getsize(
@@ -144,4 +152,4 @@ def commit_retained_candidates(
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
-    key_pool.commit(retained, candidate_metrics)
+    key_pool.commit(retained, candidate_metrics, reuse_key_retention)

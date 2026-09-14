@@ -3,13 +3,18 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import Dict, Mapping, Sequence, Tuple
+from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 import torch
 
 from compose.data.records import question_text
 
-from .pool import V7ExpertKeyPool, initialize_candidate_keys
+from .pool import (
+    V7ExpertKeyPool,
+    initialize_candidate_keys,
+    initialize_current_task_key,
+    reuse_key_seed,
+)
 
 
 def validate_query_cache_contract(paths, expected_backbone, expected_path):
@@ -82,6 +87,7 @@ def prepare_candidate_pool(
     seed: int,
     perturbation: float,
     previous_key_state: str = None,
+    reusable_historical_ids: Optional[Sequence[int]] = None,
 ) -> Tuple[V7ExpertKeyPool, torch.Tensor, Dict[str, object]]:
     queries, _ = queries_from_cache(train_query_cache, num_train_samples)
     if previous_key_state:
@@ -92,20 +98,47 @@ def prepare_candidate_pool(
     else:
         pool = V7ExpertKeyPool()
     first_id = max(pool.expert_ids, default=-1) + 1
+    candidate_seed = seed + int(task_index)
     keys, center, audit = initialize_candidate_keys(
         queries, num_train_samples, count=4, perturbation=perturbation,
-        seed=seed + int(task_index),
+        seed=candidate_seed,
     )
     candidate_ids = tuple(range(first_id, first_id + 4))
     for expert_id, key in zip(candidate_ids, keys):
         pool.add(expert_id, key, task_index, "current", True, rms_state={})
+    # Reusable historical experts get one ADDITIONAL, learnable current-task
+    # routing key.  It is produced by the same initializer kernel as the
+    # candidates, from the same task center and the same perturbation scale;
+    # only the generator stream differs, which is what breaks the symmetry.
+    reusable = tuple(sorted(int(value) for value in (reusable_historical_ids or ())))
+    historical = set(pool.historical_ids)
+    if not set(reusable).issubset(historical):
+        raise ValueError("reusable historical experts must belong to the frozen pool")
+    if int(task_index) == 0 and reusable:
+        raise ValueError("Task0 reusable historical pool must be empty")
+    reuse_keys = {}
+    for expert_id in reusable:
+        key = initialize_current_task_key(
+            center, perturbation=perturbation,
+            seed=reuse_key_seed(candidate_seed, task_index, expert_id),
+        )
+        reuse_keys[str(expert_id)] = pool.add_reuse_key(
+            expert_id, task_index, key, trainable=True
+        )
     audit.update(
         {
             "task_index": int(task_index),
             "candidate_ids": list(candidate_ids),
+            "candidate_seed": int(candidate_seed),
             "task_center": center.tolist(),
             "pool_size_before_task": len(pool.historical_ids),
             "initialized_candidate_count": 4,
+            "reusable_historical_ids": list(reusable),
+            "reuse_key_ids": reuse_keys,
+            "reuse_key_initializer": "compose.v7.pool.initialize_current_task_key",
+            "reuse_key_perturbation": float(perturbation),
+            "historical_lora_trainable": False,
+            "historical_canonical_keys_trainable": False,
         }
     )
     return pool, center, audit

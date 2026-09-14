@@ -637,6 +637,36 @@ def train() -> None:
             print("Selectable Old Experts: {}".format(reusable_historical_ids))
             print("Selectable New Candidates: {}".format(list(v7_key_pool.current_ids)))
             print("FullTrainingOracleEvalSampleCount: 0")
+        # The reuse keys were created by S2 with the same initializer as the
+        # candidates.  Fail closed if the pool and the screening artifact
+        # disagree about who may own a learnable current-task key.
+        reuse_key_ids = sorted(
+            key_id for key_id in v7_key_pool.key_ids
+            if v7_key_pool.route_keys[key_id].key_type == "reuse"
+        )
+        expected_reuse_key_ids = sorted(
+            v7_key_pool.reuse_key_id(int(expert_id), int(model_args.compose_v7_task_index))
+            for expert_id in (reusable_historical_ids or ())
+        )
+        if reuse_key_ids != expected_reuse_key_ids:
+            raise ValueError(
+                "V7 reuse-key registry {} does not match the screening reusable set "
+                "{}".format(reuse_key_ids, expected_reuse_key_ids)
+            )
+        for key_id in reuse_key_ids:
+            entry = v7_key_pool.route_keys[key_id]
+            if entry.lifecycle != "current" or not entry.trainable:
+                raise ValueError("reuse key {} must be learnable for this task".format(key_id))
+            if v7_key_pool.metadata[entry.expert_id]["lifecycle"] != "historical":
+                raise ValueError(
+                    "reuse key {} must belong to a frozen historical expert".format(key_id)
+                )
+        if reuse_key_ids:
+            print("===== Reuse Keys =====")
+            print("ReusableHistoricalReuseKeys: {}".format(reuse_key_ids))
+            print(
+                "HistoricalLoraTrainable: False; HistoricalCanonicalKeysTrainable: False"
+            )
         # Registering this module on the model makes current keys optimizer
         # parameters and moves/checkpoints them with the training model.
         model.v7_key_pool = v7_key_pool

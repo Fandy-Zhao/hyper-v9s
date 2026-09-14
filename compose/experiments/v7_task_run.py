@@ -56,7 +56,7 @@ from compose.v7.provenance import (
     bind_pipeline_data_usage,
     build_runtime_contract,
 )
-from compose.v7.pruning import CandidatePruner
+from compose.v7.pruning import CandidatePruner, route_usage
 from compose.v7.routing import GlobalTop2Router
 from compose.v7.workers import (
     PooledJobRunner,
@@ -990,10 +990,32 @@ def main():
         return
 
     if not stage_done(root, "s2_candidates", run_contract_hash):
+        # The screening artifact decides *which* historical experts are
+        # reusable, and therefore which ones get an additional learnable
+        # current-task routing key.  Its sha256 is part of run_contract_hash,
+        # so a new screening artifact invalidates this stage.
+        reusable_historical_ids = None
+        if args.compose_v8_reusable_screening:
+            from compose.v8.screening import load_reusable_screening
+
+            previous_pool = (
+                V7ExpertKeyPool.from_state(
+                    torch.load(previous_keys, map_location="cpu", weights_only=False)
+                )
+                if previous_keys
+                else V7ExpertKeyPool()
+            )
+            screening = load_reusable_screening(
+                args.compose_v8_reusable_screening,
+                expected_task=args.task_index,
+                historical_ids=previous_pool.historical_ids,
+            )
+            reusable_historical_ids = screening["reusable_historical_expert_ids"]
         pool, center, audit = prepare_candidate_pool(
             str(root / "features" / "train.json"),
             coverage["num_train_samples"], args.task_index, config.seed,
             config.candidates.key_perturbation, previous_keys,
+            reusable_historical_ids=reusable_historical_ids,
         )
         (root / "state").mkdir(parents=True, exist_ok=True)
         torch.save(pool.export_state(), root / "state" / "candidate_keys.pt")
@@ -1443,12 +1465,52 @@ def main():
             # (candidate metrics, commit manifest).
             metrics = deep_resolve(metrics)
             audit = deep_resolve(audit)
+        # Task-end reuse-key decision.  A reusable historical expert keeps its
+        # current-task reuse key -- frozen and recorded as an additional
+        # historical routing key -- only if the pool actually uses it.  The rule
+        # and the threshold are the ones this stage already applies to
+        # candidates: usage on the validation split against
+        # ``candidate_min_usage`` (``CandidatePruner``'s dead-usage diagnostic,
+        # negated).  An unused expert's reuse key is discarded rather than
+        # polluting the committed pool.
+        reuse_key_retention = {}
+        reuse_key_audit = {}
+        reusable_with_reuse_keys = sorted(
+            expert_id
+            for expert_id in trained_pool.historical_ids
+            if trained_pool.keys_of_expert(
+                expert_id, key_type="reuse", lifecycle="current"
+            )
+        )
+        if reusable_with_reuse_keys:
+            val_routes = torch.tensor(
+                [[int(value) for value in row] for row in audit["val_routes"]],
+                dtype=torch.long,
+            )
+            val_usage = route_usage(val_routes, reusable_with_reuse_keys)
+            threshold = float(config.pruning.candidate_min_usage)
+            for expert_id in reusable_with_reuse_keys:
+                usage = float(val_usage[expert_id])
+                keep = usage > threshold
+                reuse_key_retention[int(expert_id)] = bool(keep)
+                reuse_key_audit[str(expert_id)] = {
+                    "reuse_key_ids": list(
+                        trained_pool.keys_of_expert(
+                            expert_id, key_type="reuse", lifecycle="current"
+                        )
+                    ),
+                    "validation_usage": usage,
+                    "threshold": threshold,
+                    "threshold_name": "pruning.candidate_min_usage",
+                    "decision": "keep_frozen_historical_routing_key" if keep else "discard",
+                }
         pruning_payload = {
             "retained_candidate_ids": list(retained),
             "retained_candidate_count": len(retained),
             "pool_size_before_task": len(trained_pool.historical_ids),
             "pool_size_after_task": len(trained_pool.historical_ids) + len(retained),
             "candidates": {str(key): value for key, value in metrics.items()},
+            "reuse_key_retention": reuse_key_audit,
             "audit": audit,
         }
         write_json(root / "metrics" / "candidate_pruning.json", pruning_payload)
@@ -1457,7 +1519,8 @@ def main():
             audit["pruning_trajectory"],
         )
         commit_retained_candidates(
-            str(output), str(root / "committed"), trained_pool, retained, metrics
+            str(output), str(root / "committed"), trained_pool, retained, metrics,
+            reuse_key_retention=reuse_key_retention,
         )
         if gpu_plan is not None:
             runner.shutdown()
