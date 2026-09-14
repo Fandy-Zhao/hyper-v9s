@@ -6,6 +6,7 @@ import torch
 from llava.train.llava_trainer import LLaVATrainer
 
 from compose.experts.checkpoint import save_expert_checkpoint
+from compose.train.profiler import TrainingProfiler
 
 
 class ComposeTrainer(LLaVATrainer):
@@ -14,6 +15,9 @@ class ComposeTrainer(LLaVATrainer):
     def __init__(self, *args, expert_pool=None, **kwargs) -> None:
         if expert_pool is None:
             raise ValueError("expert_pool is required")
+        # Subclasses assign a live profiler before calling ``super().__init__``;
+        # the no-op fallback keeps the disabled path allocation- and sync-free.
+        self.profiler = getattr(self, "profiler", None) or TrainingProfiler(None)
         self.expert_pool = expert_pool
         self.trainable_lora_b_count = 0
         self.max_finite_gradient_lora_b_count = 0
@@ -68,14 +72,15 @@ class ComposeTrainer(LLaVATrainer):
         distributed = (
             torch.distributed.is_available() and torch.distributed.is_initialized()
         )
-        if distributed:
-            # 4-GPU (torchrun): gradient-exact DDP step (spec §4/§5).
-            loss = self._ddp_training_step(model, inputs, selection)
-        elif selection is not None:
-            with use_selection(selection):
+        with self.profiler.timed("step_body_time"):
+            if distributed:
+                # 4-GPU (torchrun): gradient-exact DDP step (spec §4/§5).
+                loss = self._ddp_training_step(model, inputs, selection)
+            elif selection is not None:
+                with use_selection(selection):
+                    loss = super().training_step(model, inputs)
+            else:
                 loss = super().training_step(model, inputs)
-        else:
-            loss = super().training_step(model, inputs)
         lora_b_parameters = [
             parameter
             for name, parameter in model.named_parameters()
@@ -86,10 +91,11 @@ class ComposeTrainer(LLaVATrainer):
         self.trainable_lora_b_count = max(
             self.trainable_lora_b_count, len(lora_b_parameters)
         )
-        finite_count = sum(
-            parameter.grad is not None and bool(torch.isfinite(parameter.grad).all())
-            for parameter in lora_b_parameters
-        )
+        with self.profiler.timed("audit_time"):
+            finite_count = sum(
+                parameter.grad is not None and bool(torch.isfinite(parameter.grad).all())
+                for parameter in lora_b_parameters
+            )
         self.max_finite_gradient_lora_b_count = max(
             self.max_finite_gradient_lora_b_count, finite_count
         )

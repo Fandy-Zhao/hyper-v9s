@@ -43,8 +43,26 @@ class ModelArguments:
     compose_v7_task_index: int = field(default=0)
     compose_v7_require_full_coverage: bool = field(default=False)
     compose_v7_runtime_contract: Optional[str] = field(default=None)
+    # Task-level output of the few-shot answer teacher.  It is consumed only
+    # to restrict the historical routing candidates; full-data training never
+    # reads teacher sample assignments, answers, or answer NLL.
+    compose_v8_reusable_screening: Optional[str] = field(default=None)
     max_samples: Optional[int] = field(default=None)
     expected_adapter_parameters: Optional[int] = field(default=None)
+    # --- V8 exact-accelerated execution flags (all default to the frozen
+    # --- baseline behaviour; see docs/reports/V8_ACCELERATION_IMPLEMENTATION.md).
+    profile_training: bool = field(default=False)
+    profile_path: Optional[str] = field(default=None)
+    profile_flush_every: int = field(default=25)
+    profile_sync: bool = field(default=True)
+    # S5: share one selection decomposition across all ComposeLinear layers per
+    # micro-step instead of recomputing it (with a device sync) in each layer.
+    compose_selection_plan: bool = field(default=False)
+    compose_v7_query_tensor: Optional[str] = field(default=None)
+    # S3 (query cache): attention kernel. Empty keeps transformers' own default.
+    compose_attn_implementation: str = field(default="")
+    # V8-Exact-Accelerated declaration; see configs/v8_exact_accelerated.yaml.
+    compose_v8_config: Optional[str] = field(default=None)
 
 
 @dataclass

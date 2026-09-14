@@ -89,6 +89,7 @@ from compose.v8.generate import (  # noqa: E402
 from compose.v8.metric_adapter import TaskMetricAdapter  # noqa: E402
 from compose.v8.pool import MultiKeyExpertPool  # noqa: E402
 from compose.v8.routing import MultiKeyRouter  # noqa: E402
+from compose.v8.screening import sample_teacher_records  # noqa: E402
 from compose.v8.teacher import AnswerSupervisedTeacher  # noqa: E402
 
 
@@ -471,12 +472,48 @@ class V8TaskRun:
         formal = Path(self.args.formal_root)
         checkpoint_dir = Path(self.args.checkpoint_dir or (formal / "task5" / "committed"))
         self.checkpoint_dir = checkpoint_dir
-        question_file = formal / "task{}".format(self.task) / "data" / "val_full.json"
+        split = str(getattr(self.args, "split", "val"))
+        question_file = (
+            formal / "task{}".format(self.task) / "data"
+            / "{}_full.json".format(split)
+        )
         self.question_file = question_file
         if not question_file.is_file():
             raise FileNotFoundError("validation file missing: {}".format(question_file))
 
         self.records = _read_json(question_file)
+        self.source_sample_count = len(self.records)
+        teacher_num = getattr(self.args, "teacher_num_samples", None)
+        teacher_ratio = getattr(self.args, "teacher_sample_ratio", None)
+        self.teacher_sampling = None
+        if teacher_num is not None or teacher_ratio is not None:
+            if split != "train":
+                raise ValueError("teacher subset sampling is allowed only on train")
+            if self.args.limit is not None:
+                raise ValueError("teacher subset flags cannot be combined with legacy --limit")
+            if not getattr(self.args, "test_id_file", None):
+                raise ValueError("formal teacher subset sampling requires --test-id-file")
+            self.records, self.teacher_sampling = sample_teacher_records(
+                self.records,
+                num_samples=teacher_num,
+                sample_ratio=teacher_ratio,
+                seed=int(getattr(self.args, "teacher_seed", 42)),
+            )
+            test_path = Path(self.args.test_id_file)
+            test_records = _read_json(test_path)
+            test_ids = {
+                str(record.get("id", record.get("question_id")))
+                for record in test_records
+            }
+            selected_ids = {str(record.get("id", record.get("question_id")))
+                            for record in self.records}
+            overlap = sorted(selected_ids & test_ids)
+            if overlap:
+                raise ValueError("teacher subset overlaps test IDs: {}".format(overlap[:8]))
+            self.teacher_sampling["test_id_file"] = str(test_path.resolve())
+            self.teacher_sampling["test_id_file_sha256"] = _sha256(test_path)
+            self.teacher_sampling["test_overlap_count"] = 0
+            _write_json(self.out / "teacher_samples.json", self.teacher_sampling)
         self.records_by_id = {
             str(record.get("id", record.get("question_id"))): record
             for record in self.records
@@ -484,8 +521,19 @@ class V8TaskRun:
         if self.args.limit:
             keep = sorted(self.records_by_id)[: int(self.args.limit)]
             self.records_by_id = {key: self.records_by_id[key] for key in keep}
+        shard_count = int(getattr(self.args, "shard_count", 1))
+        shard_index = int(getattr(self.args, "shard_index", 0))
+        if shard_count < 1:
+            raise ValueError("shard_count must be positive")
+        if shard_index < 0 or shard_index >= shard_count:
+            raise ValueError("shard_index must satisfy 0 <= index < count")
+        if shard_count > 1:
+            ordered = sorted(self.records_by_id)
+            keep = ordered[shard_index::shard_count]
+            self.records_by_id = {key: self.records_by_id[key] for key in keep}
         self.sample_ids = sorted(self.records_by_id)
-        self.log("validation samples: {}".format(len(self.sample_ids)))
+        self.log("validation samples: {} (source {}, shard {}/{})".format(
+            len(self.sample_ids), self.source_sample_count, shard_index, shard_count))
 
         # Contamination guard: the V8-A teacher may see validation answers, and
         # only validation answers.  The test_3000 split lives elsewhere; this
@@ -494,7 +542,7 @@ class V8TaskRun:
             raise ValueError("refusing to run the teacher over a test split")
 
         query_path = (Path(self.args.query_cache) / "query_cache"
-                      / "task{}".format(self.task) / "val" / "queries.pt")
+                      / "task{}".format(self.task) / split / "queries.pt")
         self.query_path = query_path
         payload = torch.load(query_path, map_location="cpu")
         cache_ids = [str(value) for value in payload["sample_ids"]]
@@ -525,10 +573,10 @@ class V8TaskRun:
             raise ValueError("the migrated V7 pool must not contain alias keys")
 
         self.bundle = self._timed("load_model", lambda: load_compose_model(
-            model_path=MODEL,
+            model_path=self.args.model_path,
             checkpoint_dir=str(checkpoint_dir),
-            vision_tower=VISION,
-            projector_path=PROJECTOR,
+            vision_tower=self.args.vision_tower,
+            projector_path=self.args.projector_path,
             expert_id=None,
             device=self.args.device,
             dtype=torch.bfloat16,
@@ -682,7 +730,7 @@ class V8TaskRun:
     def run_teacher(self) -> None:
         engine = GenerationEngine(
             self.bundle,
-            image_folder=IMAGES,
+            image_folder=self.args.image_folder,
             device=self.args.device,
             max_new_tokens=int(self.args.max_new_tokens),
             cache_path=self.out / "generation_cache.jsonl",
@@ -690,7 +738,7 @@ class V8TaskRun:
         nll = AnswerNLLScorer(
             self.bundle,
             question_file=str(self.question_file),
-            image_folder=IMAGES,
+            image_folder=self.args.image_folder,
             device=self.args.device,
             cache_path=self.out / "nll_cache.jsonl",
         )
@@ -852,7 +900,7 @@ class V8TaskRun:
         }
         engine = GenerationEngine(
             self.bundle,
-            image_folder=IMAGES,
+            image_folder=self.args.image_folder,
             device=self.args.device,
             max_new_tokens=int(self.args.max_new_tokens),
             cache_path=self.out / "generation_cache.jsonl",
@@ -1128,7 +1176,21 @@ class V8TaskRun:
             "max_new_tokens": int(self.args.max_new_tokens),
             "pair_min_metric_gain": self.args.pair_min_metric_gain,
             "device": self.args.device,
+            "model_path": self.args.model_path,
+            "vision_tower": self.args.vision_tower,
+            "projector_path": self.args.projector_path,
+            "image_folder": self.args.image_folder,
             "limit": self.args.limit,
+            "teacher_sampling": getattr(self, "teacher_sampling", None),
+            "source_sample_count": int(getattr(
+                self, "source_sample_count", len(getattr(self, "sample_ids", []))
+            )),
+            "shard_count": int(getattr(self.args, "shard_count", 1)),
+            "shard_index": int(getattr(self.args, "shard_index", 0)),
+            "selected_sample_count": len(getattr(self, "sample_ids", [])),
+            "selected_sample_ids_sha256": hashlib.sha256(
+                ("\n".join(getattr(self, "sample_ids", [])) + "\n").encode("utf-8")
+            ).hexdigest(),
             "gpu_wait": getattr(self, "gpu_wait", None),
             "git_commit": _git_commit(),
             "frozen_hashes": {
@@ -1137,7 +1199,7 @@ class V8TaskRun:
                 "compose_experts_bin": _sha256(self.checkpoint_dir / "compose_experts.bin"),
             },
             "trainable": "none (V8-A is inference only; the pool stays frozen)",
-            "split": "validation",
+            "split": str(getattr(self.args, "split", "val")),
         })
 
     def run(self) -> Dict[str, Any]:
@@ -1200,11 +1262,19 @@ class V8TaskRun:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", type=int, required=True)
+    parser.add_argument(
+        "--split", default="val", choices=("train", "val"),
+        help="answer-supervised discovery split; test is deliberately unavailable",
+    )
     parser.add_argument("--root", required=True)
     parser.add_argument("--formal-root", default=DEFAULT_FORMAL_ROOT)
     parser.add_argument("--diagnostic-root", default=DEFAULT_DIAGNOSTIC_ROOT)
     parser.add_argument("--query-cache", default=DEFAULT_QUERY_CACHE)
     parser.add_argument("--checkpoint-dir", default=None)
+    parser.add_argument("--model-path", default=MODEL)
+    parser.add_argument("--vision-tower", default=VISION)
+    parser.add_argument("--projector-path", default=PROJECTOR)
+    parser.add_argument("--image-folder", default=IMAGES)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--recall-top-m", type=int, default=8)
     parser.add_argument("--history-only", action="store_true",
@@ -1229,6 +1299,17 @@ def _parser() -> argparse.ArgumentParser:
                         help="give up waiting for the GPU after this long; 0 disables")
     parser.add_argument("--limit", type=int, default=None,
                         help="smoke only: use the first N validation samples")
+    parser.add_argument("--teacher-num-samples", type=int, default=None,
+                        help="seeded stratified train-only teacher budget")
+    parser.add_argument("--teacher-sample-ratio", type=float, default=None,
+                        help="seeded stratified train-only teacher ratio")
+    parser.add_argument("--teacher-seed", type=int, default=42)
+    parser.add_argument("--test-id-file", default=None,
+                        help="test split read for IDs only; enforces zero teacher overlap")
+    parser.add_argument("--shard-count", type=int, default=1,
+                        help="deterministically split sorted sample IDs into N shards")
+    parser.add_argument("--shard-index", type=int, default=0,
+                        help="zero-based round-robin shard index")
     return parser
 
 

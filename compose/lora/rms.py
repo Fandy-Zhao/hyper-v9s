@@ -36,7 +36,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 import torch
 
 from .rms_composition import RMSCompositionConfig
-from .statistics import RMSStatistics, StatisticKey, stable_hash
+from .statistics import OnlineMoments, RMSStatistics, StatisticKey, stable_hash
 
 PAIR_DIAGNOSTIC_VERSION = 1
 CALIBRATION_VERSION = 1
@@ -138,6 +138,9 @@ def compute_expert_rms(
     }
     if not layers:
         raise ValueError("model has no ComposeLinear layers")
+    print("rms_collect rank={} layers={} experts={}".format(
+        os.environ.get("RANK", "0"), len(layers), len(expert_ids)
+    ), flush=True)
     layer_by_id = {
         str(expert_id): layer for expert_id in expert_ids
         for layer in layers.values() if str(expert_id) in layer.experts
@@ -205,6 +208,144 @@ def compute_expert_rms(
             torch.cuda.synchronize(target)
             torch.cuda.empty_cache()
         stats.all_reduce_(target)
+    return stats, pair_moments
+
+
+def compute_expert_rms_accelerated(
+    model,
+    expert_ids: Sequence[int],
+    dataloader: Iterable[Any],
+    provenance: Dict[str, Any],
+    config: ComposeRMSConfig,
+    prepare_batch: Callable[[Any], Any],
+    device: str = "cuda:0",
+    forward_fn: Optional[Callable[[Any], Any]] = None,
+) -> Tuple[RMSStatistics, Dict[str, PairDeltaMoments]]:
+    """``compute_expert_rms`` with the synchronisations batched out.
+
+    Two execution changes, both value-preserving by construction:
+
+    **The output moments are computed once per (layer, batch).**  The legacy
+    hook calls ``stats.update`` once per expert and passes the *same*
+    ``module_output`` tensor every time, so the 2.46 M-element output
+    reduction is recomputed identically for each of the experts sharing the
+    layer.  Here it is reduced once and the resulting moments are merged into
+    each expert's accumulator.  Every accumulator therefore receives exactly
+    the merge sequence it received before -- same operands, same kernels, same
+    order -- and ends on the same fp64 value.
+
+    **The per-moment ``.item()`` is deferred.**  The legacy path drains the
+    device three times in every ``OnlineMoments.update``, twice per (layer,
+    expert).  Here the moments stay on the device and are collected with a
+    single ``torch.stack(...).tolist()`` per batch.  ``tolist`` converts each
+    fp32 element to the identical Python float ``float(tensor.item())`` would
+    have produced, and the merges still happen in append order, which is the
+    hook firing order the legacy path used.
+
+    ``pair_moments`` is collected exactly as in the legacy path (it fires only
+    when the pool is exactly two experts, which the task-end stage never is).
+    """
+    from compose.adapters.lora import ComposeLinear
+
+    if len(expert_ids) < 1:
+        raise ValueError("at least one expert is required")
+    stats = RMSStatistics(provenance)
+    pair_moments = {}  # type: Dict[str, PairDeltaMoments]
+    layers = {
+        name: module for name, module in model.named_modules()
+        if isinstance(module, ComposeLinear)
+    }
+    if not layers:
+        raise ValueError("model has no ComposeLinear layers")
+    layer_by_id = {
+        str(expert_id): layer for expert_id in expert_ids
+        for layer in layers.values() if str(expert_id) in layer.experts
+    }
+    missing = [expert_id for expert_id in expert_ids if str(expert_id) not in layer_by_id]
+    if missing:
+        raise KeyError("experts not registered in the model: {}".format(missing))
+
+    #: ``(entry, lane, numel, mean_t, m2_t, ss_t)`` in append (= hook firing)
+    #: order.  Flushed once per batch by a single device synchronisation.
+    pending = []
+
+    def flush() -> None:
+        if not pending:
+            return
+        flat = torch.stack([value for row in pending for value in row[3:]]).tolist()
+        for index, row in enumerate(pending):
+            record, lane, numel = row[0], row[1], row[2]
+            base = 3 * index
+            record[lane].merge(numel, flat[base], flat[base + 1], flat[base + 2])
+        del pending[:]
+
+    hooks = []
+
+    def make_post_hook(name: str, module: ComposeLinear):
+        def post_hook(hooked_module, module_inputs, module_output):
+            hidden = module_inputs[0]
+            shared = OnlineMoments.device_moments(module_output.detach())
+            for expert_id in expert_ids:
+                key = str(expert_id)
+                if key not in module.experts:
+                    continue
+                delta = module.experts[key](hidden).to(module_output.dtype)
+                statistic_key = StatisticKey(
+                    expert_id=int(expert_id),
+                    layer_name=name,
+                    module_name=name,
+                    target_module_type=module.__class__.__name__,
+                )
+                record = stats.entry(statistic_key, str(delta.dtype))
+                moments = OnlineMoments.device_moments(delta.detach())
+                if moments is not None:
+                    pending.append((record, "delta") + moments)
+                if shared is not None:
+                    pending.append((record, "output") + shared)
+                record["sample_count"] += (
+                    int(delta.shape[0]) if delta.ndim else 1
+                )
+            # Pair cross terms on the first layer occurrence, as in the legacy
+            # hook: two experts only, and only ever on the first layer.
+            if len(expert_ids) == 2 and len(layers) and name == next(iter(layers)):
+                left, right = expert_ids
+                if str(left) in module.experts and str(right) in module.experts:
+                    pair = pair_moments.setdefault(name, PairDeltaMoments())
+                    pair.update(
+                        module.experts[str(left)](hidden).detach(),
+                        module.experts[str(right)](hidden).detach(),
+                    )
+            return None
+
+        return post_hook
+
+    for name, module in layers.items():
+        hooks.append(module.register_forward_hook(make_post_hook(name, module)))
+    try:
+        model.eval()
+        forward = forward_fn or model
+        with torch.inference_mode():
+            for batch_index, batch in enumerate(dataloader, 1):
+                if batch_index == 1 or batch_index % 8 == 0:
+                    print("rms_forward_begin rank={} batch={}".format(
+                        os.environ.get("RANK", "0"), batch_index
+                    ), flush=True)
+                inputs = prepare_batch(batch)
+                forward(inputs)
+                flush()
+                if batch_index == 1 or batch_index % 8 == 0:
+                    print("rms_forward_done rank={} batch={}".format(
+                        os.environ.get("RANK", "0"), batch_index
+                    ), flush=True)
+    finally:
+        for hook in hooks:
+            hook.remove()
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        target = torch.device(device)
+        if target.type == "cuda":
+            torch.cuda.synchronize(target)
+            torch.cuda.empty_cache()
+        stats.all_reduce_batched_(target)
     return stats, pair_moments
 
 
@@ -341,6 +482,10 @@ def rms_report(
     layers = sorted(
         {entry["key"]["layer_name"] for entry in stats.entries.values()}
     )
+    # Kappa depends only on the complete immutable statistics object.  Build
+    # it once for the report rather than rebuilding the identical map for
+    # every (expert, layer) cell.
+    calibration = build_kappa_calibration(stats, expert_ids, config)
     per_expert = {}
     clip_counts = {expert_id: 0 for expert_id in expert_ids}
     layer_counts = {expert_id: 0 for expert_id in expert_ids}
@@ -352,7 +497,6 @@ def rms_report(
             except KeyError:
                 continue
             layer_counts[expert_id] += 1
-            calibration = build_kappa_calibration(stats, expert_ids, config)
             kappa = calibration.get(layer, {}).get(str(expert_id), 1.0)
             if kappa != 1.0:
                 clip_counts[expert_id] += 1

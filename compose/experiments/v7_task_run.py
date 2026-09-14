@@ -200,6 +200,10 @@ def build_run_contract(args, config, formal_run, gradient_accumulation_steps,
         "test": args.test_file,
         "validation_annotation": args.validation_annotation_file,
     }
+    if getattr(args, "compose_v8_config", None):
+        paths["v8_exact_config"] = args.compose_v8_config
+    if getattr(args, "compose_v8_reusable_screening", None):
+        paths["v8_reusable_screening"] = args.compose_v8_reusable_screening
     files = {}
     for name, value in paths.items():
         if value:
@@ -579,6 +583,20 @@ def main():
              "legacy live-encoder behavior exactly",
     )
     parser.add_argument(
+        "--compose-v8-config",
+        help="optional V8-Exact execution config applied only to the S3 trainer",
+    )
+    parser.add_argument(
+        "--compose-v8-query-cache-root",
+        help="root containing query_cache/taskN/train/{queries.pt,metadata.json}; "
+             "required with --compose-v8-config so S3 cannot fall back to JSON queries",
+    )
+    parser.add_argument(
+        "--compose-v8-reusable-screening",
+        help="immutable few-shot teacher artifact; restricts Stage-B historical "
+             "Top-2 candidates without exposing sample answers or assignments",
+    )
+    parser.add_argument(
         "--query-features-batch-size", type=int, default=None,
         help="legacy live-encoder CLIP batch size (0903 spec §8a): the cache "
              "production / bounded-gate encode paths encode at batch 32 while "
@@ -650,6 +668,35 @@ def main():
     config = V7Config.from_dict(yaml.safe_load(Path(args.config).read_text()))
     if config.method != "v7_global_coevolution":
         raise ValueError("wrong method")
+    v8_payload = None
+    v8_micro_batch = None
+    v8_effective_batch = None
+    if args.compose_v8_config:
+        if not args.compose_v8_query_cache_root:
+            raise ValueError(
+                "--compose-v8-config requires --compose-v8-query-cache-root; "
+                "V8 Exact must not silently fall back to the JSON query cache"
+            )
+        v8_config_path = Path(args.compose_v8_config).expanduser().resolve()
+        if not v8_config_path.is_file():
+            raise FileNotFoundError(str(v8_config_path))
+        v8_payload = yaml.safe_load(v8_config_path.read_text(encoding="utf-8"))
+        if not isinstance(v8_payload, dict) or not isinstance(v8_payload.get("flags"), dict):
+            raise ValueError("V8 Exact config must contain a mapping at flags")
+        flags = v8_payload["flags"]
+        v8_micro_batch = int(flags.get("micro_batch_size", 0))
+        v8_effective_batch = int(flags.get("effective_batch", 0))
+        if v8_micro_batch <= 0 or v8_effective_batch <= 0:
+            raise ValueError("V8 Exact config must declare positive micro_batch_size and effective_batch")
+        if "gradient_accumulation_steps" in flags:
+            raise ValueError(
+                "V8 Exact launcher derives gradient accumulation from effective_batch; "
+                "remove the explicit gradient_accumulation_steps flag"
+            )
+    elif args.compose_v8_query_cache_root:
+        raise ValueError("--compose-v8-query-cache-root requires --compose-v8-config")
+    if args.compose_v8_reusable_screening and not args.compose_v8_config:
+        raise ValueError("--compose-v8-reusable-screening requires --compose-v8-config")
     if args.smoke_max_steps is not None and args.smoke_max_steps <= 0:
         raise ValueError("--smoke-max-steps must be positive")
     if args.smoke_gradient_accumulation_steps is not None and args.smoke_gradient_accumulation_steps <= 0:
@@ -682,8 +729,8 @@ def main():
         available = resolve_available_gpu_ids(cli_ids=args.gpus)
         gpu_plan = V7GPUPlan.build(
             available,
-            target_global_batch=DEFAULT_TARGET_GLOBAL_BATCH,
-            per_device_batch=DEFAULT_PER_DEVICE_BATCH,
+            target_global_batch=(v8_effective_batch or DEFAULT_TARGET_GLOBAL_BATCH),
+            per_device_batch=(v8_micro_batch or DEFAULT_PER_DEVICE_BATCH),
             recipe_mode=args.recipe_mode,
         )
         if args.recipe_mode == "throughput" and args.smoke_max_steps is None:
@@ -692,6 +739,16 @@ def main():
                 "explicit smoke/benchmark opt-in"
             )
         print(gpu_plan.render_plan_block())
+        if v8_payload is not None:
+            print(
+                "V8 Exact schedule: micro_batch={} world_size={} "
+                "gradient_accumulation={} effective_batch={}".format(
+                    v8_micro_batch,
+                    gpu_plan.training_world_size,
+                    gpu_plan.recipe.gradient_accumulation_steps,
+                    gpu_plan.recipe.effective_global_batch,
+                )
+            )
 
     training_gpu_ids = (
         [value.strip() for value in args.training_gpus.split(",") if value.strip()]
@@ -1014,6 +1071,34 @@ def main():
             "--compose_v7_require_full_coverage", str(formal_run),
             "--ddp_find_unused_parameters", "True",
         ]
+        if v8_payload is not None:
+            cache_dir = (
+                Path(args.compose_v8_query_cache_root).expanduser().resolve()
+                / "query_cache" / "task{}".format(args.task_index) / "train"
+            )
+            for required in (cache_dir / "queries.pt", cache_dir / "metadata.json"):
+                if not required.is_file():
+                    raise FileNotFoundError(
+                        "V8 Exact query cache missing {}; refusing JSON fallback".format(required)
+                    )
+            resolved_v8_payload = yaml.safe_load(
+                Path(args.compose_v8_config).expanduser().resolve().read_text(encoding="utf-8")
+            )
+            resolved_v8_payload["flags"]["cache_queries"] = str(cache_dir)
+            resolved_v8_path = root / "data" / "v8_exact_resolved.yaml"
+            resolved_v8_path.write_text(
+                yaml.safe_dump(resolved_v8_payload, sort_keys=False), encoding="utf-8"
+            )
+            (root / "data" / "v8_exact_resolved.sha256").write_text(
+                sha256(resolved_v8_path) + "  " + str(resolved_v8_path) + "\n",
+                encoding="utf-8",
+            )
+            command += ["--compose_v8_config", str(resolved_v8_path)]
+        if args.compose_v8_reusable_screening:
+            command += [
+                "--compose_v8_reusable_screening",
+                str(Path(args.compose_v8_reusable_screening).expanduser().resolve()),
+            ]
         if args.smoke_max_steps is not None:
             command += ["--max_steps", str(args.smoke_max_steps), "--save_steps", "10"]
         elif training_save_steps is not None:
@@ -1055,6 +1140,7 @@ def main():
             ).hexdigest(),
             "--output-dir", str(root / "rms"), "--device", worker_device,
             "--batch-size", "1", "--new-expert-ids", ",".join(map(str, candidate_ids)),
+            "--rms-execution", "accelerated",
             "--runtime-contract", str(runtime_contract_path),
         ]
         if args.previous_checkpoint:
@@ -1200,14 +1286,16 @@ def main():
 
             def score_job_cache_valid(job_index, rows):
                 target = marker(root / "pruning", "job_{}".format(job_index))
-                if not target.is_file():
-                    return False
-                try:
-                    payload = json.loads(target.read_text(encoding="utf-8"))
-                except (ValueError, OSError):
-                    return False
-                if payload.get("run_contract_hash") != run_contract_hash:
-                    return False
+                # Interrupted scoring can already have complete, route-bound
+                # evidence but no final marker.  Validate it below and recover
+                # the marker instead of regenerating equivalent answers.
+                if target.is_file():
+                    try:
+                        payload = json.loads(target.read_text(encoding="utf-8"))
+                    except (ValueError, OSError):
+                        return False
+                    if payload.get("run_contract_hash") != run_contract_hash:
+                        return False
                 selections = root / "pruning" / "selections_{}.json".format(job_index)
                 if not selections.is_file():
                     return False
@@ -1226,6 +1314,12 @@ def main():
                     metric_output = root / "pruning" / "official_metric_{}.json".format(job_index)
                     if not metric_output.is_file():
                         return False
+                    try:
+                        float(json.loads(metric_output.read_text(encoding="utf-8"))["value"])
+                    except (KeyError, TypeError, ValueError, OSError):
+                        return False
+                if not target.is_file():
+                    mark(root / "pruning", "job_{}".format(job_index), run_contract_hash)
                 return True
 
             def cached_scoring_result(job_index):

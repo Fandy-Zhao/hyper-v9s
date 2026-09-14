@@ -1,0 +1,121 @@
+# V8-Exact-Accelerated: execution-only flags.
+#
+# The promise of this mode is narrow and checkable: **the produced numbers do
+# not change**.  Every flag below changes how work is scheduled, not what is
+# computed.  Loading this file goes through compose.train.v8_flags, which
+#
+#   1. rejects any key on the prohibited-acceleration deny-list (the twelve
+#      accelerations the V8 brief forbids),
+#   2. rejects unknown flags rather than ignoring them,
+#   3. re-derives the effective batch (micro-batch x accumulation x world size)
+#      and the frozen recipe knobs and raises if either moved.
+#
+# Passing no --compose_v8_config runs the frozen baseline unchanged.
+#
+# Usage:
+#   ... --compose_v8_config configs/v8_exact_accelerated.yaml
+#
+# Recipe invariants checked at startup (compose/train/v8_flags.py):
+#   learning_rate 2e-4, 1 epoch, warmup_ratio 0.03, cosine, weight_decay 0,
+#   seed 42, model_max_length 2048, bf16, tf32, gradient_checkpointing,
+#   effective batch 64.
+
+schema_version: 1
+method: v8_exact_accelerated
+seed: 42
+
+flags:
+  # --- S1: query cache normalisation -------------------------------------
+  # Read the fixed 1536-D queries from the pipeline's own `queries.pt` split
+  # artefact -- one mmap'd [N, 1536] float32 tensor -- instead of parsing the
+  # ~1.3 GB per-sample JSON.  The two are bit-identical; the equivalence was
+  # verified per sample id by `compose.experiments.verify_query_tensor` over
+  # all six tasks x both splits (12/12 MATCH, 0 differing elements) and is
+  # re-checked at every load by the function below.
+  #
+  # The path is a *directory* holding queries.pt + metadata.json.  Existence
+  # detection is soft: if the file is absent the loader logs and falls back to
+  # --compose_v7_query_cache.  Anything present but stale (contract hash),
+  # corrupted (value fingerprint) or short of the dataset's sample ids raises.
+  cache_queries: null   # e.g. <run>/query_cache/task4/train
+
+  # --- S5: per-layer selection decomposition shared across layers ---------
+  # ComposeLinear.forward recomputed torch.unique + one int(...item()) per
+  # distinct expert in *every* layer: ~3 device synchronisations per layer,
+  # 448 layer calls per micro-step at gradient-checkpoint recompute (14,336 per
+  # optimizer step at GA 32).  That measured 60% of the step body.  The
+  # decomposition is identical for all 224
+  # layers within a micro-step, so it is computed once and shared.  Expert
+  # order, gate sums, kappa and index_add_ order are unchanged.
+  # Proven bit-identical (forward and backward) by
+  # tests/compose/test_v8_exact_accelerated.py.
+  compose_selection_plan: true
+
+  # --- S6: micro-batch / accumulation split, effective batch fixed --------
+  # Width is a pure scheduling choice: the product with accumulation stays 64.
+  # The width below is the measured winner of the S6 sweep (see
+  # V8_SPEEDUP_REPORT.md); the accumulation is *derived* from it and the world
+  # size, so this file stays correct on one, two or four ranks.  Stating an
+  # accumulation here would pin the config to a single world size.
+  #
+  # 4 x 16 x 1 = 64 (one rank)     4 x 8 x 2 = 64 (two ranks)
+  #
+  # This is the brief's `microbatch_autotune`, resolved: the tuner is
+  # `compose.experiments.autotune_microbatch`, its winner on the fixed ladder is
+  # the 4 above, and the sweep that measured it is in V8_SPEEDUP_REPORT.md §7.1.
+  # There is no runtime autotune flag because the answer does not depend on the
+  # run -- the ladder is fixed and the winner is measured once.
+  micro_batch_size: 4
+  effective_batch: 64
+
+  # --- S8: length bucketing ----------------------------------------------
+  # The frozen baseline already runs the length-grouped sampler; keeping the
+  # flag explicit makes an un-bucketed control run possible.
+  length_bucketing: true
+
+  # --- Attention kernel ---------------------------------------------------
+  # "" keeps transformers' own choice, which is what the baseline used.  This is
+  # the brief's `use_flash_attention`, spelled the way transformers spells it --
+  # the flag is the general knob (eager / sdpa / flash_attention_2) rather than a
+  # boolean, because the measured answer was to keep the default.
+  attn_implementation: ""
+
+  # --- P0: profiling ------------------------------------------------------
+  # Deliberately *not* set here: profiling is a diagnostic, and a config that
+  # forced it on or off would fight the command line.  Use --profile_training /
+  # --profile_sync on the command line when you want a trace.  The flags exist
+  # as execution flags (see compose.train.v8_flags) and change no number.
+
+# Accelerations this repository deliberately does NOT implement, with the
+# measured reason.  Checked for prohibited names, otherwise informational.
+not_applicable:
+  cache_tokenized_inputs:
+    reason: >
+      Tokenisation happens inside the DataLoader worker and is fully hidden by
+      the loader's prefetch: measured data_wait_time is 0.007 s per optimizer
+      step at world 2 and 0.002 s at world 1 (V8_SPEED_BASELINE.md section 2),
+      i.e. about 0.01% of the step.  A token cache would add a fingerprint
+      contract and a disk format for no measurable win.
+  cache_historical_nll:
+    reason: >
+      Historical-expert answer NLL is not recomputed in the training loop at
+      all.  V8-A is an offline, one-shot-per-task teacher and the frozen pool
+      is scored once per task (nll_cache.jsonl); the training step evaluates
+      the current experts only.  There is no repeated NLL computation to
+      delete -- see V8_CURRENT_RUNTIME_AUDIT.md section 6.
+  cache_historical_pair_nll:
+    reason: >
+      Pair NLL is produced inside the same one-shot teacher sweep as above,
+      not per step.
+  vectorized_expert_eval:
+    reason: >
+      The per-expert teacher evaluation already runs batched over routes in
+      the V8-A sweep; the training step's expert evaluation is a single
+      current-expert forward per route, whose cost is measured in
+      V8_SPEED_BASELINE.md and is not the bottleneck.
+  full_visual_token_disk_cache:
+    reason: >
+      The brief makes this conditional on benchmarking, and the benchmark says
+      no: the vision tower costs 0.69 s per optimizer step out of 64.36 s
+      (1.1%).  A 336px patch-token cache would be tens of GB per task to
+      remove ~1% of the step.

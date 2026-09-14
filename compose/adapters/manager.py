@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Dict, Iterable, List, Optional, Sequence
 
 import torch
@@ -87,6 +88,28 @@ class ExpertManager:
             [int(value) for value in torch.unique(selection.expert_ids) if int(value) != PAD_EXPERT_ID]
         )
         return use_selection(selection)
+
+    @contextmanager
+    def checkpoint_replay_context(self, selection: ComposeSelection):
+        """Keep a per-sample selection visible to checkpoint recomputation.
+
+        Reentrant activation checkpointing can restore a ContextVar snapshot
+        that predates the surrounding backward context.  A transient layer
+        fallback is therefore installed only for the duration of backward and
+        always cleared, including on exceptions.
+        """
+        self._require_experts(
+            [int(value) for value in torch.unique(selection.expert_ids)
+             if int(value) != PAD_EXPERT_ID]
+        )
+        for layer in self.layers.values():
+            layer._checkpoint_replay_selection = selection
+        try:
+            with use_selection(selection):
+                yield
+        finally:
+            for layer in self.layers.values():
+                layer._checkpoint_replay_selection = None
 
     def freeze_base(self) -> None:
         for parameter in self.model.parameters():

@@ -52,7 +52,10 @@ def tensor_checksum(value: torch.Tensor) -> str:
     digest = hashlib.sha256()
     digest.update(str(tuple(raw.shape)).encode("utf-8"))
     digest.update(str(raw.dtype).encode("utf-8"))
-    digest.update(raw.numpy().tobytes())
+    # NumPy has no native bfloat16 dtype.  Viewing the contiguous payload as
+    # bytes preserves the exact representation for every torch dtype and keeps
+    # the checksum independent of any lossy dtype conversion.
+    digest.update(raw.reshape(-1).view(torch.uint8).numpy().tobytes())
     return digest.hexdigest()
 
 

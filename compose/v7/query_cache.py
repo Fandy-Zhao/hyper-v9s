@@ -558,6 +558,127 @@ def read_split_cache(directory: str) -> Tuple[Tuple[str, ...], Tensor]:
     return sample_ids, queries
 
 
+def load_split_cache_for_training(
+    directory: str,
+    *,
+    expected_contract_hash: Optional[str] = None,
+    expected_ids: Optional[Sequence[str]] = None,
+    verify_value_hash: bool = True,
+    mmap: bool = True,
+) -> Tuple[Tensor, Dict[str, int], str, Dict[str, object]]:
+    """Load ``queries.pt`` for direct consumption by the training dataset.
+
+    The training path wants one ``[N, QUERY_DIM]`` tensor plus an id -> row
+    index, not the pipeline's per-sample JSON document (``train.json`` is
+    ~1.3 GB of text and costs ~25 s and ~3.5 GiB RSS to parse for a 40 k
+    split, for data that is bit-identical to this tensor).  This is the
+    existence-detecting, fingerprint-checked loader for that path:
+
+    * ``queries.pt`` and its ``metadata.json`` sidecar must both exist, else
+      :class:`FileNotFoundError` -- the caller decides whether to fall back.
+    * structural contract checks (cache kind, 1536-D float32, one row per id,
+      unique ids) raise :class:`ValueError`;
+    * ``verify_value_hash`` recomputes :func:`query_tensor_hash` and demands it
+      equal the value recorded both inside the payload and in the sidecar, so
+      a corrupted or truncated file can never be consumed silently
+      (~0.8 s for 40 k x 1536 float32, i.e. 244 MB);
+    * ``expected_contract_hash`` is the *invalidation* check: when the caller
+      knows which runtime contract produced this training run, a mismatch
+      means the cache is stale and must be regenerated;
+    * ``expected_ids`` is the *coverage* check: a superset of the dataset ids
+      is required, and the count must match exactly.
+
+    Returns ``(queries, rows_by_sample_id, value_hash, metadata)``.
+
+    ``mmap=True`` maps the tensor instead of reading it (0.011 s vs 0.307 s
+    for 244 MB); the pages fault in on first touch, and every downstream
+    consumer copies rows into collated batches, so nothing mutates in place.
+    """
+    folder = Path(directory)
+    queries_path = folder / "queries.pt"
+    metadata_path = folder / "metadata.json"
+    if not queries_path.is_file():
+        raise FileNotFoundError("V7 query tensor not found: {}".format(queries_path))
+    if not metadata_path.is_file():
+        raise FileNotFoundError(
+            "V7 query tensor sidecar not found: {}".format(metadata_path)
+        )
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not isinstance(metadata, dict):
+        raise ValueError("invalid V7 query metadata: {}".format(metadata_path))
+    payload = torch.load(
+        queries_path, map_location="cpu", mmap=mmap, weights_only=False
+    )
+    if not isinstance(payload, dict) or payload.get("kind") != CACHE_KIND:
+        raise ValueError("not a V7 fixed-query split cache: {}".format(queries_path))
+    if payload.get("query_dim") != QUERY_DIM or payload.get("dtype") != QUERY_DTYPE:
+        raise ValueError("split cache violates the 1536-D float32 contract")
+    sample_ids = [str(value) for value in payload["sample_ids"]]
+    queries = payload["queries"]
+    if not isinstance(queries, Tensor):
+        raise ValueError("split cache has no query tensor")
+    if queries.shape[0] != len(sample_ids):
+        raise ValueError(
+            "{} sample ids but {} query rows".format(len(sample_ids), queries.shape[0])
+        )
+    if len(set(sample_ids)) != len(sample_ids):
+        raise ValueError("split cache has duplicate sample ids")
+    if int(metadata.get("num_saved_queries", len(sample_ids))) != len(sample_ids):
+        raise ValueError(
+            "split cache count mismatch: payload={}, metadata={}".format(
+                len(sample_ids), metadata.get("num_saved_queries")
+            )
+        )
+    if str(metadata.get("query_tensor_hash")) != str(payload.get("query_tensor_hash")):
+        raise ValueError(
+            "split cache metadata/payload fingerprint mismatch: {} vs {}".format(
+                metadata.get("query_tensor_hash"), payload.get("query_tensor_hash")
+            )
+        )
+    if expected_contract_hash is not None:
+        for source, value in (
+            ("payload", payload.get("contract_hash")),
+            ("metadata", metadata.get("contract_hash")),
+        ):
+            if str(value) != str(expected_contract_hash):
+                raise ValueError(
+                    "stale V7 query cache ({} contract {} != {}); regenerate it "
+                    "with compose.eval.precompute_v7_queries".format(
+                        source, value, expected_contract_hash
+                    )
+                )
+    value_hash = str(payload.get("query_tensor_hash"))
+    if verify_value_hash:
+        recomputed = query_tensor_hash(sample_ids, queries)
+        if recomputed != value_hash:
+            raise ValueError(
+                "V7 query cache value fingerprint mismatch: recorded {}, "
+                "recomputed {}".format(value_hash, recomputed)
+            )
+    ordered_ids = metadata.get("ordered_sample_ids")
+    if ordered_ids is not None and [str(v) for v in ordered_ids] != sample_ids:
+        raise ValueError(
+            "split cache id order disagrees with its metadata sidecar: the "
+            "tensor and {} were written from different runs".format(metadata_path)
+        )
+    rows = {sample_id: index for index, sample_id in enumerate(sample_ids)}
+    if expected_ids is not None:
+        missing = [str(value) for value in expected_ids if str(value) not in rows]
+        if missing:
+            raise ValueError(
+                "V7 query tensor misses {} train samples (first: {})".format(
+                    len(missing), missing[:3]
+                )
+            )
+        if len(expected_ids) != len(rows):
+            raise ValueError(
+                "V7 full-data query coverage mismatch: train={}, tensor={}".format(
+                    len(expected_ids), len(rows)
+                )
+            )
+    return queries, rows, value_hash, metadata
+
+
 def write_task_center(
     directory: str,
     *,

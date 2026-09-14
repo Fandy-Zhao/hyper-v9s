@@ -1,0 +1,150 @@
+import ast
+import json
+
+import pytest
+import torch
+
+from compose.v7.pool import V7ExpertKeyPool
+from compose.v7.routing import GlobalTop2Router
+from compose.v7.hf_trainer import resolve_v8_selectable_experts
+from compose.v8.screening import (
+    aggregate_reusable_experts,
+    load_reusable_screening,
+    sample_teacher_records,
+    teacher_router_recall,
+)
+
+
+def _record(index, answer):
+    return {
+        "id": "sample-{:03d}".format(index),
+        "conversations": [
+            {"from": "human", "value": "question"},
+            {"from": "gpt", "value": answer},
+        ],
+    }
+
+
+def test_teacher_sampling_is_seeded_stratified_and_not_prefix():
+    records = [_record(index, "yes" if index < 80 else "no") for index in range(100)]
+    first, audit = sample_teacher_records(records, num_samples=20, seed=42)
+    second, second_audit = sample_teacher_records(records, num_samples=20, seed=42)
+    ids = [row["id"] for row in first]
+    assert ids == [row["id"] for row in second]
+    assert audit == second_audit
+    assert set(ids) != {row["id"] for row in records[:20]}
+    answers = [row["conversations"][-1]["value"] for row in first]
+    assert answers.count("yes") == 16
+    assert answers.count("no") == 4
+
+
+def test_teacher_sampler_rejects_conflicting_controls():
+    with pytest.raises(ValueError):
+        sample_teacher_records([_record(0, "x")], num_samples=1, sample_ratio=1.0)
+
+
+def test_screening_aggregates_pairs_and_requires_stable_support(tmp_path):
+    records = []
+    for index in range(10):
+        selected = [1, 3] if index < 3 else ([1] if index < 5 else [])
+        records.append({
+            "sample_id": str(index), "selected_experts": selected,
+            "delta_nll": 0.2 if selected else None,
+            "teacher_gain": 1.0 if selected else 0.0,
+        })
+    teacher = {"task_id": 4, "teacher_search_mode": "full_history_single_oracle",
+               "historical_experts_visible": [1, 2, 3], "records": records}
+    result = aggregate_reusable_experts(
+        teacher, min_teacher_support=3, min_teacher_usage_rate=0.2
+    )
+    assert result["reusable_historical_expert_ids"] == [1, 3]
+    assert result["expert_statistics"]["1"]["single_usage_count"] == 2
+    assert result["expert_statistics"]["1"]["pair_usage_count"] == 3
+    assert result["expert_statistics"]["2"]["reusable"] is False
+    assert result["full_training_oracle_eval_sample_count"] == 0
+
+    path = tmp_path / "screening.json"
+    path.write_text(json.dumps(result), encoding="utf-8")
+    loaded = load_reusable_screening(path, expected_task=4, historical_ids=[1, 2, 3])
+    assert loaded["reusable_historical_expert_ids"] == [1, 3]
+    with pytest.raises(ValueError):
+        load_reusable_screening(path, expected_task=3, historical_ids=[1, 2, 3])
+
+
+def test_selectable_pool_is_reusable_old_plus_all_current():
+    pool = V7ExpertKeyPool(query_dim=1536)
+    def key(position):
+        value = torch.zeros(1536)
+        value[position] = 1.0
+        return value
+    pool.add(0, key(0), origin_task=0, lifecycle="historical", trainable=False)
+    pool.add(1, key(1), origin_task=1, lifecycle="historical", trainable=False)
+    pool.add(2, key(2), origin_task=4, lifecycle="current", trainable=True)
+    pool.add(3, key(3), origin_task=4, lifecycle="current", trainable=True)
+    query = (key(0) * 2 + key(1) * 3 + key(2)).unsqueeze(0)
+    routed = GlobalTop2Router(pool)(query, excluded=[0])
+    assert set(routed.expert_ids[0].tolist()) == {1, 2}
+    assert 0 not in routed.expert_ids[0].tolist()
+
+
+def test_all_three_full_training_route_types_are_legal():
+    pool = V7ExpertKeyPool(query_dim=1536)
+    keys = []
+    for position in range(4):
+        value = torch.zeros(1536)
+        value[position] = 1.0
+        keys.append(value)
+    pool.add(0, keys[0], origin_task=0, lifecycle="historical", trainable=False)
+    pool.add(1, keys[1], origin_task=1, lifecycle="historical", trainable=False)
+    pool.add(2, keys[2], origin_task=4, lifecycle="current", trainable=True)
+    pool.add(3, keys[3], origin_task=4, lifecycle="current", trainable=True)
+    queries = torch.stack([
+        keys[0] + keys[1],
+        keys[0] + keys[2],
+        keys[2] + keys[3],
+    ])
+    result = GlobalTop2Router(pool)(queries)
+    assert result.route_types == ("OldOld", "OldNew", "NewNew")
+
+
+def test_task0_skips_history_and_routes_over_candidates_only():
+    reusable, excluded, selectable = resolve_v8_selectable_experts(
+        [], [0, 1, 2, 3], [], 0
+    )
+    assert reusable == ()
+    assert excluded == ()
+    assert selectable == (0, 1, 2, 3)
+    with pytest.raises(ValueError):
+        resolve_v8_selectable_experts([9], [0, 1, 2, 3], [9], 0)
+
+
+def test_teacher_router_recall_is_measured_inside_reusable_pool():
+    keys = {str(i): torch.eye(3, 1536)[i] for i in range(3)}
+    teacher = {
+        "records": [
+            {"sample_id": "a", "selected_experts": [1]},
+            {"sample_id": "b", "selected_experts": [2]},
+        ]
+    }
+    screening = {"reusable_historical_expert_ids": [0, 1, 2]}
+    queries = torch.stack([keys["1"], keys["0"] * 0.8 + keys["2"] * 0.7])
+    metric = teacher_router_recall(
+        teacher, screening,
+        {"sample_ids": ["a", "b"], "queries": queries},
+        {"keys": keys},
+    )
+    assert metric["TeacherRouterRecall@1"] == 0.5
+    assert metric["TeacherRouterRecall@2"] == 1.0
+
+
+def test_full_data_route_boundary_has_no_answer_or_oracle_inputs():
+    source = open("compose/v7/hf_trainer.py", encoding="utf-8").read()
+    tree = ast.parse(source)
+    method = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "route_full_data_queries"
+    )
+    names = {node.id for node in ast.walk(method) if isinstance(node, ast.Name)}
+    assert not ({"answer", "ground_truth", "nll", "teacher"} & names)
+    assert len(method.args.args) == 2  # self, queries

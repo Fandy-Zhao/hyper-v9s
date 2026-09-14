@@ -44,6 +44,7 @@ from compose.lora.rms import (
     build_kappa_calibration,
     build_rms_provenance,
     compute_expert_rms,
+    compute_expert_rms_accelerated,
     rms_report,
     save_calibration,
     validate_rms_freshness,
@@ -120,6 +121,18 @@ def _build_batches(
     conversation = conv_templates["vicuna_v1"].copy()
     batches = []
     for offset in range(0, len(records), batch_size):
+        # This phase is CPU-side image/token preparation.  Keep a bounded
+        # rank-tagged trace so a slow or malformed input is diagnosable
+        # without changing batch contents or RMS aggregation.
+        if offset == 0 or (offset // batch_size + 1) % 8 == 0:
+            print(
+                "rms_prepare rank={} batch={}/{}".format(
+                    os.environ.get("RANK", "0"),
+                    offset // batch_size + 1,
+                    (len(records) + batch_size - 1) // batch_size,
+                ),
+                flush=True,
+            )
         chunk = records[offset: offset + batch_size]
         ids_list = []
         attention_masks = []
@@ -209,6 +222,18 @@ def main() -> None:
     parser.add_argument("--frozen-calibration", default=None)
     parser.add_argument("--new-expert-ids", default="")
     parser.add_argument("--runtime-contract")
+    parser.add_argument(
+        "--rms-execution",
+        choices=["baseline", "accelerated"],
+        default="baseline",
+        help=(
+            "baseline (default) is the shipped collector: three device "
+            "synchronisations per moment update and one output reduction per "
+            "expert. accelerated batches those synchronisations and reduces "
+            "the shared module output once per layer. Both produce the same "
+            "statistics; see docs/reports/V8_RMS_PRUNING_EQUIVALENCE_REPORT.md."
+        ),
+    )
     args = parser.parse_args()
 
     records = json.loads(Path(args.question_file).read_text(encoding="utf-8"))
@@ -271,7 +296,12 @@ def main() -> None:
         dataset_manifest_hash=args.dataset_manifest_hash,
         composition_config_hash=args.composition_config_hash,
     )
-    stats, pair_moments = compute_expert_rms(
+    collector = (
+        compute_expert_rms_accelerated
+        if args.rms_execution == "accelerated"
+        else compute_expert_rms
+    )
+    stats, pair_moments = collector(
         bundle.model,
         expert_ids,
         batches,
@@ -359,6 +389,7 @@ def main() -> None:
         "frozen_calibration_source": args.frozen_calibration,
         "output_dir": str(output),
         "execution": {
+            "rms_execution": args.rms_execution,
             "mode": (
                 "4gpu_torchrun"
                 if torch.distributed.is_available() and torch.distributed.is_initialized()

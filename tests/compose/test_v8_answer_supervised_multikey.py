@@ -1347,6 +1347,13 @@ def test_pruning_retires_zero_support_alias_but_never_strands_an_expert():
         assert_pool_not_emptied(pool3)
     assert_pool_not_emptied(pool)       # the healthy pool passes
 
+    # V7 migration retains pruned expert/key tombstones for provenance.  They
+    # are outside the routing pool and therefore do not violate this invariant.
+    pool4 = make_pool(num_experts=2, per_task=2, seed=34)
+    pool4.expert_records[1]["lifecycle"] = LIFECYCLE_PRUNED
+    pool4.set_key_lifecycle("e1_t0_origin", LIFECYCLE_PRUNED)
+    assert_pool_not_emptied(pool4)
+
     # what a redundant sibling looks like from the candidate side
     from compose.v8.pruning import plan_candidate_pruning
     duplicated = plan_candidate_pruning({"new": unit(0)}, {"old": unit(0)})
@@ -1816,6 +1823,86 @@ def test_v8_trainer_trains_the_candidate_and_the_alias_keys_only(tmp_path):
     from compose.v8.checkpoint import load_checkpoint, verify_resume_identity
     loaded = load_checkpoint(tmp_path / "v8_checkpoint.pt", current_task=1)
     assert verify_resume_identity(loaded, outcome["checkpoint"])["status"] == "IDENTICAL"
+
+
+def test_v8b_residual_route_appends_candidate_and_trains_its_origin_key(tmp_path):
+    """The real V8-B route is old context + current candidate, never context alone."""
+    from compose.v8.trainer import TrainBatch, V8TaskTrainer
+
+    scenario = _trainer_scenario(tmp_path)
+    trainer = V8TaskTrainer(
+        model=scenario["model"], manager=scenario["manager"], pool=scenario["pool"],
+        config=V8Config(), current_task=1, candidate_expert_ids=[3],
+        forward_fn=scenario["forward_fn"], queries_by_sample=scenario["queries"],
+    )
+    batch = TrainBatch(
+        ["s4"], {"s4": STATE_RESIDUAL}, {"s4": [0]},
+        candidate_by_sample={"s4": 3},
+    )
+    selection = trainer._training_selection(batch)
+    assert selection.expert_ids.tolist() == [[0, 3, -1, -1]]
+    before = scenario["pool"].keys["e3_t1_origin"].detach().clone()
+    report = trainer.train_epoch([batch], teacher_result=scenario["result"])
+    assert "e3_t1_origin" in report.gradient_keys
+    assert not torch.equal(before, scenario["pool"].keys["e3_t1_origin"].detach())
+
+
+def test_v8b_checkpoint_replay_keeps_candidate_selection_active(tmp_path):
+    """Reentrant checkpoint replay must not silently fall back to backbone-only."""
+    from torch.utils.checkpoint import checkpoint
+    from compose.v8.trainer import TrainBatch, V8TaskTrainer
+
+    scenario = _trainer_scenario(tmp_path)
+    eager_forward = scenario["forward_fn"]
+
+    def checkpointed_forward(sample_ids):
+        sentinel = torch.ones((), requires_grad=True)
+        return checkpoint(
+            lambda _sentinel: eager_forward(sample_ids),
+            sentinel,
+            use_reentrant=True,
+        )
+
+    trainer = V8TaskTrainer(
+        model=scenario["model"], manager=scenario["manager"], pool=scenario["pool"],
+        config=V8Config(), current_task=1, candidate_expert_ids=[3],
+        forward_fn=checkpointed_forward, queries_by_sample=scenario["queries"],
+    )
+    batch = TrainBatch(
+        ["s4"], {"s4": STATE_RESIDUAL}, {"s4": [0]},
+        candidate_by_sample={"s4": 3},
+    )
+    report = trainer.train_epoch([batch], teacher_result=scenario["result"])
+
+    assert report.gradient_experts == [3]
+    assert all(
+        layer._checkpoint_replay_selection is None
+        for layer in scenario["manager"].layers.values()
+    )
+
+
+def test_v8b_candidate_origin_key_is_in_the_explicit_whitelist(tmp_path):
+    scenario = _trainer_scenario(tmp_path)
+    from compose.v8.trainer import V8TaskTrainer
+
+    trainer = V8TaskTrainer(
+        model=scenario["model"], manager=scenario["manager"], pool=scenario["pool"],
+        config=V8Config(), current_task=1, candidate_expert_ids=[3],
+        forward_fn=scenario["forward_fn"], queries_by_sample=scenario["queries"],
+    )
+    assert "e3_t1_origin" in trainer.whitelist
+    assert trainer.pool.keys["e3_t1_origin"].requires_grad
+    assert trainer.freeze_report["audit"].trainable_candidate_keys == ["e3_t1_origin"]
+
+
+def test_v8_tensor_checksum_accepts_bfloat16_without_dtype_conversion():
+    from compose.v8.pool import tensor_checksum
+
+    value = torch.arange(8, dtype=torch.float32).to(torch.bfloat16)
+    assert tensor_checksum(value) == tensor_checksum(value.clone())
+    changed = value.clone()
+    changed[0] = 9
+    assert tensor_checksum(value) != tensor_checksum(changed)
 
 
 def test_v8_trainer_leakage_probe_shows_mixed_batches_change_nothing(tmp_path):
