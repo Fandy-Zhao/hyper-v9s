@@ -98,6 +98,14 @@ class ComposeLlavaForCausalLM(LlamaForCausalLM, ComposeLlavaMetaForCausalLM):
         return_dict: Optional[bool] = None,
         **kwargs
     ) -> Union[Tuple, CausalLMOutputWithPast]:
+        # The V7 trainer asks for a per-sample answer loss on every step.  Until
+        # this flag was read, ``**kwargs`` swallowed it and the class had no
+        # per-sample path at all -- it inherits LlamaForCausalLM, not
+        # LlavaLlamaForCausalLM, so the branch there never ran for a compose run.
+        # The answer term stayed a token-weighted batch mean while the key term
+        # was a batch sum, which made the effective loss weight track the
+        # micro-batch width.  See ``sum_of_per_sample_token_means``.
+        v7_sum_per_sample_loss = bool(kwargs.pop("v7_sum_per_sample_loss", False))
         context = use_selection(compose_selection) if compose_selection is not None else nullcontext()
         with context:
             if inputs_embeds is None:
@@ -116,7 +124,7 @@ class ComposeLlavaForCausalLM(LlamaForCausalLM, ComposeLlavaMetaForCausalLM):
                     labels,
                     images,
                 )
-            return super().forward(
+            outputs = super().forward(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
@@ -128,6 +136,21 @@ class ComposeLlavaForCausalLM(LlamaForCausalLM, ComposeLlavaMetaForCausalLM):
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
+        if v7_sum_per_sample_loss and labels is not None and labels.shape[0] > 1:
+            if return_dict is False:
+                raise ValueError("V7 per-sample loss requires return_dict output")
+            # Imported here rather than at module scope: the compose package is
+            # deliberately importable without pulling in the llava language-model
+            # module, and `tests/compose/test_imports.py` enforces that.  The
+            # helper is still the *same* helper -- sharing it is the point, since
+            # ComposeLlavaForCausalLM is a sibling of LlavaLlamaForCausalLM and
+            # not a subclass of it.
+            from llava.model.language_model.llava_llama import (
+                sum_of_per_sample_token_means,
+            )
+
+            outputs.loss = sum_of_per_sample_token_means(outputs.logits, labels)
+        return outputs
 
     def prepare_inputs_for_generation(
         self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs

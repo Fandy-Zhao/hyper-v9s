@@ -1,0 +1,63 @@
+schema_version: 1
+purpose: v7_ucit_formal
+method_config: configs/target_4090/v7_global_coevolution_4090.yaml
+
+data:
+  model_path: /home/xukunlun/CODE/CIT/zzf/assets/models/llava-v1.5-7b
+  vision_tower: /home/xukunlun/CODE/CIT/zzf/assets/models/clip-vit-large-patch14-336
+  projector_path: /home/xukunlun/CODE/CIT/zzf/assets/models/llava-v1.5-7b/mm_projector.bin
+  image_folder: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/datasets
+
+# Validation files are deliberately separate from the repository's official
+# test_3000 files. The launcher fails before Task0 if these declared files have
+# not been prepared and audited; it never substitutes test data.
+#
+# Formal train files were carved out of the ORIGINAL train splits (seed 42,
+# exactly 256 validation samples per task) by
+#   python -m compose.data.build_v7_formal_splits --command build
+# Source-file sha256s and per-task stats live in
+# /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/<Task>/provenance_build.json;
+# test_3000 files are untouched and never participate in the split.
+tasks:
+  - task_index: 0
+    name: ImageNet-R
+    train_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_train/ImageNet-R/train.json
+    validation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/ImageNet-R/validation.json
+    validation_metric: official_ucit
+    validation_annotation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/ImageNet-R/validation.json
+    test_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/instructions/ImageNet-R/test_3000.json
+  - task_index: 1
+    name: ArxivQA
+    train_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_train/ArxivQA/train.json
+    validation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/ArxivQA/validation.json
+    validation_metric: official_ucit
+    validation_annotation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/ArxivQA/validation.json
+    test_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/instructions/ArxivQA/test_3000.json
+  - task_index: 2
+    name: VizWiz
+    train_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_train/VizWiz/train.json
+    validation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/VizWiz/validation.json
+    validation_metric: official_ucit
+    validation_annotation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/VizWiz/validation_coco.json
+    test_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/instructions/VizWiz/test_3000.json
+  - task_index: 3
+    name: IconQA
+    train_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_train/IconQA/train.json
+    validation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/IconQA/validation.json
+    validation_metric: official_ucit
+    validation_annotation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/IconQA/validation.json
+    test_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/instructions/IconQA/test_3000.json
+  - task_index: 4
+    name: CLEVR
+    train_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_train/CLEVR/train.json
+    validation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/CLEVR/validation.json
+    validation_metric: official_ucit
+    validation_annotation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/CLEVR/validation.json
+    test_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/instructions/CLEVR/test_3000.json
+  - task_index: 5
+    name: Flickr30k
+    train_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_train/Flickr30k/train.json
+    validation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/Flickr30k/validation.json
+    validation_metric: official_ucit
+    validation_annotation_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/v7_validation/Flickr30k/validation_coco.json
+    test_file: /home/xukunlun/CODE/CIT/zzf/assets/UCIT/instructions/Flickr30k/test_3000.json

@@ -6,10 +6,12 @@ import time
 from collections import Counter
 from contextlib import nullcontext
 from pathlib import Path
+from typing import List
 
 import torch
 
 from compose.adapters.types import pad_selection
+from compose.train.profiler import TrainingProfiler, wrap_optimizer_step
 from compose.train.trainer import ComposeTrainer
 from llava.train.llava_trainer import LengthGroupedSampler
 
@@ -22,12 +24,32 @@ from .training import (
     assert_historical_key_gradients_frozen,
     assert_historical_lora_frozen,
     selected_current_key_loss,
+    trainable_selection,
     full_data_coverage_audit,
 )
 
 
 def _distributed():
     return torch.distributed.is_available() and torch.distributed.is_initialized()
+
+
+def ranked_metrics_paths(base: Path, world_size: int) -> List[Path]:
+    """The metrics files a run of ``world_size`` ranks writes.
+
+    One definition, used by both the writer and the reader in
+    :class:`V7ComposeTrainer`.  They used to disagree: the writer kept the
+    un-suffixed name when ``world_size == 1`` while the reader checked
+    ``torch.distributed.is_initialized()``, which ``torchrun --nproc_per_node 1``
+    also makes true -- so a single-process run trained to completion and then
+    raised ``FileNotFoundError`` inside ``final_diagnostics``, leaving
+    ``v7_training_diagnostics.json`` empty and the job marked failed.
+    """
+    if world_size <= 1:
+        return [base]
+    return [
+        base.with_name("{}.rank{}{}".format(base.stem, rank, base.suffix))
+        for rank in range(world_size)
+    ]
 
 
 def attach_v7_ddp_key_anchor(model, key_pool):
@@ -109,6 +131,28 @@ def padded_compose_selections(selection):
     ]
 
 
+def resolve_v8_selectable_experts(
+    historical_ids, current_ids, reusable_historical_ids, task_index
+):
+    """Return (reusable old, excluded old, selectable) with fail-closed checks."""
+    historical = {int(value) for value in historical_ids}
+    current = {int(value) for value in current_ids}
+    reusable = (
+        historical
+        if reusable_historical_ids is None
+        else {int(value) for value in reusable_historical_ids}
+    )
+    if not reusable.issubset(historical):
+        raise ValueError("reusable historical experts must belong to the frozen pool")
+    if int(task_index) == 0 and reusable:
+        raise ValueError("Task0 reusable historical pool must be empty")
+    excluded = historical - reusable
+    selectable = reusable | current
+    if len(selectable) < 2:
+        raise ValueError("Global Top-2 needs at least two reusable-old/current experts")
+    return tuple(sorted(reusable)), tuple(sorted(excluded)), tuple(sorted(selectable))
+
+
 def mean_sync_accumulated_gradients(parameters):
     """Mean-reduce a sparse-routing accumulation window exactly once.
 
@@ -182,22 +226,38 @@ class V7ComposeTrainer(ComposeTrainer):
         v7_task_index: int,
         v7_metrics_path: str,
         v7_require_full_coverage: bool = False,
+        v7_reusable_historical_ids=None,
+        v7_profiler=None,
         **kwargs
     ) -> None:
+        self.profiler = v7_profiler if v7_profiler is not None else TrainingProfiler(None)
         self.v7_key_pool = v7_key_pool
         self.v7_config = v7_config
         self.v7_task_index = int(v7_task_index)
         self.v7_router = GlobalTop2Router(v7_key_pool)
-        metrics_path = Path(v7_metrics_path)
+        (self.v7_reusable_historical_ids,
+         self.v7_excluded_historical_ids,
+         self.v7_selectable_expert_ids) = resolve_v8_selectable_experts(
+            v7_key_pool.historical_ids,
+            v7_key_pool.current_ids,
+            v7_reusable_historical_ids,
+            self.v7_task_index,
+        )
         rank = torch.distributed.get_rank() if _distributed() else 0
         world_size = torch.distributed.get_world_size() if _distributed() else 1
-        if world_size > 1:
-            metrics_path = metrics_path.with_name(
-                "{}.rank{}{}".format(metrics_path.stem, rank, metrics_path.suffix)
-            )
         self.v7_metrics_base_path = Path(v7_metrics_path)
+        self.v7_metrics_world_size = world_size
+        metrics_path = ranked_metrics_paths(self.v7_metrics_base_path, world_size)[rank]
         self.v7_logger = V7JsonlLogger(str(metrics_path))
         self.v7_usage = {str(value): 0 for value in v7_key_pool.current_ids}
+        # Per-route-key counters for the current task's reuse keys: the task-end
+        # retention decision reads them, exactly like the candidate counters.
+        self.v7_reuse_usage = {
+            key_id: 0
+            for key_id in sorted(v7_key_pool.trainable_key_ids)
+            if v7_key_pool.route_keys[key_id].key_type == "reuse"
+        }
+        self.v7_reuse_gradient_ids = set()
         self.v7_noop_steps = 0
         self.v7_require_full_coverage = bool(v7_require_full_coverage)
         self.v7_unique_sample_ids = set()
@@ -221,14 +281,15 @@ class V7ComposeTrainer(ComposeTrainer):
         self._historical_rms_before = runtime_kappa_calibration(
             self.model, v7_key_pool.historical_ids
         )
-        for expert_id in v7_key_pool.current_ids:
+        for key_id in sorted(v7_key_pool.trainable_key_ids):
             self._v7_gradient_hook_handles.append(
-                v7_key_pool.keys[str(expert_id)].register_hook(
-                    lambda gradient, value=expert_id: self._record_v7_gradient(
+                v7_key_pool.keys[key_id].register_hook(
+                    lambda gradient, value=key_id: self._record_v7_gradient(
                         "key", value, gradient
                     )
                 )
             )
+        for expert_id in v7_key_pool.current_ids:
             for layer in self.expert_pool.manager.layers.values():
                 for parameter in layer.experts[str(expert_id)].parameters():
                     self._v7_gradient_hook_handles.append(
@@ -239,22 +300,55 @@ class V7ComposeTrainer(ComposeTrainer):
                         )
                     )
 
-    def _record_v7_gradient(self, kind, expert_id, gradient):
+    def _record_v7_gradient(self, kind, value, gradient):
+        """Record which key id / expert id produced a non-zero gradient.
+
+        ``key`` records route-key ids (strings), ``lora`` records expert ids
+        (ints); the two registries are deliberately different objects.
+        """
         finite = gradient.detach().float()
         if not bool(torch.isfinite(finite).all()):
             raise FloatingPointError("non-finite V7 {} gradient".format(kind))
         squared = float(finite.square().sum())
         if squared > 0.0:
-            getattr(self, "_v7_{}_gradient_ids".format(kind)).add(int(expert_id))
+            getattr(self, "_v7_{}_gradient_ids".format(kind)).add(value)
             attribute = "_v7_{}_gradient_sq".format(kind)
             setattr(self, attribute, getattr(self, attribute) + squared)
+            if kind == "key" and value in getattr(self, "v7_reuse_usage", {}):
+                self.v7_reuse_gradient_ids.add(value)
         return gradient
+
+    def route_full_data_queries(self, queries):
+        """Query-key routing inside reusable-old plus current candidates only.
+
+        This method is intentionally incapable of accepting answers, NLLs, or
+        teacher assignments.  Keeping the Stage-B boundary explicit makes the
+        zero-oracle contract mechanically testable.
+        """
+        routed = self.v7_router(
+            queries, excluded=self.v7_excluded_historical_ids
+        )
+        routed_ids = set(routed.expert_ids.detach().cpu().view(-1).tolist())
+        forbidden = routed_ids & set(self.v7_excluded_historical_ids)
+        if forbidden:
+            raise AssertionError(
+                "non-reusable historical expert reached full-data routing: {}".format(
+                    sorted(forbidden)
+                )
+            )
+        return routed
 
     def create_optimizer(self):
         if self.optimizer is not None:
             return self.optimizer
+        # Exactly three things are trainable: the candidate LoRAs, the candidate
+        # keys, and the current task's reuse keys for reusable historical
+        # experts.  Historical LoRAs and canonical historical keys are absent
+        # by construction: the key list is the explicit trainability registry,
+        # never ``expert.lifecycle == "current"``.
         key_parameters = [
-            self.v7_key_pool.keys[str(value)] for value in self.v7_key_pool.current_ids
+            self.v7_key_pool.keys[key_id]
+            for key_id in sorted(self.v7_key_pool.trainable_key_ids)
         ]
         lora_parameters = [
             parameter
@@ -291,6 +385,7 @@ class V7ComposeTrainer(ComposeTrainer):
         if pending is not None:
             self.optimizer.load_state_dict(pending)
             self._v7_pending_optimizer_state = None
+        wrap_optimizer_step(self.optimizer, self.profiler)
         return self.optimizer
 
     def create_scheduler(self, num_training_steps, optimizer=None):
@@ -309,6 +404,12 @@ class V7ComposeTrainer(ComposeTrainer):
     def trainable_parameter_audit(self):
         audit = {
             "current_key_parameters": sum(value.numel() for value in self.v7_key_pool.parameters() if value.requires_grad),
+            "reuse_key_parameters": sum(
+                self.v7_key_pool.keys[key_id].numel()
+                for key_id in self.v7_key_pool.trainable_key_ids
+                if self.v7_key_pool.route_keys[key_id].key_type == "reuse"
+            ),
+            "trainable_key_ids": sorted(self.v7_key_pool.trainable_key_ids),
             "current_lora_parameters": sum(
                 parameter.numel()
                 for expert_id in self.v7_key_pool.current_ids
@@ -339,6 +440,7 @@ class V7ComposeTrainer(ComposeTrainer):
             if self._v7_previous_step_end is None
             else step_started - self._v7_previous_step_end
         )
+        self.profiler.micro_step()
         sample_ids = tuple(str(value) for value in inputs.get("sample_ids", ()))
         self._v7_last_sample_ids = sample_ids
         self.v7_unique_sample_ids.update(sample_ids)
@@ -354,35 +456,63 @@ class V7ComposeTrainer(ComposeTrainer):
         key_device = next(self.v7_key_pool.parameters()).device
         queries = queries.to(key_device)
         inputs["fixed_queries"] = queries
-        routed = self.v7_router(queries)
-        inputs["compose_selections"] = padded_compose_selections(routed.selection)
-        current_selected = set(routed.expert_ids.detach().cpu().view(-1).tolist()) & set(
-            self.v7_key_pool.current_ids
-        )
-        self._v7_active = (queries, routed, current_selected)
-        for expert_id in routed.expert_ids.detach().cpu().view(-1).tolist():
-            if str(expert_id) in self.v7_usage:
-                self.v7_usage[str(expert_id)] += 1
+        token_stats = inputs.get("token_stats")
+        if token_stats is not None:
+            # Counted on the CPU by the collator; calling ``.item()`` here would
+            # add one device synchronisation per micro-batch, which is exactly
+            # the cost the profiler exists to attribute.
+            self.profiler.observe_batch(*token_stats)
+        with self.profiler.timed("routing_time"):
+            # Stage B is query-key only.  The few-shot teacher contributes one
+            # immutable task-level set; no answer, NLL, or sample assignment is
+            # available in this call path.
+            routed = self.route_full_data_queries(queries)
+            inputs["compose_selections"] = padded_compose_selections(routed.selection)
+            current_selected = set(
+                routed.expert_ids.detach().cpu().view(-1).tolist()
+            ) & set(self.v7_key_pool.current_ids)
+            selected_trainable_keys = set(trainable_selection(routed, self.v7_key_pool))
+            selected_experts = set(routed.expert_ids.detach().cpu().view(-1).tolist())
+            self._v7_active = (queries, routed, current_selected)
+            for expert_id in routed.expert_ids.detach().cpu().view(-1).tolist():
+                if str(expert_id) in self.v7_usage:
+                    self.v7_usage[str(expert_id)] += 1
+                reuse = sorted(
+                    self.v7_key_pool.keys_of_expert(
+                        int(expert_id), key_type="reuse", lifecycle="current"
+                    )
+                )
+                for key_id in reuse:
+                    self.v7_reuse_usage[key_id] = self.v7_reuse_usage.get(key_id, 0) + 1
         no_sync = model.no_sync() if _distributed() and hasattr(model, "no_sync") else nullcontext()
         with no_sync:
             loss = super().training_step(model, inputs)
-        assert_historical_key_gradients_frozen(self.v7_key_pool)
-        assert_historical_lora_frozen(
-            self.expert_pool.manager, self.v7_key_pool.historical_ids
-        )
-        if not self._v7_key_gradient_ids.issubset(current_selected):
-            raise AssertionError("unselected current key received a new micro-batch gradient")
-        if not self._v7_lora_gradient_ids.issubset(current_selected):
-            raise AssertionError("unselected current LoRA received a new micro-batch gradient")
+        with self.profiler.timed("audit_time"):
+            assert_historical_key_gradients_frozen(self.v7_key_pool)
+            assert_historical_lora_frozen(
+                self.expert_pool.manager, self.v7_key_pool.historical_ids
+            )
+        if not self._v7_key_gradient_ids.issubset(selected_trainable_keys):
+            raise AssertionError(
+                "a trainable key of an unselected expert received a new micro-batch "
+                "gradient: {}".format(sorted(self._v7_key_gradient_ids - selected_trainable_keys))
+            )
+        if not self._v7_lora_gradient_ids.issubset(selected_experts):
+            raise AssertionError(
+                "unselected LoRA received a new micro-batch gradient: {}".format(
+                    sorted(self._v7_lora_gradient_ids - selected_experts)
+                )
+            )
         gradient_window_synced = False
         if self.accelerator.sync_gradients:
             if self.optimizer is None:
                 raise RuntimeError("V7 optimizer must exist before gradient synchronization")
-            gradient_window_synced = mean_sync_accumulated_gradients(
-                parameter
-                for group in self.optimizer.param_groups
-                for parameter in group["params"]
-            )
+            with self.profiler.timed("allreduce_time"):
+                gradient_window_synced = mean_sync_accumulated_gradients(
+                    parameter
+                    for group in self.optimizer.param_groups
+                    for parameter in group["params"]
+                )
         self._v7_step_timing = {
             "wall_time": time.time(),
             "training_step_sec": time.perf_counter() - step_started,
@@ -403,13 +533,26 @@ class V7ComposeTrainer(ComposeTrainer):
         if self._v7_active is None:
             raise RuntimeError("V7 routing must run before compute_loss")
         _, routed, current_selected = self._v7_active
-        mean_key_loss, per_sample = selected_current_key_loss(
+        # Both terms enter the objective as per-micro-batch *means*.
+        #
+        # HF divides every micro-step's loss by ``gradient_accumulation_steps``
+        # before backward, and widening the micro-batch shrinks GA by the same
+        # factor -- so a per-micro-batch *sum* reaches the optimizer multiplied
+        # by the width, while a mean does not.  The model hands back a sum once
+        # the batch exceeds one (``sum_of_per_sample_token_means``) and the same
+        # number at width one, so dividing by the width here leaves every
+        # existing width-1 run untouched and brings every wider split onto its
+        # objective.  A summed key term against a meaned answer term was what put
+        # the effective key weight at 0.4 rather than 0.1 at micro 4.
+        answer_loss = answer_loss / queries.shape[0]
+        _, per_sample = selected_current_key_loss(
             queries, routed.expert_ids, self.v7_key_pool
         )
-        key_loss = per_sample.sum() if queries.shape[0] > 1 else mean_key_loss
+        key_loss = per_sample.mean()
         total = answer_loss + self.v7_config.training.lambda_key * key_loss
-        if not current_selected:
-            # Old+Old has no expert graph. A zero-valued current-key anchor
+        updated_keys = trainable_selection(routed, self.v7_key_pool)
+        if not current_selected and not updated_keys:
+            # Nothing trainable was selected. A zero-valued trainable-key anchor
             # permits backward while keeping the optimizer step a true no-op.
             total = total + sum(
                 parameter.sum() * 0.0
@@ -425,6 +568,7 @@ class V7ComposeTrainer(ComposeTrainer):
         _, routed, current_selected = self._v7_active
         selected_key_grad = self._v7_key_gradient_sq ** 0.5
         selected_lora_grad = self._v7_lora_gradient_sq ** 0.5
+        updated_keys = trainable_selection(routed, self.v7_key_pool)
         payload = {
                 "step": int(self.state.global_step),
                 "answer_loss": float(answer),
@@ -434,7 +578,14 @@ class V7ComposeTrainer(ComposeTrainer):
                 "selected_expert_ids": routed.expert_ids.detach().cpu().tolist(),
                 "route_types": list(routed.route_types),
                 "selected_current_ids": sorted(int(value) for value in current_selected),
-                "old_old_noop": not bool(current_selected),
+                # The route key that actually made each selected expert
+                # reachable, per slot, plus the key types.  ``route_types``
+                # keeps its original expert-level meaning (old expert vs new
+                # candidate); these two add the key-level view.
+                "selected_key_ids": [list(row) for row in routed.key_ids],
+                "selected_key_types": [list(row) for row in routed.key_types],
+                "updated_trainable_key_ids": list(updated_keys),
+                "old_old_noop": not bool(current_selected) and not bool(updated_keys),
                 "selected_current_key_grad_norm": selected_key_grad,
                 "selected_current_lora_grad_norm": selected_lora_grad,
                 "sample_ids": list(
@@ -443,7 +594,9 @@ class V7ComposeTrainer(ComposeTrainer):
         }
         if self._v7_step_timing is not None:
             payload.update(self._v7_step_timing)
-        self.v7_logger.write(payload)
+        with self.profiler.timed("metrics_time"):
+            self.v7_logger.write(payload)
+        self.profiler.bump("micro_batches_logged")
 
     def final_diagnostics(self, num_train_samples):
         route_counts = Counter()
@@ -452,18 +605,9 @@ class V7ComposeTrainer(ComposeTrainer):
         cross_task_pairs = Counter()
         losses = Counter()
         rows = 0
-        paths = [self.v7_logger.path]
-        if _distributed():
-            paths = [
-                self.v7_metrics_base_path.with_name(
-                    "{}.rank{}{}".format(
-                        self.v7_metrics_base_path.stem,
-                        rank,
-                        self.v7_metrics_base_path.suffix,
-                    )
-                )
-                for rank in range(torch.distributed.get_world_size())
-            ]
+        paths = ranked_metrics_paths(
+            self.v7_metrics_base_path, self.v7_metrics_world_size
+        )
         for path in paths:
             with path.open("r", encoding="utf-8") as handle:
                 records = list(handle)
@@ -502,6 +646,17 @@ class V7ComposeTrainer(ComposeTrainer):
             "historical_expert_usage": {
                 str(value): selection_counts[value] for value in self.v7_key_pool.historical_ids
             },
+            "selectable_old_experts": list(self.v7_reusable_historical_ids),
+            "excluded_old_experts": list(self.v7_excluded_historical_ids),
+            # The current task's reuse keys: how often each fired and how often
+            # each actually received key-learning gradient.
+            "reuse_key_usage": {
+                key_id: int(count)
+                for key_id, count in sorted(self.v7_reuse_usage.items())
+            },
+            "reuse_key_gradient_ids": sorted(self.v7_reuse_gradient_ids),
+            "selectable_new_candidates": list(self.v7_key_pool.current_ids),
+            "oracle_eval_sample_count": 0,
             "CrossTaskReuseRate": historical_selected / max(1, 2 * routed_samples),
             "expert_pair_frequency": {
                 "{},{}".format(*pair): count for pair, count in pair_counts.items()
@@ -553,6 +708,8 @@ class V7ComposeTrainer(ComposeTrainer):
         return {
             "rank": torch.distributed.get_rank() if _distributed() else 0,
             "candidate_usage": dict(self.v7_usage),
+            "reuse_key_usage": dict(self.v7_reuse_usage),
+            "reuse_key_gradient_ids": sorted(self.v7_reuse_gradient_ids),
             "noop_micro_steps": int(self.v7_noop_steps),
             "micro_steps": int(self.v7_micro_steps),
             "observed_sample_count": int(self.v7_observed_sample_count),
@@ -578,9 +735,15 @@ class V7ComposeTrainer(ComposeTrainer):
             )
         local = {
             "rank": torch.distributed.get_rank() if _distributed() else 0,
+            # Every route key, canonical and reuse alike: a rank that diverged
+            # on a reuse key is exactly the failure this audit exists to catch.
             "key_checksums": {
-                expert_id: tensor_checksum(self.v7_key_pool.keys[str(expert_id)])
-                for expert_id in self.v7_key_pool.expert_ids
+                key_id: tensor_checksum(self.v7_key_pool.keys[key_id])
+                for key_id in self.v7_key_pool.key_ids
+            },
+            "route_key_registry": {
+                key_id: self.v7_key_pool.route_keys[key_id].to_dict()
+                for key_id in self.v7_key_pool.key_ids
             },
             "current_lora_checksums": adapter_checksums(
                 self.expert_pool.manager, self.v7_key_pool.current_ids
@@ -588,6 +751,8 @@ class V7ComposeTrainer(ComposeTrainer):
             "optimizer_parameters": optimizer_names,
             "model_router_share_key_pool": self.v7_router.key_pool is self.v7_key_pool,
             "model_registers_same_key_pool": getattr(self.model, "v7_key_pool", None) is self.v7_key_pool,
+            "reusable_historical_expert_ids": list(self.v7_reusable_historical_ids),
+            "excluded_historical_expert_ids": list(self.v7_excluded_historical_ids),
         }
         gathered = [local]
         if _distributed():
@@ -643,10 +808,27 @@ class V7ComposeTrainer(ComposeTrainer):
             raise ValueError("V7 resume config mismatch")
         if loaded_pool.expert_ids != self.v7_key_pool.expert_ids:
             raise ValueError("V7 resume expert registry mismatch")
+        if loaded_pool.key_ids != self.v7_key_pool.key_ids:
+            raise ValueError(
+                "V7 resume route-key registry mismatch: {} != {}".format(
+                    loaded_pool.key_ids, self.v7_key_pool.key_ids
+                )
+            )
+        for key_id in loaded_pool.key_ids:
+            self.v7_key_pool.keys[key_id].data.copy_(loaded_pool.keys[key_id])
+            if loaded_pool.route_keys[key_id] != self.v7_key_pool.route_keys[key_id]:
+                raise ValueError("V7 resume route-key record mismatch for {}".format(key_id))
         for expert_id in loaded_pool.expert_ids:
-            self.v7_key_pool.keys[str(expert_id)].data.copy_(loaded_pool.keys[str(expert_id)])
             self.v7_key_pool.metadata[expert_id] = dict(loaded_pool.metadata[expert_id])
         self.v7_key_pool.pool_version = loaded_pool.pool_version
+        # Trainability comes from the checkpoint's own registry: the canonical
+        # historical keys are re-frozen, the current task's reuse keys stay
+        # trainable, exactly as when the checkpoint was written.
+        self.v7_key_pool.trainable_key_ids = set(loaded_pool.trainable_key_ids)
+        for key_id in self.v7_key_pool.key_ids:
+            self.v7_key_pool._apply_trainable(
+                key_id, key_id in self.v7_key_pool.trainable_key_ids
+            )
         self.v7_key_pool.freeze_historical()
         load_candidate_lora_state(
             self.expert_pool.manager, payload["candidate_lora_state"]
@@ -658,6 +840,10 @@ class V7ComposeTrainer(ComposeTrainer):
             counters = dict(per_rank[rank])
         if "candidate_usage" in counters:
             self.v7_usage = dict(counters["candidate_usage"])
+            self.v7_reuse_usage = {
+                key_id: 0 for key_id in self.v7_reuse_usage
+            } | dict(counters.get("reuse_key_usage", {}))
+            self.v7_reuse_gradient_ids = set(counters.get("reuse_key_gradient_ids", ()))
             self.v7_noop_steps = int(counters.get("noop_micro_steps", 0))
             self.v7_micro_steps = int(counters.get("micro_steps", 0))
             self.v7_observed_sample_count = int(counters.get("observed_sample_count", 0))

@@ -173,9 +173,15 @@ def apply_pruning(
 
 
 def assert_pool_not_emptied(pool: MultiKeyExpertPool) -> None:
-    """Every expert must keep at least one live key, or routing cannot reach it."""
+    """Every *live* expert must keep a live key, or routing cannot reach it.
+
+    A migrated V7 pool may legitimately retain tombstone records and weights
+    for experts whose lifecycle is already ``pruned``.  Routing excludes those
+    experts, so their deliberately-pruned origin keys are not a new V8 pruning
+    failure.
+    """
     stranded = [
-        expert_id for expert_id in pool.expert_ids()
+        expert_id for expert_id in pool.live_expert_ids()
         if not pool.active_key_ids_for_expert(expert_id)
     ]
     if stranded:

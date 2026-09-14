@@ -1,0 +1,63 @@
+schema_version: 1
+method: v7_global_coevolution
+seed: 42
+
+query:
+  backbone: clip-vit-large-patch14-336
+  path: /home/xukunlun/CODE/CIT/zzf/assets/models/clip-vit-large-patch14-336
+  visual_dim: 768
+  text_dim: 768
+  query_dim: 1536
+
+candidates:
+  count: 4
+  rank: 8
+  alpha: 16.0
+  key_perturbation: 0.01  # Reproducible offset around the full-train task center.
+
+routing:
+  top_k: 2
+  pair_scale: 0.7071067811865476
+
+training:
+  lambda_key: 0.1
+  key_learning_rate: 0.0003
+  # UCIT Task1 baseline-equivalent recipe. On the single-process V7 runner,
+  # batch 1 x accumulation 64 preserves the baseline global batch of 64.
+  learning_rate: 0.0002
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 64
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  weight_decay: 0.0
+  seed: 42
+  gradient_checkpointing: true
+  group_by_modality_length: true
+  bf16: true
+  tf32: true
+  logging_steps: 1
+  save_strategy: epoch
+  model_max_length: 2048
+  dataloader_num_workers: 4
+  gradient_audit_every: 1
+
+runtime:
+  # Training, RMS, pruning and inference must share this exact contract.
+  image_aspect_ratio: pad
+  mm_vision_select_layer: -2
+  mm_vision_select_feature: patch
+  mm_projector_type: mlp2x_gelu
+
+pruning:
+  candidate_prune_enabled: true
+  # Usage identifies dead candidates but is never an independent delete rule.
+  candidate_min_usage: 0.0
+  # Conservative zero defaults: keep candidates whose removal hurts either
+  # the validation metric or token-average NLL. Tune only on validation.
+  candidate_min_removal_gain: 0.0
+  candidate_redundancy_cosine: 0.98
+
+logging:
+  format: jsonl
+

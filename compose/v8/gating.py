@@ -126,11 +126,27 @@ def audit_trainable_parameters(
     audit = TrainableAudit()
     audit.trainable_candidate_experts = sorted(candidates)
     for key_id, record in pool.key_records.items():
-        if record["task_id"] == int(current_task) and record["key_type"] == "task_alias":
+        is_current_alias = (
+            record["task_id"] == int(current_task)
+            and record["key_type"] == "task_alias"
+        )
+        is_candidate_origin = (
+            record["task_id"] == int(current_task)
+            and record["key_type"] == "origin"
+            and int(record["expert_id"]) in candidates
+        )
+        if is_current_alias:
             if record["trainable"]:
                 audit.trainable_residual_keys.append(key_id)
             else:
                 audit.frozen_historical_keys.append(key_id)
+        elif is_candidate_origin:
+            if record["trainable"]:
+                audit.trainable_candidate_keys.append(key_id)
+            else:
+                audit.unexpected_trainable.append(
+                    f"pool.keys[{key_id}] is a frozen candidate origin key"
+                )
         else:
             audit.frozen_historical_keys.append(key_id)
     audit.frozen_historical_experts = sorted(
@@ -205,7 +221,13 @@ def enforce_freeze_policy(
     for key_id, record in pool.key_records.items():
         should_train = (
             record["task_id"] == int(current_task)
-            and record["key_type"] == "task_alias"
+            and (
+                record["key_type"] == "task_alias"
+                or (
+                    record["key_type"] == "origin"
+                    and int(record["expert_id"]) in candidates
+                )
+            )
         )
         pool.set_key_trainable(key_id, should_train)
 
@@ -268,7 +290,13 @@ def capture_frozen_ledger(
     candidates = {int(value) for value in candidate_expert_ids}
     ledger = FrozenLedger()
     for key_id, record in pool.key_records.items():
-        is_historical = (
+        is_candidate_origin = (
+            int(record["expert_id"]) in candidates
+            and record["key_type"] == "origin"
+            and current_task is not None
+            and record["task_id"] == int(current_task)
+        )
+        is_historical = not is_candidate_origin and (
             record["key_type"] == "origin"
             or (current_task is not None and record["task_id"] != int(current_task))
         )

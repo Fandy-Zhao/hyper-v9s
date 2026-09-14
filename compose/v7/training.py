@@ -98,18 +98,25 @@ def selected_current_key_loss(
     selected_ids: Tensor,
     key_pool: V7ExpertKeyPool,
 ) -> Tuple[Tensor, Tensor]:
-    """Mean per-sample attraction over selected current keys; old keys excluded."""
+    """Mean per-sample attraction over the selected experts' *trainable* keys.
+
+    The filter used to be expert lifecycle (``expert_id in key_pool.current_ids``).
+    It is now **key trainability**: every selected expert contributes the terms
+    of its trainable route keys.  A candidate expert owns exactly one (its
+    candidate key); a reusable historical expert owns exactly one too (its
+    current-task reuse key), so this is unchanged for candidates while the reuse
+    key now receives the key-learning signal.  The frozen canonical key of a
+    historical expert is never trainable and therefore never receives gradient.
+    """
     if queries.ndim != 2 or selected_ids.shape != (queries.shape[0], 2):
         raise ValueError("queries and selected ids must be [B,D] and [B,2]")
     detached_queries = F.normalize(queries.detach().float(), dim=-1)
-    current = set(key_pool.current_ids)
     per_sample = []
     for row in range(queries.shape[0]):
         terms = []
         for expert_id in selected_ids[row].detach().cpu().tolist():
-            expert_id = int(expert_id)
-            if expert_id in current:
-                key = F.normalize(key_pool.keys[str(expert_id)], dim=0)
+            for key_id in key_pool.trainable_keys_of(int(expert_id)):
+                key = F.normalize(key_pool.keys[key_id], dim=0)
                 terms.append(1.0 - F.cosine_similarity(detached_queries[row], key, dim=0))
         per_sample.append(
             torch.stack(terms).mean()
@@ -118,6 +125,30 @@ def selected_current_key_loss(
         )
     values = torch.stack(per_sample)
     return values.mean(), values
+
+
+def selected_keys_of(result, key_pool: V7ExpertKeyPool) -> Tuple[Tuple[str, ...], ...]:
+    """Winning route key per slot of a routing result, for logging and audits."""
+    return tuple(result.key_ids)
+
+
+def trainable_selection(result, key_pool: V7ExpertKeyPool) -> Tuple[str, ...]:
+    """The trainable route keys a routing result may update.
+
+    The key loss attracts *every* trainable key of a selected expert, so the
+    update set is the union of ``trainable_keys_of`` over the selected experts
+    -- not only the keys that happened to win their slot.  For a candidate
+    expert the two coincide; for a reusable historical expert whose frozen
+    canonical key won the slot, this is exactly what lets its reuse key learn.
+    """
+    selected = {int(value) for row in result.expert_ids.detach().cpu().tolist() for value in row}
+    return tuple(
+        sorted(
+            key_id
+            for expert_id in selected
+            for key_id in key_pool.trainable_keys_of(expert_id)
+        )
+    )
 
 
 def _grad_norm(parameters: Iterable[Tensor]) -> float:
@@ -129,12 +160,20 @@ def _grad_norm(parameters: Iterable[Tensor]) -> float:
 
 
 def assert_historical_key_gradients_frozen(key_pool: V7ExpertKeyPool) -> None:
-    for expert_id in key_pool.historical_ids:
-        parameter = key_pool.keys[str(expert_id)]
+    """No *frozen* route key may be trainable or carry a non-zero gradient.
+
+    Key-level, not expert-level: a reusable historical expert legitimately owns
+    one trainable reuse key (lifecycle ``current``), while its canonical key and
+    every previously committed reuse key stay frozen.
+    """
+    for key_id in key_pool.key_ids:
+        if key_pool.route_keys[key_id].lifecycle != "historical":
+            continue
+        parameter = key_pool.keys[key_id]
         if parameter.requires_grad:
-            raise AssertionError("historical key {} is trainable".format(expert_id))
+            raise AssertionError("historical key {} is trainable".format(key_id))
         if parameter.grad is not None and bool(parameter.grad.detach().ne(0).any()):
-            raise AssertionError("historical key {} received gradient".format(expert_id))
+            raise AssertionError("historical key {} received gradient".format(key_id))
 
 
 def adapter_checksums(manager, expert_ids: Iterable[int]) -> Dict[int, str]:
@@ -217,7 +256,11 @@ class V7StepEngine:
             set(routed.expert_ids.detach().cpu().view(-1).tolist())
             & set(self.key_pool.current_ids)
         )
-        no_trainable_selected = not current_selected
+        selected_trainable_keys = trainable_selection(routed, self.key_pool)
+        # "Old+Old" used to mean "no expert graph at all".  With reuse keys a
+        # historical+historical route can still own one: the route is a no-op
+        # only when nothing trainable was put forward.
+        no_trainable_selected = not selected_trainable_keys and not current_selected
         if no_trainable_selected:
             self.old_old_noop_steps += 1
         metrics = {
@@ -229,14 +272,17 @@ class V7StepEngine:
             "route_types": list(routed.route_types),
             "selected_expert_ids": routed.expert_ids.detach().cpu().tolist(),
             "selected_current_ids": current_selected,
+            "selected_key_ids": [list(row) for row in routed.key_ids],
+            "selected_key_types": [list(row) for row in routed.key_types],
+            "selected_trainable_key_ids": list(selected_trainable_keys),
             "old_old_noop": no_trainable_selected,
         }
         return total, metrics, routed
 
     def backward(self, total: Tensor, metrics: Dict[str, object]) -> bool:
         if bool(metrics["old_old_noop"]):
-            # There is intentionally no expert graph for Old+Old. Returning
-            # without backward makes the optimizer step a safe no-op.
+            # Nothing trainable was selected. Returning without backward makes
+            # the optimizer step a safe no-op.
             return False
         total.backward()
         assert_historical_key_gradients_frozen(self.key_pool)
@@ -244,19 +290,25 @@ class V7StepEngine:
             assert_historical_lora_frozen(
                 self.adapter_manager, self.key_pool.historical_ids
             )
-        selected = set(int(value) for value in metrics["selected_current_ids"])
+        selected_experts = {
+            int(value) for row in metrics["selected_expert_ids"] for value in row
+        }
+        updated_keys = set(metrics["selected_trainable_key_ids"])
         metrics["selected_current_key_grad_norm"] = _grad_norm(
-            self.key_pool.keys[str(value)] for value in selected
+            self.key_pool.keys[key_id] for key_id in sorted(updated_keys)
         )
-        unselected = set(self.key_pool.current_ids) - selected
-        for expert_id in unselected:
-            gradient = self.key_pool.keys[str(expert_id)].grad
+        # Gradient isolation is now key-level: a trainable key may only move if
+        # its expert was selected in this micro-batch.
+        for key_id in self.key_pool.trainable_key_ids:
+            if key_id in updated_keys:
+                continue
+            gradient = self.key_pool.keys[key_id].grad
             if gradient is not None and bool(gradient.detach().ne(0).any()):
-                raise AssertionError("unselected current key received gradient")
+                raise AssertionError("unselected trainable key received gradient")
         if self.adapter_manager is not None:
             metrics["selected_current_lora_grad_norm"] = _grad_norm(
                 parameter
-                for expert_id in selected
+                for expert_id in sorted(selected_experts)
                 for layer in self.adapter_manager.layers.values()
                 for parameter in layer.experts[str(expert_id)].parameters()
             )

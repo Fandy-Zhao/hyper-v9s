@@ -83,6 +83,11 @@ class TrainBatch:
     sample_ids: List[str]
     state_by_sample: Mapping[str, str]
     experts_by_sample: Mapping[str, Sequence[int]]
+    # On Residual rows the teacher contributes zero/one historical context
+    # expert and the current task contributes exactly one candidate.  Keeping
+    # these identities separate prevents a two-historical-expert route from
+    # masquerading as the legal context+candidate composition.
+    candidate_by_sample: Mapping[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.sample_ids = [str(value) for value in self.sample_ids]
@@ -95,6 +100,13 @@ class TrainBatch:
         ]
         if missing:
             raise TrainerError(f"batch is missing states/routes for {missing[:5]}")
+        for sample_id in self.sample_ids:
+            candidate = self.candidate_by_sample.get(sample_id)
+            state = self.state_by_sample[sample_id]
+            if candidate is not None and state != "Residual":
+                raise TrainerError(
+                    f"covered sample {sample_id} may not select candidate {candidate}"
+                )
 
 
 @dataclass
@@ -243,9 +255,14 @@ class V8TaskTrainer:
                 ):
                     named["candidate{}.{}.{}".format(expert_id, layer_name, name)] = parameter
         for key_id, record in sorted(self.pool.key_records.items()):
+            is_alias = record["key_type"] == "task_alias"
+            is_candidate_origin = (
+                record["key_type"] == "origin"
+                and int(record["expert_id"]) in self.candidate_expert_ids
+            )
             if (
                 record["task_id"] == self.current_task
-                and record["key_type"] == "task_alias"
+                and (is_alias or is_candidate_origin)
                 and record["lifecycle"] != "pruned"
             ):
                 named[key_id] = self.pool.keys[key_id]
@@ -333,9 +350,7 @@ class V8TaskTrainer:
 
         for index, batch in enumerate(batches):
             weights = residual_weights(batch.sample_ids, batch.state_by_sample)
-            selection = build_selection(
-                batch.sample_ids, batch.state_by_sample, batch.experts_by_sample
-            )
+            selection = self._training_selection(batch)
             with use_selection(selection):
                 per_sample = self.forward_fn(batch.sample_ids)
             if per_sample.ndim != 1 or per_sample.shape[0] != len(batch.sample_ids):
@@ -343,7 +358,9 @@ class V8TaskTrainer:
                     "forward_fn must return one NLL per sample in batch order; "
                     "got {}".format(tuple(per_sample.shape))
                 )
-            loss = residual_answer_loss(per_sample, weights)
+            weights = weights.to(device=per_sample.device, dtype=per_sample.dtype)
+            answer_loss = residual_answer_loss(per_sample, weights)
+            loss = answer_loss
             key_report = None
             batch_targets = None
             if use_keys:
@@ -356,21 +373,29 @@ class V8TaskTrainer:
                 key_report = alias_key_loss(
                     self.queries_by_sample, self.pool, batch_targets, self.key_config
                 )
-                loss = loss + key_report.total
+                candidate_key_loss = self._candidate_key_loss(batch)
+                loss = loss + float(self.config.training.lambda_key) * (
+                    key_report.total + candidate_key_loss
+                )
             # A batch whose samples are all covered (BaseOnly / Reuse1 / Reuse2)
             # selects nothing trainable, so the loss is a constant zero with no
             # graph behind it -- and that is the *point* of the gating, not an
             # error.  Calling backward() on it would raise instead of recording
             # "nothing moved", which is the fact the report exists to state.
             if loss.requires_grad:
-                loss.backward()
+                # Reentrant gradient checkpointing replays decoder forwards
+                # during backward.  Keep the same per-sample expert selection
+                # active for that replay; otherwise it silently recomputes the
+                # backbone-only path and candidate LoRAs receive no gradient.
+                with self.manager.checkpoint_replay_context(selection):
+                    loss.backward()
             self._record_gradient_footprint()
             self.optimizer.step()
             self.optimizer.zero_grad(set_to_none=True)
             self.global_step += 1
 
             report.micro_batches += 1
-            report.answer_loss_sum += float(loss.detach().item())
+            report.answer_loss_sum += float(answer_loss.detach().item())
             report.sample_count += len(batch.sample_ids)
             report.residual_samples += int((weights > 0).sum().item())
             report.covered_samples += int((weights == 0).sum().item())
@@ -407,6 +432,11 @@ class V8TaskTrainer:
 
         report.gradient_experts = sorted(self._gradient_experts)
         report.gradient_keys = sorted(self._gradient_keys)
+        if report.residual_samples and not report.gradient_experts:
+            raise GradientGatingError(
+                "Residual samples were present but no candidate LoRA received "
+                "a non-zero gradient; refusing to commit a key-only V8-B run"
+            )
         report.frozen_gradient_offenders = self.frozen_gradient_offenders()
         if report.frozen_gradient_offenders:
             raise GradientGatingError(
@@ -416,6 +446,81 @@ class V8TaskTrainer:
             )
         self.last_targets = targets
         return report
+
+    def _training_selection(self, batch: TrainBatch):
+        """Append the current candidate only on Residual rows.
+
+        ``experts_by_sample`` remains the teacher route (selected solver or
+        residual context).  This method is the single assembly point where the
+        candidate consumes the spare Top-2 slot.
+        """
+        routes = {
+            str(sample_id): [int(value) for value in batch.experts_by_sample[sample_id]]
+            for sample_id in batch.sample_ids
+        }
+        for sample_id, candidate in batch.candidate_by_sample.items():
+            sample_id = str(sample_id)
+            if sample_id not in routes:
+                continue
+            if int(candidate) not in self.candidate_expert_ids:
+                raise TrainerError(
+                    f"sample {sample_id} selects non-candidate expert {candidate}"
+                )
+            if int(candidate) in routes[sample_id]:
+                raise TrainerError(f"sample {sample_id} repeats candidate {candidate}")
+            routes[sample_id].append(int(candidate))
+            if len(routes[sample_id]) > 2:
+                raise TrainerError(
+                    f"Residual sample {sample_id} exceeds the Top-2 budget"
+                )
+
+        # ``build_selection`` validates the teacher-state cardinality before
+        # the candidate is appended, so construct the final two-slot tensor via
+        # the manager after validating every teacher route above.
+        from compose.v8.selection import validate_state
+        from compose.adapters.types import (
+            ComposeSelection, MAX_ACTIVE_EXPERTS, PAD_EXPERT_ID,
+        )
+
+        ids = torch.full(
+            (len(batch.sample_ids), MAX_ACTIVE_EXPERTS),
+            PAD_EXPERT_ID, dtype=torch.long,
+        )
+        gates = torch.zeros(
+            (len(batch.sample_ids), MAX_ACTIVE_EXPERTS), dtype=torch.float32
+        )
+        for row, sample_id in enumerate(batch.sample_ids):
+            validate_state(
+                batch.state_by_sample[sample_id], batch.experts_by_sample[sample_id]
+            )
+            for slot, expert_id in enumerate(routes[str(sample_id)]):
+                ids[row, slot] = int(expert_id)
+                gates[row, slot] = 1.0
+        return ComposeSelection(ids, gates, normalization="none")
+
+    def _candidate_key_loss(self, batch: TrainBatch) -> torch.Tensor:
+        """Attract each selected candidate origin key to its Residual query."""
+        terms = []
+        for sample_id, candidate in batch.candidate_by_sample.items():
+            sample_id = str(sample_id)
+            if sample_id not in batch.sample_ids:
+                continue
+            if batch.state_by_sample[sample_id] != "Residual":
+                continue
+            if sample_id not in self.queries_by_sample:
+                raise TrainerError(f"missing query for Residual sample {sample_id}")
+            key_id = self.pool.origin_key_id(int(candidate))
+            key = torch.nn.functional.normalize(
+                self.pool.keys[key_id].float().reshape(-1), dim=-1
+            )
+            query = torch.nn.functional.normalize(
+                self.queries_by_sample[sample_id].detach().float().reshape(-1), dim=-1
+            )
+            terms.append(1.0 - torch.dot(query, key))
+        if terms:
+            return torch.stack(terms).mean()
+        reference = next(iter(self.pool.parameters()))
+        return reference.new_zeros(())
 
     # ------------------------------------------------------------------
     def _record_gradient_footprint(self) -> None:
@@ -462,13 +567,15 @@ class V8TaskTrainer:
 
         def forward_backward(batch: TrainBatch) -> Dict[str, Optional[torch.Tensor]]:
             weights = residual_weights(batch.sample_ids, batch.state_by_sample)
-            selection = build_selection(
-                batch.sample_ids, batch.state_by_sample, batch.experts_by_sample
-            )
+            selection = self._training_selection(batch)
             self.optimizer.zero_grad(set_to_none=True)
             with use_selection(selection):
                 per_sample = self.forward_fn(batch.sample_ids)
-            residual_answer_loss(per_sample, weights).backward()
+            weights = weights.to(device=per_sample.device, dtype=per_sample.dtype)
+            # See train_epoch(): checkpoint replay must observe the identical
+            # selection used by the original forward.
+            with self.manager.checkpoint_replay_context(selection):
+                residual_answer_loss(per_sample, weights).backward()
             return {
                 name: (
                     named[name].grad.detach().clone()

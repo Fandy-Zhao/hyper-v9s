@@ -39,6 +39,43 @@ class LlavaLlamaModel(LlavaMetaModel, LlamaModel):
         super(LlavaLlamaModel, self).__init__(config)
 
 
+def sum_of_per_sample_token_means(
+    logits: torch.Tensor, labels: torch.Tensor
+) -> torch.Tensor:
+    """Sum each sample's mean answer-token loss over the batch.
+
+    A per-micro-batch *sum* of per-sample means -- the batch-scaled form of the
+    loss every caller gets at batch size one, where a sum and a mean coincide.
+    A caller that needs the objective to be invariant to the micro-batch width
+    has to divide by that width, and only the trainer knows it, so the division
+    lives there (``compose/v7/hf_trainer.py``).
+
+    Shared deliberately: ``ComposeLlavaForCausalLM`` is a *sibling* of
+    ``LlavaLlamaForCausalLM`` rather than a subclass, so a branch written into
+    one ``forward`` is simply absent from the other.  That is how the V8 runs
+    came to ask for this loss on every step and never receive it, which left the
+    answer term a token-weighted batch mean while the key term was a batch sum,
+    and so made the effective loss weight move with the micro-batch width.  Two
+    call sites against one implementation keeps that from silently diverging
+    again.
+    """
+    shift_logits = logits[:, :-1].contiguous()
+    shift_labels = labels[:, 1:].contiguous().to(shift_logits.device)
+    valid = shift_labels.ne(-100)
+    counts = valid.sum(dim=1)
+    if bool(counts.eq(0).any()):
+        raise ValueError(
+            "every V7 sample requires at least one supervised answer token"
+        )
+    token_losses = F.cross_entropy(
+        shift_logits.view(-1, shift_logits.shape[-1]),
+        shift_labels.view(-1),
+        ignore_index=-100,
+        reduction="none",
+    ).view_as(shift_labels)
+    return (token_losses * valid).sum(dim=1).div(counts).sum()
+
+
 class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
     config_class = LlavaConfig
 
@@ -221,21 +258,7 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
         if v7_sum_per_sample_loss and labels is not None and labels.shape[0] > 1:
             if return_dict is False:
                 raise ValueError("V7 per-sample loss requires return_dict output")
-            shift_logits = outputs.logits[:, :-1].contiguous()
-            shift_labels = labels[:, 1:].contiguous().to(shift_logits.device)
-            valid = shift_labels.ne(-100)
-            counts = valid.sum(dim=1)
-            if bool(counts.eq(0).any()):
-                raise ValueError(
-                    "every V7 sample requires at least one supervised answer token"
-                )
-            token_losses = F.cross_entropy(
-                shift_logits.view(-1, shift_logits.shape[-1]),
-                shift_labels.view(-1),
-                ignore_index=-100,
-                reduction="none",
-            ).view_as(shift_labels)
-            outputs.loss = (token_losses * valid).sum(dim=1).div(counts).sum()
+            outputs.loss = sum_of_per_sample_token_means(outputs.logits, labels)
         routing_mode = getattr(self.config, "modality_routing_mode", "task")
         if self.training and routing_mode == "sample":
             router_loss = getattr(self, "router_aux_loss", None)

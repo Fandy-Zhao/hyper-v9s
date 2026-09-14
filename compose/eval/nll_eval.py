@@ -18,6 +18,12 @@ from typing import Dict, List
 
 import torch
 from compose.adapters.types import ComposeSelection, pad_selection
+from compose.eval.evidence_cache import (
+    EvidenceCache,
+    evidence_key,
+    scoring_fingerprint,
+    split_by_cache,
+)
 from compose.eval.load_compose import load_compose_model
 from compose.eval.sharding import partial_path, shard_records
 from compose.train.arguments import DataArguments
@@ -64,10 +70,34 @@ def main() -> None:
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument(
+        "--evidence-cache",
+        default=None,
+        help="directory of per-(sample, expert-set) NLL evidence to reuse "
+        "across pruning jobs; absent means compute everything (unchanged "
+        "behaviour), a hit returns a previously computed value verbatim",
+    )
     args = parser.parse_args()
 
     with open(args.selections, "r", encoding="utf-8") as handle:
         selections = json.load(handle)
+    cache = EvidenceCache(
+        args.evidence_cache,
+        lambda: scoring_fingerprint(
+            checkpoint_dir=args.checkpoint_dir,
+            question_file=args.question_file,
+            model_path=args.model_path,
+            vision_tower=args.vision_tower,
+            projector_path=args.projector_path,
+            runtime_contract=args.runtime_contract,
+            scoring={
+                "kind": "answer_nll",
+                "image_aspect_ratio": args.image_aspect_ratio,
+                "conv_mode": "vicuna_v1",
+                "batch_size": args.batch_size,
+            },
+        ),
+    )
     bundle = load_compose_model(
         model_path=args.model_path,
         checkpoint_dir=args.checkpoint_dir,
@@ -115,53 +145,69 @@ def main() -> None:
         sample_id = str(record.get("id", record.get("question_id")))
         if sample_id not in selections:
             continue
-        batch = collator([dataset[record_index]])
-        input_ids = batch["input_ids"].to(args.device)
-        attention_mask = batch["attention_mask"].to(args.device)
-        labels = batch["labels"].to(args.device)
-        images = batch["images"].to(args.device, dtype=torch.bfloat16)
-        # Expand labels in lockstep with the multimodal sequence so they
-        # align with the forward logits (image patch tokens included).
-        expanded = model.prepare_inputs_labels_for_multimodal(
-            input_ids=input_ids,
-            position_ids=None,
-            attention_mask=attention_mask,
-            past_key_values=None,
-            labels=labels,
-            images=images,
-        )
-        prepared_ids = expanded[0]
-        prepared_attention_mask = expanded[2]
-        prepared_inputs_embeds = expanded[4]
-        prepared_labels = expanded[5]
-        supervised_token_count = int(supervised_token_mask(prepared_labels).sum().item())
-        if supervised_token_count <= 0:
-            raise ValueError("record {} has zero supervised answer tokens".format(sample_id))
-
-        per_set = {}
-        for set_key, expert_ids in sorted(selections[sample_id].items()):
-            ids = [int(value) for value in expert_ids]
-            padded_ids, padded_gates = pad_selection(tuple(ids), tuple(1.0 for _ in ids))
-            selection = ComposeSelection(
-                torch.tensor([padded_ids], dtype=torch.long),
-                torch.tensor([padded_gates], dtype=torch.float32),
+        requests = [
+            (set_key, [int(value) for value in expert_ids])
+            for set_key, expert_ids in sorted(selections[sample_id].items())
+        ]
+        per_set, pending = split_by_cache(cache, sample_id, requests)
+        if pending:
+            batch = collator([dataset[record_index]])
+            input_ids = batch["input_ids"].to(args.device)
+            attention_mask = batch["attention_mask"].to(args.device)
+            labels = batch["labels"].to(args.device)
+            images = batch["images"].to(args.device, dtype=torch.bfloat16)
+            # Expand labels in lockstep with the multimodal sequence so they
+            # align with the forward logits (image patch tokens included).
+            expanded = model.prepare_inputs_labels_for_multimodal(
+                input_ids=input_ids,
+                position_ids=None,
+                attention_mask=attention_mask,
+                past_key_values=None,
+                labels=labels,
+                images=images,
             )
-            with torch.inference_mode(), bundle.expert_pool.manager.selection_context(selection):
-                outputs = model(
-                    input_ids=prepared_ids,
-                    inputs_embeds=prepared_inputs_embeds,
-                    attention_mask=prepared_attention_mask,
-                    labels=prepared_labels,
-                    return_dict=True,
+            prepared_ids = expanded[0]
+            prepared_attention_mask = expanded[2]
+            prepared_inputs_embeds = expanded[4]
+            prepared_labels = expanded[5]
+            supervised_token_count = int(supervised_token_mask(prepared_labels).sum().item())
+            if supervised_token_count <= 0:
+                raise ValueError("record {} has zero supervised answer tokens".format(sample_id))
+
+            for set_key, ids in pending:
+                padded_ids, padded_gates = pad_selection(tuple(ids), tuple(1.0 for _ in ids))
+                selection = ComposeSelection(
+                    torch.tensor([padded_ids], dtype=torch.long),
+                    torch.tensor([padded_gates], dtype=torch.float32),
                 )
-            logits = outputs.logits
-            nll = teacher_forcing_token_nll(logits, prepared_labels)
-            per_set[set_key] = {
-                "mean_answer_nll": float(nll),
-                "supervised_token_count": supervised_token_count,
-                "supervision_contract": "compose_train_preprocess_v1_shifted",
-                "eos_policy": "same_as_training_labels",
-            }
+                with torch.inference_mode(), bundle.expert_pool.manager.selection_context(selection):
+                    outputs = model(
+                        input_ids=prepared_ids,
+                        inputs_embeds=prepared_inputs_embeds,
+                        attention_mask=prepared_attention_mask,
+                        labels=prepared_labels,
+                        return_dict=True,
+                    )
+                logits = outputs.logits
+                nll = teacher_forcing_token_nll(logits, prepared_labels)
+                payload = {
+                    "mean_answer_nll": float(nll),
+                    "supervised_token_count": supervised_token_count,
+                    "supervision_contract": "compose_train_preprocess_v1_shifted",
+                    "eos_policy": "same_as_training_labels",
+                }
+                per_set[set_key] = payload
+                cache.put(evidence_key(sample_id, ids), payload)
+        # The zero-supervision guard is re-asserted from the evidence itself so
+        # a fully cached sample is checked exactly as a freshly computed one.
+        for payload in per_set.values():
+            if int(payload["supervised_token_count"]) <= 0:
+                raise ValueError(
+                    "record {} has zero supervised answer tokens".format(sample_id)
+                )
+        # Rebuild in sorted key order so the recorded mapping -- and therefore
+        # the printed line -- does not depend on which entries were cache hits.
+        per_set = {key: per_set[key] for key in sorted(per_set)}
         results[sample_id] = per_set
         print(
             "  sample {}: {}".format(
@@ -178,6 +224,8 @@ def main() -> None:
     print("NLL results written to {} (shard {}/{})".format(
         target, args.shard_index, args.num_shards
     ))
+    if cache.enabled:
+        print("evidence cache {}: {}".format(cache.root, cache.stats()))
 
 
 if __name__ == "__main__":

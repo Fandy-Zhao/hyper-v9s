@@ -134,7 +134,27 @@ def _evaluate_gpu_queue(gpu, cells, root, formal, method, python,
         )
         answers.parent.mkdir(parents=True, exist_ok=True)
         log_path = answers.with_name("generation.log")
-        if not answers.is_file():
+        expected_count = len(json.loads(
+            Path(formal["tasks"][task]["test_file"]).read_text(encoding="utf-8")
+        ))
+        existing_count = (
+            sum(1 for line in answers.open(encoding="utf-8") if line.strip())
+            if answers.is_file() else 0
+        )
+        if existing_count != expected_count:
+            if answers.is_file():
+                backup = answers.with_name(
+                    "answers.incomplete_{}of{}.jsonl".format(
+                        existing_count, expected_count
+                    )
+                )
+                if backup.exists():
+                    raise RuntimeError(
+                        "refusing to overwrite prior incomplete answers: {}".format(
+                            backup
+                        )
+                    )
+                answers.replace(backup)
             env = dict(os.environ, CUDA_VISIBLE_DEVICES=gpu)
             with log_path.open("a", encoding="utf-8") as log:
                 completed = subprocess.run(
@@ -146,7 +166,17 @@ def _evaluate_gpu_queue(gpu, cells, root, formal, method, python,
                         stage, task, gpu, log_path
                     )
                 )
-        metric = _score_answers(root, stage, task, answers)
+        # The source evaluator's module-level test paths refer to the old
+        # server. Always score against the formal config's target-local test
+        # asset. Caption tasks require the colocated COCO annotation rather
+        # than their instruction JSON.
+        annotation = Path(formal["tasks"][task]["test_file"])
+        coco_annotation = annotation.with_name("val_coco_type_3000.json")
+        if coco_annotation.is_file():
+            annotation = coco_annotation
+        metric = _score_answers(
+            root, stage, task, answers, annotation_file=str(annotation)
+        )
         results.append((stage, metric))
     return results
 
@@ -173,6 +203,11 @@ def main():
     parser.add_argument("--gpus", default="0,1,2")
     parser.add_argument("--python", default=os.environ.get("PYTHON", "python"))
     parser.add_argument(
+        "--stage-task", type=int,
+        help="evaluate only the completed lower-triangle row A[t][0..t]; "
+             "default evaluates all six completed rows",
+    )
+    parser.add_argument(
         "--cache-manifest",
         help="fixed-query cache manifest; cells then route from cache rows "
         "(--selection-manifest) with zero encoder calls instead of live CLIP",
@@ -196,14 +231,21 @@ def main():
         raise ValueError("formal V7 evaluation requires distinct GPUs")
     if args.cache_manifest is not None and not gpus:
         raise ValueError("cached formal evaluation requires at least one GPU")
-    if args.cache_manifest is None and len(gpus) != 3:
-        raise ValueError("formal V7 evaluation requires exactly three distinct GPUs")
-    for stage in range(6):
+    if args.cache_manifest is None and len(gpus) not in (3, 4):
+        raise ValueError("formal V7 evaluation requires three or four distinct GPUs")
+    if args.stage_task is None:
+        stages = list(range(6))
+    else:
+        if not 0 <= args.stage_task < 6:
+            raise ValueError("--stage-task must be in [0, 5]")
+        stages = [args.stage_task]
+    for stage in stages:
         if not (root / "task{}".format(stage) / "task_complete.json").is_file():
             raise FileNotFoundError("Task{} is not complete".format(stage))
 
+    cells = [(stage, task) for stage in stages for task in range(stage + 1)]
     queues = [[] for _ in gpus]
-    for index, cell in enumerate(lower_triangle_cells()):
+    for index, cell in enumerate(cells):
         queues[index % len(gpus)].append(cell)
     collected = []
     with ThreadPoolExecutor(max_workers=len(gpus)) as executor:
@@ -217,7 +259,7 @@ def main():
         for future in as_completed(futures):
             collected.extend(future.result())
 
-    for stage in range(6):
+    for stage in stages:
         metrics = [metric for owner, metric in collected if owner == stage]
         metrics.sort(key=lambda value: value["task_id"])
         if len(metrics) != stage + 1:
@@ -227,7 +269,10 @@ def main():
     matrix_path = root / "evaluation" / "continual_matrix.json"
     matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
     _write_markdown(root, matrix)
-    print("completed exactly 21 V7 lower-triangle cells")
+    if args.stage_task is None:
+        print("completed exactly 21 V7 lower-triangle cells")
+    else:
+        print("completed V7 lower-triangle row A[{}][0..{}]".format(args.stage_task, args.stage_task))
 
 
 if __name__ == "__main__":

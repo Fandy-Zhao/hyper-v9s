@@ -251,10 +251,19 @@ class DataCollatorForSupervisedDataset:
             raise ValueError(
                 "samples have zero supervised tokens after truncation: {}".format(details)
             )
+        attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
         batch = {
             "input_ids": input_ids,
             "labels": labels,
-            "attention_mask": input_ids.ne(self.tokenizer.pad_token_id),
+            "attention_mask": attention_mask,
+            # (samples, valid tokens, padded tokens) as plain ints.  The
+            # profiler reports the padding ratio from these, and it must not
+            # sync the device to do it -- the trainer reads ints, not tensors.
+            "token_stats": (
+                int(input_ids.shape[0]),
+                int(attention_mask.sum().item()),
+                int(input_ids.numel()),
+            ),
         }
         if "image" in instances[0]:
             images = [instance["image"] for instance in instances]
@@ -346,35 +355,93 @@ class ComposeSelectionCollator:
 
 
 class V7QueryDataset(LazySupervisedDataset):
-    """Full train split joined one-to-one with fixed 1536-D query cache."""
+    """Full train split joined one-to-one with fixed 1536-D query cache.
 
-    def __init__(self, data_path, tokenizer, data_args, query_cache) -> None:
+    Two interchangeable sources:
+
+    * ``query_cache`` -- the legacy per-sample JSON document (``train.json``,
+      ~1.3 GB for a 40 k split, parsed whole at startup).
+    * ``query_tensor`` -- the pipeline's own ``queries.pt`` artefact, one
+      contiguous ``[N, 1536]`` float32 tensor plus its ``sample_ids``.
+
+    The tensor path is preferred when available: it is the same data (verified
+    by :mod:`compose.experiments.verify_query_tensor`), costs a fraction of the
+    parse time and holds one tensor instead of N Python lists.  Both paths
+    produce the identical ``fixed_query`` value for every sample.
+    """
+
+    def __init__(
+        self, data_path, tokenizer, data_args, query_cache, query_tensor=None
+    ) -> None:
         super().__init__(data_path, tokenizer, data_args)
-        records = query_cache.get("records", query_cache)
-        self.fixed_queries = {}
-        for sample_id, value in records.items():
-            query = value.get("query", value) if isinstance(value, dict) else value
-            tensor = torch.tensor(query, dtype=torch.float32)
-            if tensor.shape != (1536,):
-                raise ValueError("V7 cached query {} is not 1536-D".format(sample_id))
-            self.fixed_queries[str(sample_id)] = tensor
-        dataset_ids = [str(record.get("id", index)) for index, record in enumerate(self.records)]
-        missing = [sample_id for sample_id in dataset_ids if sample_id not in self.fixed_queries]
-        if missing:
-            raise ValueError("V7 query cache misses {} train samples".format(len(missing)))
-        if len(dataset_ids) != len(self.fixed_queries):
-            raise ValueError(
-                "V7 full-data query coverage mismatch: train={}, cache={}".format(
-                    len(dataset_ids), len(self.fixed_queries)
+        dataset_ids = [
+            str(record.get("id", index))
+            for index, record in enumerate(self.records)
+        ]
+        self.query_tensor_hash = None
+        if query_tensor is not None:
+            self.fixed_queries, self._query_rows, self.query_tensor_hash = query_tensor
+            missing = [
+                sample_id
+                for sample_id in dataset_ids
+                if sample_id not in self._query_rows
+            ]
+            if missing:
+                raise ValueError(
+                    "V7 query tensor misses {} train samples (first: {}); the "
+                    "cache is stale, regenerate it with "
+                    "compose.eval.precompute_v7_queries".format(
+                        len(missing), missing[:3]
+                    )
                 )
-            )
+            if len(dataset_ids) != len(self._query_rows):
+                raise ValueError(
+                    "V7 full-data query coverage mismatch: train={}, tensor={}".format(
+                        len(dataset_ids), len(self._query_rows)
+                    )
+                )
+        else:
+            records = query_cache.get("records", query_cache)
+            self.fixed_queries = {}
+            for sample_id, value in records.items():
+                query = value.get("query", value) if isinstance(value, dict) else value
+                tensor = torch.tensor(query, dtype=torch.float32)
+                if tensor.shape != (1536,):
+                    raise ValueError(
+                        "V7 cached query {} is not 1536-D".format(sample_id)
+                    )
+                self.fixed_queries[str(sample_id)] = tensor
+            self._query_rows = None
+            missing = [
+                sample_id
+                for sample_id in dataset_ids
+                if sample_id not in self.fixed_queries
+            ]
+            if missing:
+                raise ValueError(
+                    "V7 query cache misses {} train samples".format(len(missing))
+                )
+            if len(dataset_ids) != len(self.fixed_queries):
+                raise ValueError(
+                    "V7 full-data query coverage mismatch: train={}, cache={}".format(
+                        len(dataset_ids), len(self.fixed_queries)
+                    )
+                )
 
     def __getitem__(self, index):
         item = super().__getitem__(index)
         sample_id = str(self.records[index].get("id", index))
         item["sample_id"] = sample_id
-        item["fixed_query"] = self.fixed_queries[sample_id]
+        if self._query_rows is not None:
+            # Row view of the shared [N, 1536] tensor; the collator stacks it,
+            # which copies, so the batch value is unchanged.
+            item["fixed_query"] = self._query_rows_of(sample_id)
+        else:
+            item["fixed_query"] = self.fixed_queries[sample_id]
         return item
+
+    def _query_rows_of(self, sample_id):
+        return self.fixed_queries[self._query_rows[sample_id]]
 
 
 class V7QueryCollator:

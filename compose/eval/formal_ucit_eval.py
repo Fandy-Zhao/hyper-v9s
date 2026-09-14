@@ -41,7 +41,8 @@ from typing import Any, Dict, List, Optional
 
 from compose.data.records import question_text
 
-PYTHON = "/home/zhaozhuofan/miniconda3/envs/hyper/bin/python"
+PYTHON = os.environ.get("COMPOSE_PYTHON", sys.executable)
+REPO_ROOT = str(Path(__file__).resolve().parents[2])
 BASE_MODEL = "/data/ckpt/zhaozhuofan/models/llava-v1.5-7b"
 VISION_TOWER = "/data/ckpt/zhaozhuofan/models/clip-vit-large-patch14-336"
 PROJECTOR_PATH = os.path.join(BASE_MODEL, "mm_projector.bin")
@@ -237,7 +238,7 @@ def _score_answers(
         ],
         capture_output=True,
         text=True,
-        env=dict(os.environ, PYTHONPATH="/home/zhaozhuofan/Hyper-LlaVA"),
+        env=dict(os.environ, PYTHONPATH=REPO_ROOT + (":" + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else "")),
     )
     if result.returncode != 0:
         raise RuntimeError(

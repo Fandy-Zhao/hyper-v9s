@@ -135,7 +135,19 @@ def load_expert_checkpoint(
     pool: ExpertPool,
     checkpoint_dir: str,
     map_location: str = "cpu",
+    keep_ids: Optional[Iterable[int]] = None,
 ) -> Dict[str, object]:
+    """Load a Compose checkpoint, optionally instantiating only ``keep_ids``.
+
+    ``keep_ids`` is a memory lever for inference-only runs, not a change to
+    what the checkpoint contains: the manifest is still validated in full and
+    the tensor-count check still counts every expert.  Only the modules for
+    the listed ids are built, so an unlisted expert stays absent from
+    ``layer.experts`` and can never be selected.  Callers must obtain
+    ``keep_ids`` from the routing manifest (the experts the run actually
+    selects); guessing a smaller set would silently drop a selected expert
+    and fail loudly at selection time rather than silently score wrong.
+    """
     manifest_path = os.path.join(checkpoint_dir, MANIFEST_NAME)
     weights_path = os.path.join(checkpoint_dir, WEIGHTS_NAME)
     with open(manifest_path, "r", encoding="utf-8") as handle:
@@ -152,7 +164,7 @@ def load_expert_checkpoint(
                 sorted(expected_layers - actual_layers),
             )
         )
-    pool.restore_metadata(manifest["experts"])
+    pool.restore_metadata(manifest["experts"], keep_ids=keep_ids)
     state = torch.load(weights_path, map_location=map_location)
     if not isinstance(state, dict):
         raise TypeError("Compose checkpoint weights must be a tensor dictionary")
@@ -180,6 +192,8 @@ def load_expert_checkpoint(
         "loaded_tensor_count": len(state),
         "missing_tensor_count": 0,
         "unexpected_tensor_count": 0,
+        "instantiated_experts": sorted(pool.manager.expert_ids()),
+        "declared_experts": len(pool.expert_ids()),
     }
     return manifest
 

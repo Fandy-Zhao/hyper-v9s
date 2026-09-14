@@ -22,6 +22,7 @@ from llava.mm_utils import process_images, tokenizer_image_token
 
 from compose.data.records import question_text
 
+from .evidence_cache import EvidenceCache, evidence_key, scoring_fingerprint
 from .load_compose import load_compose_model, load_peft_model
 
 
@@ -39,6 +40,26 @@ def _git_commit() -> str:
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+
+
+def manifest_expert_union(path: str) -> List[int]:
+    """Every expert id a selection manifest can select, sorted.
+
+    This is the input to the subset load.  It must be a superset of what the
+    run selects -- ``ExpertManager._require_experts`` raises KeyError if a
+    selection names an id that was never instantiated, so an under-computed
+    union fails loudly at the first offending sample rather than silently
+    routing to the wrong expert.
+    """
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return sorted(
+        {
+            int(expert_id)
+            for row in payload.values()
+            for expert_id in row["global_top2"]
+        }
+    )
 
 
 def _prompt(record, model_config, conv_mode):
@@ -79,6 +100,22 @@ def main() -> None:
     parser.add_argument("--num-chunks", type=int, default=1)
     parser.add_argument("--chunk-idx", type=int, default=0)
     parser.add_argument(
+        "--fast-selection-plan", action="store_true",
+        help="reuse one validated ComposeSelection across all layers/tokens",
+    )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="append only missing sample IDs after validating --resume-contract",
+    )
+    parser.add_argument(
+        "--resume-contract",
+        help="JSON contract bound to an append-resumable answers file",
+    )
+    parser.add_argument(
+        "--audit-output-token-ids", action="store_true",
+        help="include generated token IDs in answer metadata for equivalence tests",
+    )
+    parser.add_argument(
         "--router-checkpoint", default=None,
         help="compose router checkpoint; when given, selection is per-sample "
              "ComposeRouter.select() (frozen query encoder + expert keys) "
@@ -92,6 +129,14 @@ def main() -> None:
         "--selection-manifest", default=None,
         help="precomputed per-sample expert IDs for validation remove-and-reroute",
     )
+    parser.add_argument(
+        "--load-only-manifest-experts",
+        action="store_true",
+        help="instantiate only the experts the selection manifest can select; "
+        "unselected experts hold a zero gate, so this is a pure memory saving "
+        "(it changes no coefficient), meant for shared GPUs where the full "
+        "23-expert pool does not fit alongside another tenant",
+    )
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--model-max-length", type=int, default=2048)
@@ -102,7 +147,40 @@ def main() -> None:
         help="explicit frozen CLIP model for router/V7 fixed-query inference",
     )
     parser.add_argument("--query-backbone-hash")
+    parser.add_argument(
+        "--evidence-cache",
+        default=None,
+        help="directory of per-(sample, expert-set) generated answers to reuse "
+        "across pruning jobs; only applies to --selection-manifest runs, which "
+        "are the ones whose evidence is keyed by a manifest entry",
+    )
     args = parser.parse_args()
+    if args.resume != (args.resume_contract is not None):
+        raise ValueError("--resume and --resume-contract must be used together")
+    if args.fast_selection_plan:
+        if args.adapter_kind != "compose":
+            raise ValueError("--fast-selection-plan requires --adapter-kind compose")
+        from compose.adapters.lora import set_fast_selection
+
+        set_fast_selection(True)
+    cache = EvidenceCache(
+        args.evidence_cache,
+        lambda: scoring_fingerprint(
+            checkpoint_dir=args.checkpoint_dir,
+            question_file=args.question_file,
+            model_path=args.model_path,
+            vision_tower=args.vision_tower,
+            projector_path=args.projector_path,
+            runtime_contract=args.runtime_contract,
+            scoring={
+                "kind": "generation",
+                "conv_mode": args.conv_mode,
+                "max_new_tokens": args.max_new_tokens,
+                "model_max_length": args.model_max_length,
+                "adapter_kind": args.adapter_kind,
+            },
+        ),
+    )
     routing_modes = sum(
         value is not None
         for value in (args.router_checkpoint, args.v7_key_state, args.selection_manifest)
@@ -115,6 +193,7 @@ def main() -> None:
         torch.cuda.manual_seed_all(42)
         torch.cuda.reset_peak_memory_stats(torch.device(args.device))
     started = time.time()
+    git_commit = _git_commit()
     common = dict(
         model_path=args.model_path,
         checkpoint_dir=args.checkpoint_dir,
@@ -124,6 +203,14 @@ def main() -> None:
         dtype=torch.bfloat16,
         model_max_length=args.model_max_length,
     )
+    expert_ids_to_load = None
+    if args.load_only_manifest_experts:
+        if args.selection_manifest is None:
+            raise ValueError(
+                "--load-only-manifest-experts requires --selection-manifest: the "
+                "manifest is what says which experts the run can select"
+            )
+        expert_ids_to_load = manifest_expert_union(args.selection_manifest)
     if args.adapter_kind == "compose":
         if (
             args.expert_ids is None
@@ -138,7 +225,9 @@ def main() -> None:
                 **common
             )
         else:
-            bundle = load_compose_model(expert_id=None, **common)
+            bundle = load_compose_model(
+                expert_id=None, expert_ids_to_load=expert_ids_to_load, **common
+            )
             # --router-checkpoint alone means per-sample selection: no fixed
             # expert ids (None), and the default gates follow.
             expert_ids = (
@@ -279,10 +368,122 @@ def main() -> None:
     if args.max_samples is not None:
         records = records[: args.max_samples]
     os.makedirs(os.path.dirname(os.path.abspath(args.answers_file)), exist_ok=True)
-    with open(args.answers_file, "w", encoding="utf-8") as output:
+    completed_ids = set()
+    answer_contract_path = args.answers_file + ".resume_contract.json"
+    if args.resume:
+        with open(args.resume_contract, "r", encoding="utf-8") as handle:
+            requested_contract = json.load(handle)
+        if os.path.exists(args.answers_file):
+            if not os.path.isfile(answer_contract_path):
+                raise RuntimeError(
+                    "existing answers have no resume contract: {}".format(
+                        answer_contract_path
+                    )
+                )
+            with open(answer_contract_path, "r", encoding="utf-8") as handle:
+                existing_contract = json.load(handle)
+            if existing_contract != requested_contract:
+                raise RuntimeError("resume contract mismatch for {}".format(args.answers_file))
+            with open(args.answers_file, "r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, 1):
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    sample_id = str(row.get("question_id"))
+                    if sample_id in completed_ids:
+                        raise RuntimeError(
+                            "duplicate question_id {} at line {}".format(
+                                sample_id, line_number
+                            )
+                        )
+                    completed_ids.add(sample_id)
+        else:
+            temporary_contract = answer_contract_path + ".tmp.{}".format(os.getpid())
+            with open(temporary_contract, "w", encoding="utf-8") as handle:
+                json.dump(requested_contract, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            os.replace(temporary_contract, answer_contract_path)
+    record_ids = {
+        str(record.get("question_id", record.get("id"))) for record in records
+    }
+    unexpected_ids = completed_ids - record_ids
+    if unexpected_ids:
+        raise RuntimeError(
+            "resumed answers contain IDs outside this shard: {}".format(
+                sorted(unexpected_ids)[:5]
+            )
+        )
+    generated_samples = 0
+    output_mode = "a" if args.resume else "w"
+    with open(args.answers_file, output_mode, encoding="utf-8") as output:
         selection_histogram = {0: 0, 1: 0, 2: 0}
         cross_task_pair_frequency = {}
         for record in tqdm(records):
+            sample_id = str(record.get("id", record.get("question_id")))
+            output_sample_id = str(record.get("question_id", record.get("id")))
+            if output_sample_id in completed_ids:
+                continue
+            # Resolve the manifest selection before any model work: the
+            # (sample, expert-set) pair is what the evidence is keyed by, and
+            # on a cache hit there is no image or prompt work to do at all.
+            manifest_ids = None
+            selection_meta = None
+            compose_selection = None
+            if selection_manifest is not None:
+                if sample_id not in selection_manifest:
+                    raise KeyError("selection manifest misses sample {}".format(sample_id))
+                row = selection_manifest[sample_id]
+                manifest_ids = [
+                    int(value)
+                    for value in (row.get("global_top2", row) if isinstance(row, dict) else row)
+                ]
+                if len(manifest_ids) != 2 or len(set(manifest_ids)) != 2:
+                    raise ValueError("V7 validation selection must contain two distinct experts")
+                if args.fast_selection_plan:
+                    bundle.expert_pool.manager.clear_default_selection()
+                    compose_selection = bundle.expert_pool.manager.make_selection(
+                        manifest_ids,
+                        batch_size=1,
+                        gates=[1.0, 1.0],
+                        device=torch.device(args.device),
+                    )
+                else:
+                    bundle.expert_pool.manager.set_default_selection(
+                        manifest_ids, [1.0, 1.0]
+                    )
+                selection_meta = {
+                    "expert_ids": manifest_ids,
+                    "selection_source": "precomputed_global_top2_validation",
+                    "answer_features_used": False,
+                    "oracle_used": False,
+                    "task_id_lookup_used": False,
+                    "clustering_used_at_test": False,
+                }
+            cached_text = (
+                cache.get(evidence_key(sample_id, manifest_ids)) if manifest_ids else None
+            )
+            if cached_text is not None:
+                output.write(
+                    json.dumps(
+                        {
+                            "question_id": str(record.get("question_id", record.get("id"))),
+                            "prompt": question_text(record),
+                            "text": cached_text,
+                            "model_id": args.adapter_kind,
+                            "metadata": {
+                                "checkpoint": args.checkpoint_dir,
+                                "git_commit": git_commit,
+                                "selection": selection_meta,
+                            },
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+                generated_samples += 1
+                if generated_samples % 16 == 0:
+                    output.flush()
+                continue
             prompt = _prompt(record, bundle.model.config, args.conv_mode)
             input_ids = tokenizer_image_token(
                 prompt, bundle.tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
@@ -293,25 +494,6 @@ def main() -> None:
             image_tensor = process_images(
                 [image], bundle.image_processor, bundle.model.config
             )[0].unsqueeze(0).to(device=args.device, dtype=torch.bfloat16)
-            selection_meta = None
-            if selection_manifest is not None:
-                sample_id = str(record.get("id", record.get("question_id")))
-                if sample_id not in selection_manifest:
-                    raise KeyError("selection manifest misses sample {}".format(sample_id))
-                row = selection_manifest[sample_id]
-                ids = row.get("global_top2", row) if isinstance(row, dict) else row
-                ids = [int(value) for value in ids]
-                if len(ids) != 2 or len(set(ids)) != 2:
-                    raise ValueError("V7 validation selection must contain two distinct experts")
-                bundle.expert_pool.manager.set_default_selection(ids, [1.0, 1.0])
-                selection_meta = {
-                    "expert_ids": ids,
-                    "selection_source": "precomputed_global_top2_validation",
-                    "answer_features_used": False,
-                    "oracle_used": False,
-                    "task_id_lookup_used": False,
-                    "clustering_used_at_test": False,
-                }
             if router is not None or v7_router is not None:
                 clip_inputs = clip_processor(
                     text=[question_text(record)],
@@ -336,9 +518,18 @@ def main() -> None:
                         selection = router.select(query, router.expert_ids)
                         ids = list(selection.sets[0])
                 if ids:
-                    bundle.expert_pool.manager.set_default_selection(
-                        ids, [1.0] * len(ids)
-                    )
+                    if args.fast_selection_plan:
+                        bundle.expert_pool.manager.clear_default_selection()
+                        compose_selection = bundle.expert_pool.manager.make_selection(
+                            ids,
+                            batch_size=1,
+                            gates=[1.0] * len(ids),
+                            device=torch.device(args.device),
+                        )
+                    else:
+                        bundle.expert_pool.manager.set_default_selection(
+                            ids, [1.0] * len(ids)
+                        )
                 else:
                     bundle.expert_pool.manager.clear_default_selection()
                 selection_histogram[len(ids)] = selection_histogram.get(len(ids), 0) + 1
@@ -369,6 +560,9 @@ def main() -> None:
                         "task_id_lookup_used": bool(selection.task_id_lookup_used),
                         "clustering_used_at_test": bool(selection.clustering_used_at_test),
                     }
+            generation_kwargs = {}
+            if compose_selection is not None:
+                generation_kwargs["compose_selection"] = compose_selection
             with torch.inference_mode():
                 output_ids = bundle.model.generate(
                     input_ids=input_ids,
@@ -377,11 +571,23 @@ def main() -> None:
                     num_beams=1,
                     max_new_tokens=args.max_new_tokens,
                     use_cache=True,
+                    **generation_kwargs
                 )
             input_length = input_ids.shape[1]
             text = bundle.tokenizer.batch_decode(
                 output_ids[:, input_length:], skip_special_tokens=True
             )[0].strip()
+            if manifest_ids:
+                cache.put(evidence_key(sample_id, manifest_ids), text)
+            answer_metadata = {
+                "checkpoint": args.checkpoint_dir,
+                "git_commit": git_commit,
+                "selection": selection_meta,
+            }
+            if args.audit_output_token_ids:
+                answer_metadata["output_token_ids"] = (
+                    output_ids[:, input_length:].detach().cpu().tolist()[0]
+                )
             output.write(
                 json.dumps(
                     {
@@ -391,16 +597,15 @@ def main() -> None:
                         "prompt": question_text(record),
                         "text": text,
                         "model_id": args.adapter_kind,
-                        "metadata": {
-                            "checkpoint": args.checkpoint_dir,
-                            "git_commit": _git_commit(),
-                            "selection": selection_meta,
-                        },
+                        "metadata": answer_metadata,
                     },
                     ensure_ascii=False,
                 )
                 + "\n"
             )
+            generated_samples += 1
+            if generated_samples % 16 == 0:
+                output.flush()
 
     duration = time.time() - started
     peak_memory = (
@@ -412,11 +617,14 @@ def main() -> None:
         "adapter_kind": args.adapter_kind,
         "checkpoint": args.checkpoint_dir,
         "command": sys.argv,
-        "git_commit": _git_commit(),
+        "git_commit": git_commit,
         "seed": 42,
         "samples": len(records),
+        "resumed_samples": len(completed_ids),
+        "generated_samples": generated_samples,
         "duration_seconds": duration,
-        "samples_per_second": len(records) / duration if duration else 0.0,
+        "samples_per_second": generated_samples / duration if duration else 0.0,
+        "fast_selection_plan": bool(args.fast_selection_plan),
         "peak_memory_bytes": peak_memory,
         "load_summary": bundle.load_summary,
         "selection_mode": (
@@ -434,6 +642,8 @@ def main() -> None:
         json.dump(summary, handle, indent=2, sort_keys=True)
         handle.write("\n")
     print(json.dumps(summary, sort_keys=True))
+    if cache.enabled:
+        print("evidence cache {}: {}".format(cache.root, cache.stats()))
 
 
 if __name__ == "__main__":

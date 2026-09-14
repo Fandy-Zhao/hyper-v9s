@@ -55,6 +55,35 @@ class OnlineMoments:
         sum_squares = float(torch.sum(data * data).item())
         self.merge(n, mean, m2, sum_squares)
 
+    @staticmethod
+    def device_moments(values: torch.Tensor):
+        """The same three reductions :meth:`update` runs, left on the device.
+
+        Returns ``(numel, mean, m2, sum_squares)`` where the three statistics
+        are 0-dim device tensors rather than Python floats, so a caller that
+        needs many moments can batch one synchronisation instead of three per
+        call.  The arithmetic is character-for-character the same as
+        :meth:`update`: the mean is reduced first and subtracted from the
+        data as a scalar, so ``data - mean`` computes the identical fp32
+        subtraction whether ``mean`` arrives as a Python float or as a 0-dim
+        tensor holding that same fp32 value.
+        """
+        data = values.detach().to(dtype=torch.float32).reshape(-1)
+        if data.numel() == 0:
+            return None
+        mean = data.mean()
+        centered = data - mean
+        return (
+            int(data.numel()),
+            mean,
+            torch.sum(centered * centered),
+            torch.sum(data * data),
+        )
+
+    def merge_device(self, numel: int, mean, m2, sum_squares) -> None:
+        """:meth:`merge` for the 0-dim tensors of :meth:`device_moments`."""
+        self.merge(numel, mean, m2, sum_squares)
+
     def merge(self, count: int, mean: float, m2: float, sum_squares: float) -> None:
         count = int(count)
         if count <= 0:
@@ -116,12 +145,25 @@ class RMSStatistics:
         self.provenance = dict(provenance)
         self.entries = {}  # type: Dict[str, Dict[str, Any]]
 
-    def update(self, key: StatisticKey, delta: torch.Tensor, output: torch.Tensor, base_output: Optional[torch.Tensor] = None) -> None:
+    def entry(self, key: StatisticKey, dtype: str) -> Dict[str, Any]:
+        """The accumulator record for ``key``, created on first use.
+
+        ``dtype`` is the recorded delta dtype; it is only honoured when the
+        record is created, exactly as the inline ``setdefault`` in
+        :meth:`update` treats it.
+        """
         token = key.token()
-        entry = self.entries.setdefault(token, {
-            "key": asdict(key), "delta": OnlineMoments(), "output": OnlineMoments(),
-            "base_output": OnlineMoments(), "dtype": str(delta.dtype), "sample_count": 0,
-        })
+        record = self.entries.get(token)
+        if record is None:
+            record = {
+                "key": asdict(key), "delta": OnlineMoments(), "output": OnlineMoments(),
+                "base_output": OnlineMoments(), "dtype": str(dtype), "sample_count": 0,
+            }
+            self.entries[token] = record
+        return record
+
+    def update(self, key: StatisticKey, delta: torch.Tensor, output: torch.Tensor, base_output: Optional[torch.Tensor] = None) -> None:
+        entry = self.entry(key, str(delta.dtype))
         entry["delta"].update(delta)
         entry["output"].update(output)
         if base_output is not None:
@@ -143,6 +185,55 @@ class RMSStatistics:
                 sample_count = torch.tensor(entry["sample_count"], dtype=torch.int64, device=device)
                 torch.distributed.all_reduce(sample_count)
                 entry["sample_count"] = int(sample_count.item())
+        return self
+
+    def all_reduce_batched_(self, device: Optional[torch.device] = None) -> "RMSStatistics":
+        """Exact-moment distributed reduction with two collective calls.
+
+        ``all_reduce_`` issues four blocking collectives per statistic entry.
+        The accelerated collector has no dependency between those entries, so
+        their independent fp64 moment triples and int64 sample counts can be
+        packed into contiguous tensors.  Each lane still receives the same
+        SUM reduction and reconstruction as the scalar path; only launch and
+        synchronization overhead is removed.
+        """
+        if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+            return self
+        device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        entries = list(self.entries.values())
+        if not entries:
+            return self
+        packed = []
+        sample_counts = []
+        for entry in entries:
+            for field in ("delta", "output", "base_output"):
+                moment = entry[field]
+                packed.extend((
+                    float(moment.count),
+                    float(moment.mean * moment.count),
+                    float(moment.sum_squares),
+                ))
+            sample_counts.append(int(entry["sample_count"]))
+        moments_tensor = torch.tensor(packed, dtype=torch.float64, device=device)
+        count_tensor = torch.tensor(sample_counts, dtype=torch.int64, device=device)
+        torch.distributed.all_reduce(moments_tensor)
+        torch.distributed.all_reduce(count_tensor)
+        values = moments_tensor.cpu().tolist()
+        counts = count_tensor.cpu().tolist()
+        cursor = 0
+        for entry, sample_count in zip(entries, counts):
+            for field in ("delta", "output", "base_output"):
+                count = int(values[cursor])
+                total = float(values[cursor + 1])
+                squares = float(values[cursor + 2])
+                cursor += 3
+                mean = total / count if count else 0.0
+                moment = entry[field]
+                moment.count = count
+                moment.mean = mean
+                moment.sum_squares = squares
+                moment.m2 = max(squares - count * mean * mean, 0.0)
+            entry["sample_count"] = int(sample_count)
         return self
 
     def state_dict(self) -> Dict[str, Any]:

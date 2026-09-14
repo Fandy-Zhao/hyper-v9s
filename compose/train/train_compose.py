@@ -38,6 +38,13 @@ from compose.experts import ExpertPool, load_expert_checkpoint, save_expert_chec
 from compose.model import ComposeLlavaForCausalLM, load_compose_config
 
 from .arguments import DataArguments, ModelArguments, TrainingArguments
+from .profiler import (
+    TrainingProfiler,
+    attach_llava_hooks,
+    build_step_callback,
+    count_compose_linear_calls,
+    count_lora_expert_calls,
+)
 from .data import (
     ComposeSelectionCollator,
     ComposeSelectionDataset,
@@ -94,6 +101,58 @@ def _load_selection_manifest(path: str) -> dict:
     for row in rows:
         manifest[str(row["sample_id"])] = row
     return manifest
+
+
+def _launch_world_size() -> int:
+    """Processes in this launch, readable before the Trainer exists.
+
+    ``--compose_v8_config`` is resolved before anything is built, and the
+    effective-batch guard needs the real world size there.  ``torchrun`` exports
+    ``WORLD_SIZE`` for every rank, so the environment is authoritative; the
+    process group is consulted first only because it is the stricter source when
+    it happens to be initialised already.
+    """
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        return int(torch.distributed.get_world_size())
+    try:
+        return max(1, int(os.environ.get("WORLD_SIZE", "1")))
+    except ValueError:
+        return 1
+
+
+def _load_query_tensor(path: str, fallback_path: str):
+    """(queries, rows, value_hash) from ``queries.pt``, or None to fall back.
+
+    Existence detection is deliberately soft: a missing artefact logs a warning
+    and returns ``None`` so the caller parses the JSON cache instead.  Anything
+    that *is* present but fails a fingerprint, contract or structural check
+    raises -- a stale or corrupted cache must never be consumed silently.  See
+    :func:`compose.v7.query_cache.load_split_cache_for_training`.
+    """
+    from compose.v7.query_cache import load_split_cache_for_training
+
+    target = path
+    if os.path.isdir(target):
+        target = os.path.join(target, "queries.pt")
+    if not os.path.isfile(target):
+        print(
+            "[v8-accelerated] query tensor {} not found; falling back to the "
+            "JSON cache {}".format(target, fallback_path),
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+    queries, rows, value_hash, metadata = load_split_cache_for_training(
+        os.path.dirname(target) or "."
+    )
+    print(
+        "[v8-accelerated] query tensor {}: {} x {} {}, value_hash={}".format(
+            target, queries.shape[0], queries.shape[1], queries.dtype, value_hash[:12]
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+    return queries, rows, value_hash
 
 
 def _resolve_expert_roles(active_experts, trainable_value: str):
@@ -177,6 +236,11 @@ def _build_model(model_args, training_args):
     config = load_compose_config(
         model_args.model_name_or_path, cache_dir=training_args.cache_dir
     )
+    if model_args.compose_attn_implementation:
+        # Execution-only: the attention kernel is chosen here and nowhere else.
+        # ``transformers`` 4.33.3 has no TrainingArguments field for this, so it
+        # must be set on the config before the weights are loaded.
+        config._attn_implementation = model_args.compose_attn_implementation
     config.mm_vision_tower = model_args.vision_tower
     config.mm_vision_select_layer = model_args.mm_vision_select_layer
     config.mm_vision_select_feature = model_args.mm_vision_select_feature
@@ -323,6 +387,33 @@ def train() -> None:
         raise ValueError(
             "--compose-mode must be fixed, cluster_expert, or v7_global_coevolution"
         )
+    if model_args.compose_v8_config:
+        # Applied after the command line and before anything is built, so the
+        # config can only ever *add* execution flags.  Recipe knobs it moves are
+        # checked against the frozen baseline immediately afterwards.
+        from .v8_flags import apply_config, assert_recipe_invariants, load_config
+
+        config_path = os.path.abspath(model_args.compose_v8_config)
+        declared = load_config(config_path)
+        world_size = _launch_world_size()
+        resolved_flags = apply_config(
+            declared, model_args, training_args, config_path, world_size=world_size
+        )
+        invariants = assert_recipe_invariants(
+            training_args, model_args, world_size=world_size
+        )
+        print(
+            "[v8-exact-accelerated] {} -> {}".format(
+                config_path,
+                json.dumps(
+                    {"flags": resolved_flags, "invariants": invariants},
+                    sort_keys=True,
+                    default=str,
+                ),
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
     saved_expert_ids = []
     if mode == "cluster_expert":
         if not model_args.compose_selection_manifest:
@@ -354,8 +445,36 @@ def train() -> None:
         if not model_args.compose_expert_ids.strip():
             raise ValueError("fixed mode requires --compose-expert-ids")
 
-    model, vision_tower = _build_model(model_args, training_args)
-    injected, injection_summary, manager, pool = _inject_and_pool(model, model_args)
+    profile_path = None
+    if model_args.profile_training:
+        profile_path = model_args.profile_path or os.path.join(
+            training_args.output_dir, "profile_steps.jsonl"
+        )
+        if training_args.world_size > 1:
+            # One JSONL per rank: concurrent appends from several ranks would
+            # interleave partial lines.
+            stem, suffix = os.path.splitext(profile_path)
+            profile_path = "{}.rank{}{}".format(stem, training_args.process_index, suffix)
+    profiler = TrainingProfiler(
+        path=profile_path,
+        flush_every=model_args.profile_flush_every,
+        sync=model_args.profile_sync,
+        extra={
+            "task_index": int(model_args.compose_v7_task_index),
+            "world_size": int(training_args.world_size),
+            "per_device_train_batch_size": int(training_args.per_device_train_batch_size),
+            "gradient_accumulation_steps": int(training_args.gradient_accumulation_steps),
+        },
+    )
+    if model_args.compose_selection_plan:
+        # S5 must be decided before the first forward; it changes execution only.
+        from compose.adapters.lora import set_fast_selection
+
+        set_fast_selection(True)
+    with profiler.startup_timer("model_build"):
+        model, vision_tower = _build_model(model_args, training_args)
+    with profiler.startup_timer("adapter_injection"):
+        injected, injection_summary, manager, pool = _inject_and_pool(model, model_args)
 
     if mode in ("cluster_expert", "v7_global_coevolution"):
         _prepare_cluster_expert_backward()
@@ -498,13 +617,76 @@ def train() -> None:
             set(pool.expert_ids()) - set(cluster_expert_ids)
         ):
             raise ValueError("V7 historical key and LoRA registries do not match")
+        reusable_historical_ids = None
+        if model_args.compose_v8_reusable_screening:
+            from compose.v8.screening import load_reusable_screening
+
+            screening = load_reusable_screening(
+                model_args.compose_v8_reusable_screening,
+                expected_task=model_args.compose_v7_task_index,
+                historical_ids=v7_key_pool.historical_ids,
+            )
+            reusable_historical_ids = screening[
+                "reusable_historical_expert_ids"
+            ]
+            print("===== Teacher Screening =====")
+            print("TeacherSamples: {}".format(screening["teacher_sample_count"]))
+            print("HistoricalExpertCount: {}".format(len(v7_key_pool.historical_ids)))
+            print("ReusableHistoricalExperts: {}".format(reusable_historical_ids))
+            print("===== Full Training Routing =====")
+            print("Selectable Old Experts: {}".format(reusable_historical_ids))
+            print("Selectable New Candidates: {}".format(list(v7_key_pool.current_ids)))
+            print("FullTrainingOracleEvalSampleCount: 0")
+        # The reuse keys were created by S2 with the same initializer as the
+        # candidates.  Fail closed if the pool and the screening artifact
+        # disagree about who may own a learnable current-task key.
+        reuse_key_ids = sorted(
+            key_id for key_id in v7_key_pool.key_ids
+            if v7_key_pool.route_keys[key_id].key_type == "reuse"
+        )
+        expected_reuse_key_ids = sorted(
+            v7_key_pool.reuse_key_id(int(expert_id), int(model_args.compose_v7_task_index))
+            for expert_id in (reusable_historical_ids or ())
+        )
+        if reuse_key_ids != expected_reuse_key_ids:
+            raise ValueError(
+                "V7 reuse-key registry {} does not match the screening reusable set "
+                "{}".format(reuse_key_ids, expected_reuse_key_ids)
+            )
+        for key_id in reuse_key_ids:
+            entry = v7_key_pool.route_keys[key_id]
+            if entry.lifecycle != "current" or not entry.trainable:
+                raise ValueError("reuse key {} must be learnable for this task".format(key_id))
+            if v7_key_pool.metadata[entry.expert_id]["lifecycle"] != "historical":
+                raise ValueError(
+                    "reuse key {} must belong to a frozen historical expert".format(key_id)
+                )
+        if reuse_key_ids:
+            print("===== Reuse Keys =====")
+            print("ReusableHistoricalReuseKeys: {}".format(reuse_key_ids))
+            print(
+                "HistoricalLoraTrainable: False; HistoricalCanonicalKeysTrainable: False"
+            )
         # Registering this module on the model makes current keys optimizer
         # parameters and moves/checkpoints them with the training model.
         model.v7_key_pool = v7_key_pool
-        with open(model_args.compose_v7_query_cache, "r", encoding="utf-8") as handle:
-            query_cache = json.load(handle)
-        dataset = V7QueryDataset(data_args.data_path, tokenizer, data_args, query_cache)
-        data_collator = V7QueryCollator(tokenizer)
+        query_cache = None
+        query_tensor = None
+        if model_args.compose_v7_query_tensor:
+            with profiler.startup_timer("query_load"):
+                query_tensor = _load_query_tensor(
+                    model_args.compose_v7_query_tensor,
+                    model_args.compose_v7_query_cache,
+                )
+        if query_tensor is None:
+            with profiler.startup_timer("query_load"):
+                with open(model_args.compose_v7_query_cache, "r", encoding="utf-8") as handle:
+                    query_cache = json.load(handle)
+        with profiler.startup_timer("dataset_build"):
+            dataset = V7QueryDataset(
+                data_args.data_path, tokenizer, data_args, query_cache, query_tensor
+            )
+            data_collator = V7QueryCollator(tokenizer)
         data_module = {
             "train_dataset": dataset,
             "eval_dataset": None,
@@ -521,6 +703,12 @@ def train() -> None:
 
         attach_v7_ddp_key_anchor(model, v7_key_pool)
 
+        _profiler_handles = []
+        if profiler.enabled:
+            _profiler_handles.extend(attach_llava_hooks(model, profiler))
+            _profiler_handles.extend(count_compose_linear_calls(manager, profiler))
+            _profiler_handles.extend(count_lora_expert_calls(manager, profiler))
+
         trainer = V7ComposeTrainer(
             model=model,
             tokenizer=tokenizer,
@@ -531,8 +719,13 @@ def train() -> None:
             v7_task_index=model_args.compose_v7_task_index,
             v7_metrics_path=model_args.compose_v7_metrics_path,
             v7_require_full_coverage=model_args.compose_v7_require_full_coverage,
+            v7_reusable_historical_ids=reusable_historical_ids,
+            v7_profiler=profiler,
             **data_module
         )
+        _profiler_callback = build_step_callback(profiler)
+        if _profiler_callback is not None:
+            trainer.add_callback(_profiler_callback)
     else:
         trainer = ComposeTrainer(
             model=model,
@@ -557,12 +750,14 @@ def train() -> None:
         distributed_audits = {
             "before_training": trainer.distributed_state_audit("before_training")
         }
-    trainer.train(
-        resume_from_checkpoint=True
-        if mode == "v7_global_coevolution" and checkpoints
-        else None
-    )
+    with profiler.startup_timer("train_wall"):
+        trainer.train(
+            resume_from_checkpoint=True
+            if mode == "v7_global_coevolution" and checkpoints
+            else None
+        )
     if mode == "v7_global_coevolution":
+        profiler.close()
         distributed_audits["after_training"] = trainer.distributed_state_audit(
             "after_training"
         )

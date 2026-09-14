@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-09-14 — the 4090's code reaches `main`, and evaluation gains a subset-load lever
+
+`feat/v8-exact-accelerated` carries the three commits that were already running
+on the 4090 (`b206092`, `ad0a7fd`, `07b1080`) back to `main`, so the training
+host and the repository stop being two different programs, and adds one further
+execution-only lever on top.
+
+- **Subset load (`--load-only-manifest-experts`).** On a shared GPU the full
+  23-expert pool does not fit beside another tenant. A run's selection manifest
+  already names every expert it can select, so the evaluation can instantiate
+  exactly that union: `load_expert_checkpoint(keep_ids=...)` and
+  `restore_metadata(..., keep_ids=...)` restore metadata for every entry but
+  build modules only for the listed ids, and `expert_ids()` still describes the
+  whole checkpoint, so the manifest tensor-count check is unchanged. An expert
+  the router never selects carries a zero gate, so its tensors cannot reach the
+  output: `test_expert_subset_loading` pins the subset output equal to the full
+  one. The lever fails closed in both directions — selecting an id that was
+  never instantiated raises `KeyError` at the first offending sample rather than
+  scoring wrong, and `save_expert_checkpoint` refuses a partially instantiated
+  pool rather than writing a truncated checkpoint. `None`, the default, loads
+  the whole pool, so every pre-existing caller is unaffected.
+- **The key-loss fix ships inside `ad0a7fd`.** `answer_loss` is divided by
+  `queries.shape[0]` (micro-batch width) and `key_loss` is the per-sample mean
+  over the same width, so the two terms are no longer scaled by accumulation
+  depth. It was committed together with the acceleration layer on the 4090 and
+  is reproduced here in that commit's shape rather than re-split, because the
+  4090 runs this branch and a rewritten history would stop it fast-forwarding.
+- **Not in this branch.** The 0912 CRAM coefficient work
+  (`compose/v7/expert_gates.py`, `compose/experiments/cram_*.py`) stays on
+  `exp/0912-v7-cram-routing-coefficient`; it is an inference-only coefficient
+  study and shares no code path with the acceleration layer.
+
 ## 2026-09-11 (final, 2) — the oracle smoke finds three more defects
 
 The round's only experiment (Task 4, `--history-only --limit 32

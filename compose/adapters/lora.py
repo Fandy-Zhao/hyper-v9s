@@ -1,10 +1,121 @@
-from typing import Dict, Iterable, Optional, Sequence
+import os
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 
 from .runtime import get_current_selection
 from .types import MAX_ACTIVE_EXPERTS, PAD_EXPERT_ID, ComposeSelection, pad_selection
+
+
+#: ``ComposeLinear`` selection-plan sharing (V8-Exact-Accelerated, S5).
+#:
+#: Enabled, the per-selection decomposition (``torch.unique``, active masks,
+#: cardinality scale) is computed once per micro-step instead of once per layer,
+#: which removes ~3 device synchronisations per layer call.  The arithmetic --
+#: expert order, gate sums, kappa, ``index_add_`` order -- is unchanged, so the
+#: forward result is bit-identical; ``tests/compose`` covers both paths.
+#:
+#: Disabled (the default), the original per-layer code path runs verbatim and
+#: the repository reproduces the frozen baseline byte for byte.
+_FAST_SELECTION = os.environ.get("COMPOSE_SELECTION_PLAN", "0") == "1"
+
+
+def set_fast_selection(enabled: bool) -> None:
+    """Enable or disable shared selection plans for this process."""
+    global _FAST_SELECTION
+    _FAST_SELECTION = bool(enabled)
+
+
+def fast_selection_enabled() -> bool:
+    return _FAST_SELECTION
+
+
+class _SelectionPlan:
+    """Layer-independent decomposition of one ``ComposeSelection``.
+
+    Every ``ComposeLinear`` in the model sees the *same* selection within a
+    micro-step, so ``torch.unique``, the per-expert active masks and the
+    cardinality scale are identical for all 224 layers.  Recomputing them per
+    layer costs one device synchronisation per distinct expert id per layer
+    (``int(expert_id_tensor.item())``), which is what used to dominate the
+    step.  They are computed once here and shared.
+
+    ``entries`` preserves the original evaluation order (ascending expert id,
+    as returned by ``torch.unique``), so ``delta.index_add_`` accumulates in
+    exactly the previous order and the result is bit-identical.
+    """
+
+    __slots__ = ("expert_ids", "gates", "key", "entries")
+
+    def __init__(
+        self,
+        expert_ids: torch.Tensor,
+        gates: torch.Tensor,
+        key: Tuple,
+        entries: List[Tuple[int, torch.Tensor, torch.Tensor]],
+    ) -> None:
+        self.expert_ids = expert_ids
+        self.gates = gates
+        self.key = key
+        self.entries = entries
+
+    def matches(self, selection: ComposeSelection, key: Tuple) -> bool:
+        return (
+            self.key == key
+            and self.expert_ids is selection.expert_ids
+            and self.gates is selection.gates
+        )
+
+
+def _build_selection_plan(
+    selection: ComposeSelection, key: Tuple
+) -> _SelectionPlan:
+    expert_ids = selection.expert_ids
+    gates = selection.gates
+    device = expert_ids.device
+    active_mask = expert_ids.ne(PAD_EXPERT_ID) & gates.gt(0)
+    per_sample_active_count = active_mask.sum(dim=1)  # [batch]
+    active_counts = per_sample_active_count.to(key[1])
+    cardinality_scale = torch.rsqrt(active_counts.clamp_min(1.0))
+    per_sample_scale = torch.where(
+        active_counts.eq(2),
+        torch.full_like(active_counts, float(key[3])),
+        cardinality_scale,
+    )
+    entries: List[Tuple[int, torch.Tensor, torch.Tensor]] = []
+    for expert_id_tensor in torch.unique(expert_ids):
+        expert_id = int(expert_id_tensor.item())
+        if expert_id == PAD_EXPERT_ID:
+            continue
+        active_slots = expert_ids.eq(expert_id_tensor) & gates.gt(0)
+        sample_indices = torch.where(active_slots.any(dim=1))[0]
+        if sample_indices.numel() == 0:
+            continue
+        sample_gates = (gates * active_slots.to(gates.dtype)).sum(dim=1).index_select(
+            0, sample_indices
+        )
+        entries.append(
+            (expert_id, sample_indices, sample_gates, per_sample_scale.index_select(0, sample_indices))
+        )
+    return _SelectionPlan(expert_ids, gates, key, entries)
+
+
+def selection_plan(
+    selection: ComposeSelection, device: torch.device, dtype: torch.dtype, pair_scale: float
+) -> _SelectionPlan:
+    """Return the cached plan for this selection, building it at most once."""
+    key = (device, dtype, selection.batch_size, float(pair_scale))
+    cache = getattr(selection, "_compose_plan_cache", None)
+    if cache is None:
+        cache = {}
+        object.__setattr__(selection, "_compose_plan_cache", cache)
+    plan = cache.get(key)
+    if plan is not None and plan.matches(selection, key):
+        return plan
+    plan = _build_selection_plan(selection, key)
+    cache[key] = plan
+    return plan
 
 
 class LoRAExpert(nn.Module):
@@ -60,6 +171,11 @@ class ComposeLinear(nn.Module):
         self._default_expert_ids = None  # type: Optional[Sequence[int]]
         self._default_gates = None  # type: Optional[Sequence[float]]
         self._default_normalization = "none"
+        # Transient full-batch selection kept alive during activation-
+        # checkpoint replay.  PyTorch's reentrant checkpoint restores its own
+        # ContextVar snapshot, which can hide the outer use_selection() value
+        # during backward; this explicit fallback preserves the exact route.
+        self._checkpoint_replay_selection = None  # type: Optional[ComposeSelection]
         # RMS calibration: expert_id -> kappa_k_l (per-layer coefficient).
         # Absent ids behave as kappa = 1.0. Pair selections additionally
         # scale every expert contribution by ``pair_scale`` (1/sqrt(2)).
@@ -167,6 +283,8 @@ class ComposeLinear(nn.Module):
         selection = get_current_selection()
         if selection is not None:
             return selection.to(inputs.device)
+        if self._checkpoint_replay_selection is not None:
+            return self._checkpoint_replay_selection.to(inputs.device)
         if self._default_expert_ids is None:
             return None
         batch_size = inputs.shape[0]
@@ -192,6 +310,41 @@ class ComposeLinear(nn.Module):
                 )
             )
 
+        if _FAST_SELECTION:
+            # Everything that depends only on the selection -- the cardinality
+            # scale, the active sample indices and the summed gates -- is shared
+            # across layers by ``selection_plan``.  Only ``kappa`` and
+            # ``pair_scale`` are per layer, and ``pair_scale`` is part of the
+            # plan key, so the arithmetic below is unchanged.
+            plan = selection_plan(
+                selection, result.device, result.dtype, self._pair_scale
+            )
+            delta = torch.zeros_like(result)
+            for expert_id, sample_indices, sample_gates, scale in plan.entries:
+                key = str(expert_id)
+                if key not in self.experts:
+                    raise KeyError("expert {} is not registered".format(expert_id))
+                selected_inputs = inputs.index_select(0, sample_indices)
+                expert_delta = self.experts[key](selected_inputs).to(result.dtype)
+                kappa = self._expert_calibration.get(expert_id, 1.0)
+                effective = sample_gates * kappa * scale
+                gate_shape = [sample_indices.shape[0]] + [1] * (result.ndim - 1)
+                weighted_delta = expert_delta * effective.to(result.dtype).reshape(
+                    gate_shape
+                )
+                delta.index_add_(0, sample_indices, weighted_delta)
+            return result + delta
+
+        return self._forward_per_layer_selection(inputs, result, selection)
+
+    def _forward_per_layer_selection(
+        self, inputs: torch.Tensor, result: torch.Tensor, selection: ComposeSelection
+    ) -> torch.Tensor:
+        """Frozen baseline path: selection decomposition recomputed per layer.
+
+        Kept verbatim so ``COMPOSE_SELECTION_PLAN=0`` reproduces the pre-V8
+        execution exactly; ``tests/compose`` asserts the two paths agree.
+        """
         # RMS calibration: per-sample per-expert effective scale =
         # gate * kappa_k_l, times the composition rule for the sample's
         # selection cardinality. This is the formal composition rule
