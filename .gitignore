@@ -37,6 +37,7 @@ Thumbs.db
 instructions/
 runs/
 ucit_instructions/
+assets/
 
 # Experiment data / artifacts (not part of the frozen code)
 artifacts/
