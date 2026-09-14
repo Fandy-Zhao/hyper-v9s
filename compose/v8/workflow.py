@@ -81,6 +81,13 @@ class TeacherSpec:
     #: Below this many selected-solver samples the reuse key falls back to the
     #: task center instead of the teacher-query centroid.
     min_reuse_key_support: int = 4
+    teacher_sampling_strategy: str = "answer_stratified_feature_kcenter"
+    teacher_duplicate_cosine_threshold: float = 0.99
+    reuse_key_init_strategy: str = "teacher_selected_query_centroid"
+    reuse_key_quality_enabled: bool = True
+    reuse_key_quality_mode: str = "routed_answer_nll"
+    reuse_key_quality_temperature: float = 1.0
+    reuse_key_quality_floor: float = 0.10
     recall_top_m: int = 8
     pair_search_mode: str = "bounded"
     shortlist_ks: int = 4
@@ -105,6 +112,16 @@ class TeacherSpec:
             raise ValueError("min_teacher_usage_rate must be in [0, 1]")
         if int(self.min_reuse_key_support) < 1:
             raise ValueError("min_reuse_key_support must be positive")
+        if int(self.min_reuse_key_support) > int(self.min_teacher_support):
+            raise ValueError("min_reuse_key_support may not exceed min_teacher_support in formal centroid mode")
+        if self.teacher_sampling_strategy not in ("answer_stratified_seeded_random", "answer_stratified_feature_kcenter"):
+            raise ValueError("unsupported teacher sampling strategy")
+        if not 0.0 < self.teacher_duplicate_cosine_threshold <= 1.0:
+            raise ValueError("teacher duplicate cosine threshold must be in (0,1]")
+        if self.reuse_key_init_strategy != "teacher_selected_query_centroid":
+            raise ValueError("formal V8.1 requires teacher_selected_query_centroid")
+        if self.reuse_key_quality_mode != "routed_answer_nll" or self.reuse_key_quality_temperature <= 0 or not 0 <= self.reuse_key_quality_floor <= 1:
+            raise ValueError("invalid reuse-key quality specification")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -118,6 +135,14 @@ class TeacherSpec:
             "pair_search_mode": str(self.pair_search_mode),
             "shortlist_ks": int(self.shortlist_ks),
             "max_new_tokens": int(self.max_new_tokens),
+            "teacher_sampling_strategy": self.teacher_sampling_strategy,
+            "teacher_duplicate_cosine_threshold": self.teacher_duplicate_cosine_threshold,
+            "reuse_key_init_strategy": self.reuse_key_init_strategy,
+            "reuse_key_perturbation": 0.0,
+            "reuse_key_quality_enabled": self.reuse_key_quality_enabled,
+            "reuse_key_quality_mode": self.reuse_key_quality_mode,
+            "reuse_key_quality_temperature": self.reuse_key_quality_temperature,
+            "reuse_key_quality_floor": self.reuse_key_quality_floor,
         }
 
 
@@ -281,6 +306,8 @@ def run_teacher_screening(
         "--max-new-tokens", str(int(spec.max_new_tokens)),
         "--verify-nll-trials", str(int(spec.verify_nll_trials)),
         "--teacher-seed", str(int(spec.seed)),
+        "--teacher-sampling-strategy", spec.teacher_sampling_strategy,
+        "--teacher-duplicate-cosine-threshold", str(spec.teacher_duplicate_cosine_threshold),
         "--device", str(spec.device),
         "--min-free-mib", str(int(spec.min_free_mib)),
         "--wait-timeout-seconds", str(float(spec.wait_timeout_seconds)),
@@ -289,7 +316,44 @@ def run_teacher_screening(
         teacher_command += ["--teacher-num-samples", str(int(spec.num_samples))]
     else:
         teacher_command += ["--teacher-sample-ratio", str(float(spec.sample_ratio))]
-    _run(teacher_command, env, log_path)
+    # Independent frozen-model inference workers, not DDP.  The subset sampler
+    # is deterministic before sharding, and the merger verifies its exact
+    # round-robin sample-ID partition.  V8_TEACHER_GPUS is intentionally
+    # separate from S3's DDP plan because this stage runs before S3.
+    requested_gpus = [value.strip() for value in str(env.get("V8_TEACHER_GPUS", "")).split(",") if value.strip()]
+    teacher_samples = int(spec.num_samples) if spec.num_samples is not None else 1
+    shard_count = min(len(requested_gpus), teacher_samples) if requested_gpus else 1
+    if shard_count == 1:
+        _run(teacher_command, env, log_path)
+    else:
+        shard_root = Path(root) / "teacher_shards"
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        processes = []
+        shard_dirs = []
+        for shard_index in range(shard_count):
+            directory = shard_root / "shard{}".format(shard_index)
+            shard_dirs.append(directory / "task{}".format(task_index))
+            command = list(teacher_command)
+            command[command.index("--root") + 1] = str(directory)
+            command += ["--shard-count", str(shard_count), "--shard-index", str(shard_index)]
+            shard_env = dict(env)
+            shard_env["CUDA_VISIBLE_DEVICES"] = requested_gpus[shard_index]
+            handle = (Path(log_path).parent / "v8_teacher_shard{}.log".format(shard_index)).open("w", encoding="utf-8")
+            processes.append((subprocess.Popen(command, env=shard_env, stdout=handle, stderr=subprocess.STDOUT), handle))
+        failures = []
+        for process, handle in processes:
+            code = process.wait(); handle.close()
+            if code:
+                failures.append(code)
+        if failures:
+            raise TeacherStageError("teacher shard workers failed: {}".format(failures))
+        merge_command = [python, "-m", "compose.experiments.v8_merge_teacher_shards",
+                         "--train-json", str(train_json),
+                         "--teacher-sample-manifest", str(shard_dirs[0] / "teacher_samples.json"),
+                         "--output", str(Path(formal_root) / "task{}".format(task_index) / "teacher_result.json")]
+        for directory in shard_dirs:
+            merge_command += ["--shard-dir", str(directory)]
+        _run(merge_command, env, Path(log_path).with_name("v8_teacher_merge.log"))
 
     teacher_path = Path(formal_root) / "task{}".format(task_index) / "teacher_result.json"
     if not teacher_path.is_file():
@@ -353,10 +417,11 @@ def run_teacher_screening(
     reuse_keys, reuse_audit = initialize_reuse_keys(
         teacher_payload, screening["reusable_historical_expert_ids"], query_payload,
         center=center,
-        perturbation=0.01,
+        perturbation=0.0,
         min_support=int(spec.min_reuse_key_support),
         seed=int(spec.seed) + int(task_index),
         task_index=int(task_index),
+        expected_support_by_expert=screening["experts"],
     )
     screening["reuse_key_initialization"] = reuse_audit
     screening["task_center"] = center.tolist()

@@ -39,7 +39,7 @@ class LlavaLlamaModel(LlavaMetaModel, LlamaModel):
         super(LlavaLlamaModel, self).__init__(config)
 
 
-def sum_of_per_sample_token_means(
+def per_sample_token_mean_nll(
     logits: torch.Tensor, labels: torch.Tensor
 ) -> torch.Tensor:
     """Sum each sample's mean answer-token loss over the batch.
@@ -73,7 +73,11 @@ def sum_of_per_sample_token_means(
         ignore_index=-100,
         reduction="none",
     ).view_as(shift_labels)
-    return (token_losses * valid).sum(dim=1).div(counts).sum()
+    return (token_losses * valid).sum(dim=1).div(counts)
+
+
+def sum_of_per_sample_token_means(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    return per_sample_token_mean_nll(logits, labels).sum()
 
 
 class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
@@ -249,16 +253,20 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
             position_ids=position_ids,
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
-            labels=labels,
+            # The V8 trainer needs token means.  Let its shared primitive run
+            # the single CE below instead of paying HF's scalar CE plus a
+            # second per-sample CE.
+            labels=None if v7_sum_per_sample_loss else labels,
             use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict
         )
-        if v7_sum_per_sample_loss and labels is not None and labels.shape[0] > 1:
+        if v7_sum_per_sample_loss and labels is not None:
             if return_dict is False:
                 raise ValueError("V7 per-sample loss requires return_dict output")
-            outputs.loss = sum_of_per_sample_token_means(outputs.logits, labels)
+            outputs.v7_per_sample_answer_nll = per_sample_token_mean_nll(outputs.logits, labels)
+            outputs.loss = outputs.v7_per_sample_answer_nll.sum()
         routing_mode = getattr(self.config, "modality_routing_mode", "task")
         if self.training and routing_mode == "sample":
             router_loss = getattr(self, "router_aux_loss", None)

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-15 — V8.1 feature coverage and quality-weighted reuse keys
+
+- Added deterministic answer-stratified fixed-query k-center Teacher sampling.
+- Made formal reuse-key initialization a strict, zero-perturbation centroid of
+  Teacher-selected queries, with support provenance.
+- Reused the routed supervised forward's detached per-sample NLL to weight only
+  current-task historical reuse-key attraction; routing remains query/key-only.
+
 ## 2026-09-14 — the 4090's code reaches `main`, and evaluation gains a subset-load lever
 
 `feat/v8-exact-accelerated` carries the three commits that were already running

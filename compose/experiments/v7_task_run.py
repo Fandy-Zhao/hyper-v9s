@@ -224,6 +224,13 @@ def build_teacher_spec(args):
         wait_timeout_seconds=float(
             getattr(args, "v8_teacher_wait_timeout_seconds", 7200.0)
         ),
+        teacher_sampling_strategy=str(getattr(args, "v8_teacher_sampling_strategy", "answer_stratified_feature_kcenter")),
+        teacher_duplicate_cosine_threshold=float(getattr(args, "v8_teacher_duplicate_cosine_threshold", 0.99)),
+        reuse_key_init_strategy=str(getattr(args, "v8_reuse_key_init_strategy", "teacher_selected_query_centroid")),
+        reuse_key_quality_enabled=bool(getattr(args, "v8_reuse_key_quality_enabled", True)),
+        reuse_key_quality_mode=str(getattr(args, "v8_reuse_key_quality_mode", "routed_answer_nll")),
+        reuse_key_quality_temperature=float(getattr(args, "v8_reuse_key_quality_temperature", 1.0)),
+        reuse_key_quality_floor=float(getattr(args, "v8_reuse_key_quality_floor", 0.10)),
     )
 
 
@@ -698,6 +705,13 @@ def main():
              "--v8-teacher-num-samples",
     )
     parser.add_argument("--v8-teacher-seed", type=int, default=42)
+    parser.add_argument("--v8-teacher-sampling-strategy", default="answer_stratified_feature_kcenter")
+    parser.add_argument("--v8-teacher-duplicate-cosine-threshold", type=float, default=0.99)
+    parser.add_argument("--v8-reuse-key-init-strategy", default="teacher_selected_query_centroid")
+    parser.add_argument("--v8-reuse-key-quality-enabled", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--v8-reuse-key-quality-mode", default="routed_answer_nll")
+    parser.add_argument("--v8-reuse-key-quality-temperature", type=float, default=1.0)
+    parser.add_argument("--v8-reuse-key-quality-floor", type=float, default=0.10)
     parser.add_argument("--v8-min-teacher-support", type=int, default=4)
     parser.add_argument("--v8-min-teacher-usage-rate", type=float, default=0.02)
     parser.add_argument(
@@ -970,6 +984,9 @@ def main():
         # device so nothing can drift onto an unplanned physical GPU.
         # Multi-worker stages build their own per-worker envs below.
         env["CUDA_VISIBLE_DEVICES"] = str(gpu_plan.available_gpu_ids[0])
+        # S2 is independent frozen inference.  It may use every GPU declared
+        # for this task; S3 later derives its own exact DDP subset/GA recipe.
+        env["V8_TEACHER_GPUS"] = ",".join(str(value) for value in gpu_plan.available_gpu_ids)
     if gpu_plan is not None:
         write_json_atomic(root / "data" / "gpu_plan.json", gpu_plan.to_dict())
         usage_log = root / "data" / "stage_gpu_usage.jsonl"
@@ -1288,6 +1305,9 @@ def main():
                 encoding="utf-8",
             )
             command += ["--compose_v8_config", str(resolved_v8_path)]
+            command += ["--compose_v8_reuse_quality_enabled", str(bool(teacher_spec.reuse_key_quality_enabled)).lower(),
+                        "--compose_v8_reuse_quality_temperature", str(teacher_spec.reuse_key_quality_temperature),
+                        "--compose_v8_reuse_quality_floor", str(teacher_spec.reuse_key_quality_floor)]
         if args.compose_v8_reusable_screening:
             command += [
                 "--compose_v8_reusable_screening",

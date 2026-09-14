@@ -13,6 +13,9 @@ Method:
   + Full-data Query-only Global Top-2 Co-evolution
 Teacher: train subset; full historical single + bounded pair; NLL ranking only
 Full Training: ALL samples; Oracle evaluations: 0
+  Routing supervision: Query/Key only
+  Teacher assignments in full training: None
+  Reuse-key adaptation: Routed answer-quality weighted
   Historical LoRA trainable: False
   Historical committed keys trainable: False
   Reusable current-task keys trainable: True

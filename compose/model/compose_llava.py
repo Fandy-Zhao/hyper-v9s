@@ -130,13 +130,15 @@ class ComposeLlavaForCausalLM(LlamaForCausalLM, ComposeLlavaMetaForCausalLM):
                 position_ids=position_ids,
                 past_key_values=past_key_values,
                 inputs_embeds=inputs_embeds,
-                labels=labels,
+                # See LlavaLlamaForCausalLM: one CE primitive produces both
+                # the scalar answer loss and the transient per-sample NLL.
+                labels=None if v7_sum_per_sample_loss else labels,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
-        if v7_sum_per_sample_loss and labels is not None and labels.shape[0] > 1:
+        if v7_sum_per_sample_loss and labels is not None:
             if return_dict is False:
                 raise ValueError("V7 per-sample loss requires return_dict output")
             # Imported here rather than at module scope: the compose package is
@@ -146,10 +148,11 @@ class ComposeLlavaForCausalLM(LlamaForCausalLM, ComposeLlavaMetaForCausalLM):
             # ComposeLlavaForCausalLM is a sibling of LlavaLlamaForCausalLM and
             # not a subclass of it.
             from llava.model.language_model.llava_llama import (
-                sum_of_per_sample_token_means,
+                per_sample_token_mean_nll,
             )
 
-            outputs.loss = sum_of_per_sample_token_means(outputs.logits, labels)
+            outputs.v7_per_sample_answer_nll = per_sample_token_mean_nll(outputs.logits, labels)
+            outputs.loss = outputs.v7_per_sample_answer_nll.sum()
         return outputs
 
     def prepare_inputs_for_generation(

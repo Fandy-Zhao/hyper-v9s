@@ -227,6 +227,9 @@ class V7ComposeTrainer(ComposeTrainer):
         v7_metrics_path: str,
         v7_require_full_coverage: bool = False,
         v7_reusable_historical_ids=None,
+        v8_reuse_quality_enabled: bool = False,
+        v8_reuse_quality_temperature: float = 1.0,
+        v8_reuse_quality_floor: float = 0.10,
         v7_profiler=None,
         **kwargs
     ) -> None:
@@ -260,6 +263,14 @@ class V7ComposeTrainer(ComposeTrainer):
         self.v7_reuse_gradient_ids = set()
         self.v7_noop_steps = 0
         self.v7_require_full_coverage = bool(v7_require_full_coverage)
+        self.v8_reuse_quality_enabled = bool(v8_reuse_quality_enabled)
+        self.v8_reuse_quality_temperature = float(v8_reuse_quality_temperature)
+        self.v8_reuse_quality_floor = float(v8_reuse_quality_floor)
+        if self.v8_reuse_quality_enabled and self.v8_reuse_quality_temperature <= 0:
+            raise ValueError("V8 reuse quality temperature must be positive")
+        if not 0.0 <= self.v8_reuse_quality_floor <= 1.0:
+            raise ValueError("V8 reuse quality floor must be in [0, 1]")
+        self.v8_quality_weight_compute_count = 0
         self.v7_unique_sample_ids = set()
         self.v7_observed_sample_count = 0
         self.v7_micro_steps = 0
@@ -545,8 +556,25 @@ class V7ComposeTrainer(ComposeTrainer):
         # objective.  A summed key term against a meaned answer term was what put
         # the effective key weight at 0.4 rather than 0.1 at micro 4.
         answer_loss = answer_loss / queries.shape[0]
+        per_sample_answer_nll = getattr(outputs, "v7_per_sample_answer_nll", None)
+        if self.v8_reuse_quality_enabled and per_sample_answer_nll is None:
+            raise RuntimeError("formal V8 requires per-sample routed answer NLL")
+        reuse_quality = None
+        if self.v8_reuse_quality_enabled:
+            floor = self.v8_reuse_quality_floor
+            # Clamp the exponent for fp16/bf16 safety.  NLL is detached so
+            # quality modulates only reuse-key gradients, never model loss.
+            # _assert_async keeps the fail-closed check on the device rather
+            # than materialising a boolean and synchronising every microstep.
+            torch._assert_async(
+                torch.isfinite(per_sample_answer_nll).all(),
+                "formal V8 routed answer NLL must be finite",
+            )
+            scaled_nll = (-per_sample_answer_nll.detach() / self.v8_reuse_quality_temperature).clamp(-80.0, 0.0)
+            reuse_quality = (floor + (1.0 - floor) * torch.exp(scaled_nll)).clamp(floor, 1.0)
+            self.v8_quality_weight_compute_count += 1
         _, per_sample = selected_current_key_loss(
-            queries, routed.expert_ids, self.v7_key_pool
+            queries, routed.expert_ids, self.v7_key_pool, reuse_quality_weights=reuse_quality
         )
         key_loss = per_sample.mean()
         total = answer_loss + self.v7_config.training.lambda_key * key_loss
@@ -560,6 +588,8 @@ class V7ComposeTrainer(ComposeTrainer):
                 if parameter.requires_grad
             )
             self.v7_noop_steps += 1
+        self._v7_reuse_quality = (reuse_quality.detach() if reuse_quality is not None else torch.ones_like(queries[:, 0]))
+        self._v7_routed_answer_nll = (per_sample_answer_nll.detach() if per_sample_answer_nll is not None else torch.zeros_like(queries[:, 0]))
         self._v7_losses = (answer_loss.detach(), key_loss.detach(), total.detach(), per_sample.detach())
         return (total, outputs) if return_outputs else total
 
@@ -575,6 +605,10 @@ class V7ComposeTrainer(ComposeTrainer):
                 "key_loss": float(key),
                 "total_loss": float(total),
                 "per_sample_key_loss": per_sample.cpu().tolist(),
+                "ExtraQualityModelForwardCount": 0,
+                "ExtraQualityCrossEntropyCount": 0,
+                "RouterAnswerInputCount": 0,
+                "QualityWeightComputeCount": self.v8_quality_weight_compute_count,
                 "selected_expert_ids": routed.expert_ids.detach().cpu().tolist(),
                 "route_types": list(routed.route_types),
                 "selected_current_ids": sorted(int(value) for value in current_selected),

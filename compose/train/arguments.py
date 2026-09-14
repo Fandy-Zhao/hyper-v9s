@@ -63,6 +63,9 @@ class ModelArguments:
     compose_attn_implementation: str = field(default="")
     # V8-Exact-Accelerated declaration; see configs/v8_exact_accelerated.yaml.
     compose_v8_config: Optional[str] = field(default=None)
+    compose_v8_reuse_quality_enabled: bool = field(default=False)
+    compose_v8_reuse_quality_temperature: float = field(default=1.0)
+    compose_v8_reuse_quality_floor: float = field(default=0.10)
 
 
 @dataclass

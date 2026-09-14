@@ -491,6 +491,13 @@ class V8TaskRun:
             raise FileNotFoundError("validation file missing: {}".format(question_file))
 
         self.records = _read_json(question_file)
+        query_path = (Path(self.args.query_cache) / "query_cache"
+                      / "task{}".format(self.task) / split / "queries.pt")
+        full_query_payload = torch.load(query_path, map_location="cpu")
+        full_query_ids = [str(value) for value in full_query_payload["sample_ids"]]
+        full_record_ids = [str(record.get("id", record.get("question_id"))) for record in self.records]
+        if len(full_query_ids) != len(set(full_query_ids)) or set(full_query_ids) != set(full_record_ids):
+            raise ValueError("query cache IDs must be a one-to-one match with train_full IDs")
         self.source_sample_count = len(self.records)
         teacher_num = getattr(self.args, "teacher_num_samples", None)
         teacher_ratio = getattr(self.args, "teacher_sample_ratio", None)
@@ -507,6 +514,10 @@ class V8TaskRun:
                 num_samples=teacher_num,
                 sample_ratio=teacher_ratio,
                 seed=int(getattr(self.args, "teacher_seed", 42)),
+                strategy=str(getattr(self.args, "teacher_sampling_strategy", "answer_stratified_feature_kcenter")),
+                queries=full_query_payload["queries"],
+                query_sample_ids=full_query_ids,
+                duplicate_cosine_threshold=float(getattr(self.args, "teacher_duplicate_cosine_threshold", 0.99)),
             )
             test_path = Path(self.args.test_id_file)
             test_records = _read_json(test_path)
@@ -1313,6 +1324,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--teacher-sample-ratio", type=float, default=None,
                         help="seeded stratified train-only teacher ratio")
     parser.add_argument("--teacher-seed", type=int, default=42)
+    parser.add_argument("--teacher-sampling-strategy", default="answer_stratified_feature_kcenter")
+    parser.add_argument("--teacher-duplicate-cosine-threshold", type=float, default=0.99)
     parser.add_argument("--test-id-file", default=None,
                         help="test split read for IDs only; enforces zero teacher overlap")
     parser.add_argument("--shard-count", type=int, default=1,

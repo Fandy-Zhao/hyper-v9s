@@ -720,6 +720,9 @@ def train() -> None:
             v7_metrics_path=model_args.compose_v7_metrics_path,
             v7_require_full_coverage=model_args.compose_v7_require_full_coverage,
             v7_reusable_historical_ids=reusable_historical_ids,
+            v8_reuse_quality_enabled=bool(model_args.compose_v8_reuse_quality_enabled),
+            v8_reuse_quality_temperature=float(model_args.compose_v8_reuse_quality_temperature),
+            v8_reuse_quality_floor=float(model_args.compose_v8_reuse_quality_floor),
             v7_profiler=profiler,
             **data_module
         )

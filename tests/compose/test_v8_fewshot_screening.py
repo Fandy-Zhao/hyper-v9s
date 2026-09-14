@@ -12,7 +12,9 @@ from compose.v8.screening import (
     load_reusable_screening,
     sample_teacher_records,
     teacher_router_recall,
+    initialize_reuse_keys,
 )
+from compose.v7.training import selected_current_key_loss
 
 
 def _record(index, answer):
@@ -41,6 +43,66 @@ def test_teacher_sampling_is_seeded_stratified_and_not_prefix():
 def test_teacher_sampler_rejects_conflicting_controls():
     with pytest.raises(ValueError):
         sample_teacher_records([_record(0, "x")], num_samples=1, sample_ratio=1.0)
+
+
+def test_feature_kcenter_sampling_is_deterministic_and_diverse():
+    records = [_record(index, "a" if index % 2 else "b") for index in range(8)]
+    queries = torch.zeros(8, 1536)
+    for cluster in range(4):
+        queries[cluster * 2:(cluster + 1) * 2, cluster] = 1.0
+    kwargs = dict(num_samples=4, seed=9, strategy="answer_stratified_feature_kcenter",
+                  queries=queries, query_sample_ids=["sample-{:03d}".format(index) for index in range(8)])
+    first, audit = sample_teacher_records(records, **kwargs)
+    second, _ = sample_teacher_records(records, **kwargs)
+    assert [row["id"] for row in first] == [row["id"] for row in second]
+    assert len(first) == 4
+    assert audit["duplicate_cosine_threshold"] == 0.99
+
+
+def test_feature_kcenter_large_cpu_shape_has_no_quadratic_state():
+    count, dim, budget = 2048, 64, 64
+    records = [_record(index, str(index % 4)) for index in range(count)]
+    queries = torch.nn.functional.normalize(torch.randn(count, dim), dim=-1)
+    selected, audit = sample_teacher_records(
+        records, num_samples=budget, seed=3, strategy="answer_stratified_feature_kcenter",
+        queries=queries, query_sample_ids=["sample-{:03d}".format(index) for index in range(count)],
+    )
+    assert len(selected) == budget
+    assert audit["feature_coverage_radius"] >= 0.0
+
+
+def test_reuse_key_is_strict_selected_query_centroid_without_perturbation():
+    queries = torch.zeros(2, 1536); queries[0, 0] = 1; queries[1, 1] = 1
+    teacher = {"task_id": 1, "records": [
+        {"sample_id": "a", "selected_experts": [7]},
+        {"sample_id": "b", "selected_experts": [7]},
+    ]}
+    keys, audit = initialize_reuse_keys(
+        teacher, [7], {"sample_ids": ["a", "b"], "queries": queries},
+        center=None, perturbation=0.0, min_support=1, seed=1, task_index=1,
+    )
+    expected = torch.nn.functional.normalize(queries.mean(dim=0), dim=0)
+    assert torch.allclose(keys[7], expected)
+    assert audit["experts"]["7"]["perturbation"] == 0.0
+    with pytest.raises(ValueError):
+        initialize_reuse_keys(teacher, [8], {"sample_ids": ["a", "b"], "queries": queries},
+                              center=None, perturbation=0.0, min_support=1, seed=1, task_index=1)
+
+
+def test_reuse_quality_scales_only_reuse_key_gradient():
+    pool = V7ExpertKeyPool(query_dim=1536)
+    query = torch.zeros(1536); query[0] = 1
+    pool.add(0, query, origin_task=0, lifecycle="historical", trainable=False)
+    offset = torch.zeros(1536); offset[1] = 1
+    pool.add_reuse_key(0, 1, torch.nn.functional.normalize(query + offset, dim=0), True)
+    pool.add(1, torch.nn.functional.normalize(query + torch.eye(2, 1536)[1], dim=0), origin_task=1, lifecycle="current", trainable=True)
+    ids = torch.tensor([[0, 1]])
+    high, _ = selected_current_key_loss(query.unsqueeze(0), ids, pool, reuse_quality_weights=torch.tensor([0.9]))
+    high.backward(); high_grad = pool.keys[pool.reuse_key_id(0, 1)].grad.norm().item()
+    pool.zero_grad()
+    low, _ = selected_current_key_loss(query.unsqueeze(0), ids, pool, reuse_quality_weights=torch.tensor([0.1]))
+    low.backward(); low_grad = pool.keys[pool.reuse_key_id(0, 1)].grad.norm().item()
+    assert high_grad > low_grad
 
 
 def test_screening_aggregates_pairs_and_requires_stable_support(tmp_path):

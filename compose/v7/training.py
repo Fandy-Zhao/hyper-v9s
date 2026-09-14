@@ -97,6 +97,7 @@ def selected_current_key_loss(
     queries: Tensor,
     selected_ids: Tensor,
     key_pool: V7ExpertKeyPool,
+    reuse_quality_weights: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor]:
     """Mean per-sample attraction over the selected experts' *trainable* keys.
 
@@ -110,6 +111,8 @@ def selected_current_key_loss(
     """
     if queries.ndim != 2 or selected_ids.shape != (queries.shape[0], 2):
         raise ValueError("queries and selected ids must be [B,D] and [B,2]")
+    if reuse_quality_weights is not None and reuse_quality_weights.shape != (queries.shape[0],):
+        raise ValueError("reuse quality weights must be [B]")
     detached_queries = F.normalize(queries.detach().float(), dim=-1)
     per_sample = []
     for row in range(queries.shape[0]):
@@ -117,7 +120,10 @@ def selected_current_key_loss(
         for expert_id in selected_ids[row].detach().cpu().tolist():
             for key_id in key_pool.trainable_keys_of(int(expert_id)):
                 key = F.normalize(key_pool.keys[key_id], dim=0)
-                terms.append(1.0 - F.cosine_similarity(detached_queries[row], key, dim=0))
+                term = 1.0 - F.cosine_similarity(detached_queries[row], key, dim=0)
+                if reuse_quality_weights is not None and key_pool.route_keys[key_id].key_type == "reuse":
+                    term = term * reuse_quality_weights[row].detach()
+                terms.append(term)
         per_sample.append(
             torch.stack(terms).mean()
             if terms

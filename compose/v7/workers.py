@@ -144,6 +144,10 @@ def run_job_logged(
 def make_worker_env(base_env: Dict[str, str], gpu_id: int) -> Dict[str, str]:
     """One worker sees exactly one physical GPU (as cuda:0)."""
     env = dict(base_env)
+    # A worker owns a physical GPU, but must never inherit the orchestrator's
+    # multi-GPU teacher plan.  Otherwise a subprocess that re-enters a task
+    # runner can recursively launch another fleet of teacher workers.
+    env.pop("V8_TEACHER_GPUS", None)
     env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     return env
 
