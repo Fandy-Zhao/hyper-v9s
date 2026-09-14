@@ -106,7 +106,7 @@ Status of each module in the HiDe-LLaVA project as of 2026-08-03.
   initialisation. The hinge now stays attached to the current key; the hardest
   competitor is still detached so frozen historical keys receive no update.
   Loss values unchanged.
-- `compose/v8/trainer.py` (new): `V8TaskTrainer` assembles the parts that were
+- `compose/v8/trainer.py` (new): `retired V8-B trainer` assembles the parts that were
   previously only tested in isolation — freeze enforcement and ledger capture
   before the optimizer exists, mixed (never filtered) batches with per-sample
   gating, candidate LoRA + current-task alias keys in two parameter groups,

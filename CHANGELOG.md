@@ -209,9 +209,9 @@ change, no experiment artefact rewritten.
   after); gradients are now `3.3e-02` / `4.7e-02` on the same probe.
 - **New `compose/v8/trainer.py` — the V8 current-task training loop.** Until now
   the V8 primitives were all tested in isolation but nothing assembled them, so
-  V8-B had no entry point. `V8TaskTrainer` enforces the freeze and captures the
+  V8-B had no entry point. `retired V8-B trainer` enforces the freeze and captures the
   frozen ledger *before* building the optimizer, runs mixed (never filtered)
-  batches through `residual_answer_loss`, trains candidate LoRA and current-task
+  batches through `retired residual loss`, trains candidate LoRA and current-task
   alias keys in two parameter groups, audits the gradient footprint each step,
   exposes `leakage_probe`, and `finalize()` prunes, re-verifies the ledger,
   commits and checkpoints.

@@ -16,15 +16,20 @@ V8 state     experts                    composition scale
 The Residual cardinality cap is not cosmetic.  At inference V8 keeps the fixed
 Top-2 budget, and a Residual sample is the one whose second slot belongs to the
 current task's candidate expert.  A two-expert historical context would therefore
-ask the training-time composition for a three-expert cardinality that the
-inference path can never reproduce -- the model would be trained on a
-composition it is never allowed to make.
+ask the teacher's composition for a three-expert cardinality that the inference
+path can never reproduce -- a composition the model is never allowed to make.
 
 So V8 needs no new forward path: it needs a builder that turns a per-sample
 state map into one ``ComposeSelection`` covering a whole batch.  That is what
 this module provides, together with the guard rails the specification demands --
 no duplicated expert id per row, no expert outside the pool, and a declared
 cardinality that is derived from the state rather than trusted from the file.
+
+**Consumers are the teacher and the query-only inference path only.**  Full-data
+training does not build a selection here: it routes every micro-batch through
+``compose.v7.routing.GlobalTop2Router`` from the fixed query and the active
+route keys.  The former ``residual_weight(s)`` helpers, which gated the answer
+loss per teacher state, belonged to the retired full-oracle trainer and are gone.
 """
 
 from __future__ import annotations
@@ -153,6 +158,7 @@ def uniform_selection(
 
 
 def state_cardinality_summary(state_by_sample: Mapping[str, str]) -> Dict[str, int]:
+    """How many samples the teacher assigned to each state (reporting only)."""
     summary = {state: 0 for state in TEACHER_STATES}
     for state in state_by_sample.values():
         if state not in summary:
@@ -165,46 +171,19 @@ def selection_of_state(
     state_by_sample: Mapping[str, str],
     experts_by_sample: Mapping[str, Sequence[int]],
 ) -> Dict[str, List[str]]:
-    """Group sample ids by state; used for per-state reporting and tests."""
+    """Group sample ids by state; used for per-state reporting and tests.
+
+    ``experts_by_sample`` is accepted for symmetry with :func:`build_selection`
+    and deliberately unused: grouping is a function of the state map alone.
+    """
     grouped: Dict[str, List[str]] = {state: [] for state in TEACHER_STATES}
     for sample_id, state in state_by_sample.items():
+        if state not in grouped:
+            raise SelectionError(f"unknown V8 teacher state {state!r}")
         grouped[state].append(str(sample_id))
-    for state, ids in grouped.items():
+    for ids in grouped.values():
         ids.sort()
     return grouped
-
-
-def residual_weight(state: str) -> float:
-    """Per-sample gradient-gating weight ``r_i`` (PART 21).
-
-    ``r_i = 0`` for every sample the pool already covers -- the current task's
-    candidate expert must not be trained on capability the pool already has.
-    Only ``Residual`` samples carry the full weight, because they are the ones
-    that genuinely need new capability.
-    """
-    if state in (STATE_REUSE1, STATE_REUSE2):
-        return 0.0
-    if state == STATE_RESIDUAL:
-        return 1.0
-    if state == STATE_BASE_ONLY:
-        # Base already answers it correctly: no expert is needed at all, so the
-        # candidate must not be pushed onto it either.
-        return 0.0
-    raise SelectionError(f"unknown V8 teacher state {state!r}")
-
-
-def residual_weights(
-    sample_ids: Sequence[str],
-    state_by_sample: Mapping[str, str],
-) -> torch.Tensor:
-    """``r`` vector aligned with ``sample_ids``; see :func:`residual_weight`."""
-    weights = []
-    for sample_id in sample_ids:
-        sample_id = str(sample_id)
-        if sample_id not in state_by_sample:
-            raise SelectionError(f"missing teacher state for sample {sample_id}")
-        weights.append(residual_weight(state_by_sample[sample_id]))
-    return torch.tensor(weights, dtype=torch.float32)
 
 
 __all__ = [
@@ -212,8 +191,6 @@ __all__ = [
     "SelectionError",
     "STATE_CARDINALITY",
     "build_selection",
-    "residual_weight",
-    "residual_weights",
     "selection_of_state",
     "state_cardinality_summary",
     "uniform_selection",

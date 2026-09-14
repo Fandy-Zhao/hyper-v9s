@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Mapping
 
 import torch
 import yaml
@@ -58,6 +59,7 @@ from compose.v7.provenance import (
 )
 from compose.v7.pruning import CandidatePruner, route_usage
 from compose.v7.routing import GlobalTop2Router
+from compose.v8.config import V8_METHOD_NAME
 from compose.v7.workers import (
     PooledJobRunner,
     deep_resolve,
@@ -66,6 +68,7 @@ from compose.v7.workers import (
     run_job_logged,
     run_worker_batch,
 )
+from compose.v8.workflow import REUSE_KEY_INIT_NAME
 from compose.v7.workflow import (
     mean_nll,
     prepare_candidate_pool,
@@ -191,6 +194,83 @@ def git_head():
     ).strip()
 
 
+def build_teacher_spec(args):
+    """The declared S2 inputs, or ``None`` when this task runs no teacher.
+
+    These are *declarations*, and that is the whole point: the run contract
+    hashes this dict, never the screening artifact the stage will produce.  An
+    artifact that only exists after the teacher ran cannot be part of a contract
+    that stage markers written before it must still satisfy.
+    """
+    from compose.v8.workflow import TeacherSpec
+
+    num = getattr(args, "v8_teacher_num_samples", None)
+    ratio = getattr(args, "v8_teacher_sample_ratio", None)
+    if num is None and ratio is None:
+        return None
+    return TeacherSpec(
+        num_samples=num,
+        sample_ratio=ratio,
+        seed=int(getattr(args, "v8_teacher_seed", 42)),
+        min_teacher_support=int(getattr(args, "v8_min_teacher_support", 4)),
+        min_teacher_usage_rate=float(getattr(args, "v8_min_teacher_usage_rate", 0.02)),
+        min_reuse_key_support=int(getattr(args, "v8_min_reuse_key_support", 4)),
+        recall_top_m=int(getattr(args, "v8_teacher_recall_top_m", 8)),
+        shortlist_ks=int(getattr(args, "v8_teacher_shortlist_ks", 4)),
+        pair_search_mode=str(getattr(args, "v8_teacher_pair_search_mode", "bounded")),
+        max_new_tokens=int(getattr(args, "v8_teacher_max_new_tokens", 128)),
+        device=str(getattr(args, "v8_teacher_device", "cuda:0")),
+        min_free_mib=int(getattr(args, "v8_teacher_min_free_mib", 18000)),
+        wait_timeout_seconds=float(
+            getattr(args, "v8_teacher_wait_timeout_seconds", 7200.0)
+        ),
+    )
+
+
+def render_teacher_screening_block(screening: Mapping[str, object]) -> str:
+    """The per-task teacher summary the formal launcher must print."""
+    agreement = screening.get("teacher_router_agreement") or {}
+    reusable = screening.get("reusable_historical_expert_ids") or []
+    statistics = screening.get("expert_statistics") or {}
+    alternative = sum(
+        int(row.get("alternative_solved_single_count", 0) or 0)
+        for row in statistics.values()
+    )
+    lines = [
+        "===== V8 Teacher Screening =====",
+        "TeacherSamples: {}".format(screening.get("teacher_sample_count")),
+        "HistoricalExpertCount: {}".format(len(screening.get("historical_expert_ids") or [])),
+        "ReusableHistoricalExperts: {}".format(list(reusable)),
+        "ReusableCount: {}".format(len(reusable)),
+        "AlternativeSolvedSinglesDropped: {}".format(alternative),
+        "TeacherRouterRecall@1: {}".format(agreement.get("TeacherRouterRecall@1")),
+        "TeacherRouterRecall@2: {}".format(agreement.get("TeacherRouterRecall@2")),
+    ]
+    return "\n".join(lines)
+
+
+def render_full_training_block(num_train_samples, reusable_ids, previous_pool) -> str:
+    """The S3/S4 summary, including the zero-oracle declaration.
+
+    The candidate ids are the four that ``prepare_candidate_pool`` is about to
+    create (``max(expert_ids) + 1 .. +4``); the previous checkpoint by contract
+    holds no current candidates of its own.
+    """
+    reusable = list(reusable_ids or [])
+    first_id = max(previous_pool.expert_ids, default=-1) + 1
+    candidate_ids = list(range(first_id, first_id + 4))
+    return "\n".join([
+        "===== V8 Full Training =====",
+        "FullTrainSamples: {}".format(num_train_samples),
+        "SelectableOldExperts: {}".format(reusable),
+        "SelectableNewCandidates: {}".format(candidate_ids),
+        "FullTrainingOracleEvalSampleCount: 0",
+        "HistoricalLoraTrainable: False",
+        "HistoricalCanonicalKeysTrainable: False",
+        "CurrentReuseKeysTrainable: True",
+    ])
+
+
 def build_run_contract(args, config, formal_run, gradient_accumulation_steps,
                        gpu_plan=None):
     paths = {
@@ -202,8 +282,6 @@ def build_run_contract(args, config, formal_run, gradient_accumulation_steps,
     }
     if getattr(args, "compose_v8_config", None):
         paths["v8_exact_config"] = args.compose_v8_config
-    if getattr(args, "compose_v8_reusable_screening", None):
-        paths["v8_reusable_screening"] = args.compose_v8_reusable_screening
     files = {}
     for name, value in paths.items():
         if value:
@@ -301,6 +379,23 @@ def build_run_contract(args, config, formal_run, gradient_accumulation_steps,
         "method": config.method,
         "method_seed": config.seed,
     }
+    teacher_spec = build_teacher_spec(args)
+    if teacher_spec is not None:
+        # A *declaration*, not the artifact: see build_teacher_spec.
+        contract["v8_teacher_spec"] = teacher_spec.to_dict()
+    if getattr(args, "compose_v8_config", None):
+        contract["v8_method"] = V8_METHOD_NAME
+    if getattr(args, "compose_v8_query_cache_root", None):
+        contract["v8_query_cache_root"] = str(
+            Path(args.compose_v8_query_cache_root).expanduser().resolve()
+        )
+    if getattr(args, "query_cache_manifest", None):
+        manifest = Path(args.query_cache_manifest).expanduser().resolve()
+        if manifest.is_file():
+            contract["query_cache_fingerprint"] = {
+                "path": str(manifest),
+                "sha256": sha256(manifest),
+            }
     if gpu_plan is not None:
         contract["gpu_plan"] = gpu_plan.to_dict()
     contract["contract_hash"] = stable_hash(contract)
@@ -592,10 +687,31 @@ def main():
              "required with --compose-v8-config so S3 cannot fall back to JSON queries",
     )
     parser.add_argument(
-        "--compose-v8-reusable-screening",
-        help="immutable few-shot teacher artifact; restricts Stage-B historical "
-             "Top-2 candidates without exposing sample answers or assignments",
+        "--v8-teacher-num-samples", type=int, default=None,
+        help="S2 teacher subset size, sampled from train_full; mutually exclusive "
+             "with --v8-teacher-sample-ratio.  Required for every task that has a "
+             "previous checkpoint (Task0 has no history and runs no teacher).",
     )
+    parser.add_argument(
+        "--v8-teacher-sample-ratio", type=float, default=None,
+        help="S2 teacher subset ratio of train_full; mutually exclusive with "
+             "--v8-teacher-num-samples",
+    )
+    parser.add_argument("--v8-teacher-seed", type=int, default=42)
+    parser.add_argument("--v8-min-teacher-support", type=int, default=4)
+    parser.add_argument("--v8-min-teacher-usage-rate", type=float, default=0.02)
+    parser.add_argument(
+        "--v8-min-reuse-key-support", type=int, default=4,
+        help="below this many selected-solver samples the current-task reuse key "
+             "falls back to the task center instead of the teacher-query centroid",
+    )
+    parser.add_argument("--v8-teacher-recall-top-m", type=int, default=8)
+    parser.add_argument("--v8-teacher-shortlist-ks", type=int, default=4)
+    parser.add_argument("--v8-teacher-pair-search-mode", default="bounded")
+    parser.add_argument("--v8-teacher-max-new-tokens", type=int, default=128)
+    parser.add_argument("--v8-teacher-device", default="cuda:0")
+    parser.add_argument("--v8-teacher-min-free-mib", type=int, default=18000)
+    parser.add_argument("--v8-teacher-wait-timeout-seconds", type=float, default=7200.0)
     parser.add_argument(
         "--query-features-batch-size", type=int, default=None,
         help="legacy live-encoder CLIP batch size (0903 spec §8a): the cache "
@@ -654,7 +770,8 @@ def main():
     parser.add_argument("--skip-eval", action="store_true")
     parser.add_argument(
         "--stop-after",
-        choices=("full_data", "fixed_queries", "candidates", "training", "rms", "commit"),
+        choices=("full_data", "fixed_queries", "teacher_screening", "candidates",
+                 "training", "rms", "commit"),
         default="commit",
         help="bounded smoke/debug stop; completed stages remain resume-safe",
     )
@@ -695,8 +812,12 @@ def main():
             )
     elif args.compose_v8_query_cache_root:
         raise ValueError("--compose-v8-query-cache-root requires --compose-v8-config")
-    if args.compose_v8_reusable_screening and not args.compose_v8_config:
-        raise ValueError("--compose-v8-reusable-screening requires --compose-v8-config")
+    teacher_spec = build_teacher_spec(args)
+    if teacher_spec is not None and not args.compose_v8_config:
+        raise ValueError(
+            "a V8 teacher spec requires --compose-v8-config: the full-data stage "
+            "must run the V8-exact execution recipe"
+        )
     if args.smoke_max_steps is not None and args.smoke_max_steps <= 0:
         raise ValueError("--smoke-max-steps must be positive")
     if args.smoke_gradient_accumulation_steps is not None and args.smoke_gradient_accumulation_steps <= 0:
@@ -989,13 +1110,49 @@ def main():
     if args.stop_after == "fixed_queries":
         return
 
+    # ---- S2: few-shot answer-supervised capability teacher ----------------
+    # Runs *inside* this run, before the candidate stage, because R_t decides
+    # which historical experts receive a learnable current-task reuse key.  The
+    # contract hashed the teacher's *declared* inputs in build_run_contract, so
+    # S0/S1 markers written before the teacher ran stay valid.
+    screening = None
+    if args.compose_v8_config:
+        if not stage_done(root, "s1b_v8_teacher_screening", run_contract_hash):
+            from compose.v8.workflow import run_teacher_screening
+
+            screening = run_teacher_screening(
+                task_index=args.task_index,
+                root=root,
+                train_json=train_json,
+                test_file=args.test_file,
+                previous_checkpoint=args.previous_checkpoint,
+                spec=teacher_spec,
+                python=args.python,
+                env=env,
+                formal_root=root.parent,
+                query_cache_root=args.compose_v8_query_cache_root,
+                model_path=args.model_path,
+                vision_tower=args.vision_tower,
+                projector_path=args.projector_path,
+                image_folder=args.image_folder,
+                log_path=root / "logs" / "v8_teacher.log",
+            )
+            print(render_teacher_screening_block(screening))
+            mark(root, "s1b_v8_teacher_screening", run_contract_hash)
+        screening = json.loads(
+            (root / "tasks" / "v8_reusable_screening.json").read_text(encoding="utf-8")
+        )
+    if args.stop_after == "teacher_screening":
+        return
+
     if not stage_done(root, "s2_candidates", run_contract_hash):
         # The screening artifact decides *which* historical experts are
         # reusable, and therefore which ones get an additional learnable
-        # current-task routing key.  Its sha256 is part of run_contract_hash,
-        # so a new screening artifact invalidates this stage.
+        # current-task routing key.  It is read from its deterministic path
+        # inside this run root -- never hashed into the contract.
         reusable_historical_ids = None
-        if args.compose_v8_reusable_screening:
+        reuse_key_overrides = None
+        if screening is not None:
             from compose.v8.screening import load_reusable_screening
 
             previous_pool = (
@@ -1005,17 +1162,32 @@ def main():
                 if previous_keys
                 else V7ExpertKeyPool()
             )
-            screening = load_reusable_screening(
-                args.compose_v8_reusable_screening,
+            checked = load_reusable_screening(
+                root / "tasks" / "v8_reusable_screening.json",
                 expected_task=args.task_index,
                 historical_ids=previous_pool.historical_ids,
             )
-            reusable_historical_ids = screening["reusable_historical_expert_ids"]
+            reusable_historical_ids = checked["reusable_historical_expert_ids"]
+            init_path = root / "tasks" / REUSE_KEY_INIT_NAME
+            if reusable_historical_ids:
+                if not init_path.is_file():
+                    raise FileNotFoundError(
+                        "reusable experts {} have no reuse-key initialisation at {}".format(
+                            reusable_historical_ids, init_path
+                        )
+                    )
+                reuse_key_overrides = torch.load(
+                    init_path, map_location="cpu", weights_only=False
+                )["keys"]
+            print(render_full_training_block(
+                coverage["num_train_samples"], reusable_historical_ids, previous_pool
+            ))
         pool, center, audit = prepare_candidate_pool(
             str(root / "features" / "train.json"),
             coverage["num_train_samples"], args.task_index, config.seed,
             config.candidates.key_perturbation, previous_keys,
             reusable_historical_ids=reusable_historical_ids,
+            reuse_key_overrides=reuse_key_overrides,
         )
         (root / "state").mkdir(parents=True, exist_ok=True)
         torch.save(pool.export_state(), root / "state" / "candidate_keys.pt")

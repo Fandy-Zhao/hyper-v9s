@@ -176,16 +176,22 @@ def winning_key_distribution(route_rows: Sequence[Mapping[str, Any]]) -> Dict[st
         for key_id in row.get("key_ids", []) or []:
             if key_id is None:
                 continue
-            parts = str(key_id).split("_")
-            if len(parts) < 4:
+            # ``key_type`` carries its own ``_`` in ``task_alias``, so bound the
+            # split instead of counting segments -- counting silently dropped
+            # every origin key (``e3_t7_origin`` has three), which pinned
+            # ``origin_key_wins`` at 0 and ``alias_win_rate`` at 1.0.
+            parts = str(key_id).split("_", 2)
+            if len(parts) != 3:
                 continue
-            key_type = "_".join(parts[2:])
+            key_type = parts[2]
             task_id = parts[1]
             expert_id = parts[0]
             if key_type == "origin":
                 origin += 1
             elif key_type == "task_alias":
                 alias += 1
+            else:
+                continue
             per_task[task_id] = per_task.get(task_id, 0) + 1
             per_expert[expert_id] = per_expert.get(expert_id, 0) + 1
     total = origin + alias

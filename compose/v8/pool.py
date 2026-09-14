@@ -104,15 +104,22 @@ class MultiKeyExpertPool(nn.Module):
 
     @staticmethod
     def parse_key_id(key_id: str) -> Tuple[int, int, str]:
-        parts = key_id.split("_")
-        if len(parts) != 4 or not parts[0].startswith("e") or not parts[1].startswith("t"):
+        """Inverse of :meth:`key_id_for`.
+
+        ``key_type`` may itself contain ``_`` (``task_alias``), so the split is
+        bounded at two separators rather than counted: counting segments made
+        ``origin`` (3 segments) unparseable by construction.
+        """
+        parts = key_id.split("_", 2)
+        if len(parts) != 3 or not parts[0].startswith("e") or not parts[1].startswith("t"):
             raise MultiKeyPoolError(f"malformed key id {key_id!r}")
-        expert_id = int(parts[0][1:])
-        task_id = int(parts[1][1:])
-        key_type = "_".join(parts[2:])
+        key_type = parts[2]
         if key_type not in KEY_TYPES:
             raise MultiKeyPoolError(f"unknown key type in {key_id!r}")
-        return expert_id, task_id, key_type
+        ids = (parts[0][1:], parts[1][1:])
+        if not all(value.isdigit() for value in ids):
+            raise MultiKeyPoolError(f"malformed key id {key_id!r}")
+        return int(ids[0]), int(ids[1]), key_type
 
     # ------------------------------------------------------------------
     # experts

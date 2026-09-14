@@ -21,6 +21,11 @@ KEY_TYPE_ORIGIN = "origin"
 KEY_TYPE_TASK_ALIAS = "task_alias"
 KEY_TYPES = (KEY_TYPE_ORIGIN, KEY_TYPE_TASK_ALIAS)
 
+#: The one formal V8 method name.  It is written into the run contract, the
+#: screening artifact and the committed pool manifest, so a reader can always
+#: tell a teacher-screened run from the retired full-oracle one.
+V8_METHOD_NAME = "v8_teacher_screened_global_top2"
+
 #: Sample teacher states (PART 16).
 STATE_BASE_ONLY = "BaseOnly"
 STATE_REUSE1 = "Reuse1"
@@ -156,88 +161,6 @@ class V8TeacherConfig:
 
 
 @dataclass(frozen=True)
-class V8ExpertConfig:
-    historical_lora_frozen: bool = True
-    historical_key_frozen: bool = True
-    candidate_rank: int = 8
-    candidate_alpha: float = 16.0
-    candidate_count: int = 4
-
-    def __post_init__(self) -> None:
-        if not self.historical_lora_frozen:
-            raise ValueError("V8 freezes historical LoRA in its first version")
-        if not self.historical_key_frozen:
-            raise ValueError("V8 freezes historical committed keys")
-        if self.candidate_count != 4 or self.candidate_rank != 8:
-            raise ValueError("V8 keeps the V7 four rank-8 candidate recipe")
-
-
-@dataclass(frozen=True)
-class V8KeyConfig:
-    mode: str = "multi_key"
-    alias_key_trainable: bool = True
-    lazy_alias_creation: bool = True
-    positive_loss: str = "cosine"
-    ranking_loss: str = "margin"
-    alternative_solved_policy: str = "ignore"
-    #: ``L_pos`` splits by evidence source: an expert the teacher selected solved
-    #: the sample, an expert it kept as Residual context did not.  Both attract
-    #: the alias key; the two weights are separate so an ablation can tell the
-    #: two contributions apart without a code change.  V8-v1 runs them equal.
-    lambda_solver_positive: float = 1.0
-    lambda_context_positive: float = 1.0
-    lambda_rank: float = 0.1
-    ranking_margin: float = 0.2
-    learning_rate: float = 3.0e-4
-
-    @property
-    def lambda_pos(self) -> float:
-        """Legacy name for the solver-positive weight (pre-oracle semantics)."""
-        return self.lambda_solver_positive
-
-    def __post_init__(self) -> None:
-        if self.mode != "multi_key":
-            raise ValueError("V8 key mode must be multi_key")
-        if not self.alias_key_trainable:
-            raise ValueError("V8 must be able to train current-task alias keys")
-        if not self.lazy_alias_creation:
-            raise ValueError(
-                "V8 creates alias keys lazily from teacher positives only; "
-                "unconditional per-expert creation is forbidden (PART 46 item 7)"
-            )
-        if self.alternative_solved_policy != "ignore":
-            raise ValueError(
-                "an alternative solved expert must be ignored, never a negative"
-            )
-        if self.positive_loss != "cosine":
-            raise ValueError("V8 v1 positive loss is cosine attraction")
-        if self.ranking_loss != "margin":
-            raise ValueError("V8 v1 ranking loss is a margin loss")
-        if self.lambda_solver_positive < 0 or self.lambda_rank < 0:
-            raise ValueError("key loss weights must be non-negative")
-        if self.lambda_context_positive < 0:
-            raise ValueError("key loss weights must be non-negative")
-        if self.ranking_margin < 0:
-            raise ValueError("ranking margin must be non-negative")
-
-
-@dataclass(frozen=True)
-class V8ResidualConfig:
-    sample_filtering: bool = False
-    gradient_gating: bool = True
-    use_historical_context: bool = True
-
-    def __post_init__(self) -> None:
-        if self.sample_filtering:
-            raise ValueError(
-                "V8 never builds a residual-only dataset; every sample gets a "
-                "reuse decision and only gradients are gated (PART 21)"
-            )
-        if not self.gradient_gating:
-            raise ValueError("V8 requires per-sample gradient gating")
-
-
-@dataclass(frozen=True)
 class V8RoutingConfig:
     key_similarity: str = "cosine"
     expert_aggregation: str = "max"
@@ -275,80 +198,22 @@ class V8AuditConfig:
             raise ValueError("recall ks must be positive")
 
 
-@dataclass(frozen=True)
-class V8PruningConfig:
-    alias_support_threshold: int = 1
-    alias_gain_threshold: float = 0.0
-    alias_redundancy_threshold: float = 0.995
-    candidate_prune_enabled: bool = True
-    candidate_min_removal_gain: float = 0.0
-    candidate_redundancy_cosine: float = 0.98
-
-    def __post_init__(self) -> None:
-        if self.alias_support_threshold < 1:
-            raise ValueError("alias_support_threshold must be at least 1")
-        if not 0.0 <= self.alias_redundancy_threshold <= 1.0:
-            raise ValueError("alias_redundancy_threshold must be in [0, 1]")
-        if not 0.0 <= self.candidate_redundancy_cosine <= 1.0:
-            raise ValueError("candidate_redundancy_cosine must be in [0, 1]")
-
-
-@dataclass(frozen=True)
-class V8TrainingConfig:
-    lambda_key: float = 0.1
-    learning_rate: float = 2.0e-4
-    num_train_epochs: float = 1.0
-    per_device_train_batch_size: int = 1
-    gradient_accumulation_steps: int = 64
-    warmup_ratio: float = 0.03
-    lr_scheduler_type: str = "cosine"
-    weight_decay: float = 0.0
-    seed: int = 42
-    bf16: bool = True
-    tf32: bool = True
-    model_max_length: int = 2048
-
-    def __post_init__(self) -> None:
-        if self.num_train_epochs <= 0:
-            raise ValueError("num_train_epochs must be positive")
-        if self.per_device_train_batch_size <= 0:
-            raise ValueError("per_device_train_batch_size must be positive")
-        if self.gradient_accumulation_steps <= 0:
-            raise ValueError("gradient_accumulation_steps must be positive")
-
-
-#: Renamed fields, so a config dict written by an earlier revision still loads
-#: instead of raising ``TypeError`` on an unexpected keyword.  Value is
-#: ``{section: {old_name: new_name}}``.
-_RENAMED_SECTION_FIELDS: Dict[str, Dict[str, str]] = {
-    "key": {"lambda_pos": "lambda_solver_positive"},
-}
-
-
 def _section_kwargs(name: str, raw: Dict[str, Any]) -> Dict[str, Any]:
     """Adapt a raw section dict to the current dataclass field names."""
     if name == "audit" and "recall_ks" in raw:
         raw["recall_ks"] = tuple(raw["recall_ks"])
-    for old, new in _RENAMED_SECTION_FIELDS.get(name, {}).items():
-        if old in raw:
-            raw.setdefault(new, raw.pop(old))
     return raw
 
 
 @dataclass(frozen=True)
 class V8Config:
     schema_version: int = 1
-    method: str = "v8_answer_supervised_multikey"
+    method: str = V8_METHOD_NAME
     seed: int = 42
     query: V8QueryConfig = field(default_factory=V8QueryConfig)
     teacher: V8TeacherConfig = field(default_factory=V8TeacherConfig)
-    expert: V8ExpertConfig = field(default_factory=V8ExpertConfig)
-    key: V8KeyConfig = field(default_factory=V8KeyConfig)
-    residual: V8ResidualConfig = field(default_factory=V8ResidualConfig)
     routing: V8RoutingConfig = field(default_factory=V8RoutingConfig)
     audit: V8AuditConfig = field(default_factory=V8AuditConfig)
-    pruning: V8PruningConfig = field(default_factory=V8PruningConfig)
-    training: V8TrainingConfig = field(default_factory=V8TrainingConfig)
 
     #: Section name -> dataclass, used both by ``from_dict`` and by the
     #: coercion in ``__post_init__``.  Keeping one table means a plain dict
@@ -356,8 +221,8 @@ class V8Config:
     SECTIONS: ClassVar[Dict[str, type]] = {}
 
     def __post_init__(self) -> None:
-        if self.method != "v8_answer_supervised_multikey":
-            raise ValueError("V8 requires method: v8_answer_supervised_multikey")
+        if self.method != V8_METHOD_NAME:
+            raise ValueError(f"V8 requires method: {V8_METHOD_NAME}")
         # A caller may pass a plain dict for a section (that is what the YAML
         # loader produces).  Coerce it to its dataclass here so the section's
         # own invariants actually run; otherwise a dict would be stored as-is
@@ -389,7 +254,7 @@ class V8Config:
             )
         return cls(
             schema_version=int(value.get("schema_version", 1)),
-            method=str(value.get("method", "v8_answer_supervised_multikey")),
+            method=str(value.get("method", V8_METHOD_NAME)),
             seed=int(value.get("seed", 42)),
             **sections,
         )
@@ -398,60 +263,56 @@ class V8Config:
 V8Config.SECTIONS = {
     "query": V8QueryConfig,
     "teacher": V8TeacherConfig,
-    "expert": V8ExpertConfig,
-    "key": V8KeyConfig,
-    "residual": V8ResidualConfig,
     "routing": V8RoutingConfig,
     "audit": V8AuditConfig,
-    "pruning": V8PruningConfig,
-    "training": V8TrainingConfig,
 }
 
 
 def assert_frozen_contract(config: V8Config) -> None:
-    """Re-assert the hard PART 4 constraints; used by the trainer and tests."""
-    if config.expert.historical_lora_frozen is not True:
-        raise ValueError("historical LoRA must be frozen")
-    if config.expert.historical_key_frozen is not True:
-        raise ValueError("historical committed keys must be frozen")
+    """Re-assert the method's hard constraints.
+
+    These are the facts the formal V8 claim rests on.  Historical LoRA and the
+    keys committed by earlier tasks are frozen; ``solved`` is decided by the
+    task metric and never by an NLL threshold; the query is parameter-free.  The
+    full-data stage freezes historical parameters through the V7 trainer's own
+    audit (``compose/v7/hf_trainer.py``), not through a switch here.
+    """
     if config.teacher.nll_use_as_solved_threshold is not False:
         raise ValueError("NLL must never define solved")
-    if config.residual.sample_filtering is not False:
-        raise ValueError("no residual sample filtering is permitted")
+    if config.teacher.search_mode != TEACHER_SEARCH_FULL_HISTORY:
+        raise ValueError("the teacher must score every visible historical expert")
     if config.query.trainable_parameter_count != 0:
         raise ValueError("the query must remain parameter-free")
+    if config.routing.expert_aggregation != "max" or not config.routing.distinct_expert_topk:
+        raise ValueError(
+            "routing is max-per-expert then distinct-expert Top-K; key-level "
+            "Top-K followed by de-duplication is forbidden"
+        )
 
 
 __all__ = [
+    "KEY_TYPES",
     "KEY_TYPE_ORIGIN",
     "KEY_TYPE_TASK_ALIAS",
-    "KEY_TYPES",
-    "STATE_BASE_ONLY",
-    "STATE_REUSE1",
-    "STATE_REUSE2",
     "PAIR_SEARCH_BOUNDED",
     "PAIR_SEARCH_EXHAUSTIVE",
+    "STATE_BASE_ONLY",
     "STATE_RESIDUAL",
     "STATE_REUSE1",
     "STATE_REUSE2",
+    "TARGETS",
     "TARGET_CONTEXT_POSITIVE",
     "TARGET_IGNORE",
     "TARGET_NEGATIVE",
     "TARGET_POSITIVE",
     "TARGET_SOLVER_POSITIVE",
-    "TARGETS",
     "TEACHER_SEARCH_FULL_HISTORY",
     "TEACHER_STATES",
     "V7_QUERY_MODULE_HASH",
     "V8AuditConfig",
     "V8Config",
-    "V8ExpertConfig",
-    "V8KeyConfig",
-    "V8PruningConfig",
     "V8QueryConfig",
-    "V8ResidualConfig",
     "V8RoutingConfig",
     "V8TeacherConfig",
-    "V8TrainingConfig",
     "assert_frozen_contract",
 ]

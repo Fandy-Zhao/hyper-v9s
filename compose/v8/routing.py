@@ -140,9 +140,14 @@ class MultiKeyRouter(nn.Module):
                 for slot in range(top_k)
             ])
 
+        # Report true cosine values, without the deterministic tie epsilon: the
+        # perturbation decides the *order* of a near-tie, it is not a similarity.
+        # ``topk`` returns ``per_expert + tie`` at the selected columns, so the
+        # selected columns are reread from ``per_expert``.
+        scores = torch.gather(per_expert, 1, local)
         scores = torch.where(
-            torch.isfinite(values), values,
-            torch.zeros_like(values),
+            torch.isfinite(scores), scores,
+            torch.zeros_like(scores),
         )
         return MultiKeyRouteResult(
             expert_ids=expert_ids,
@@ -186,8 +191,10 @@ class MultiKeyRouter(nn.Module):
         k = min(int(m), int(num_experts))
         tie = -torch.arange(num_experts, device=per_expert.device,
                             dtype=per_expert.dtype) * TIE_EPSILON
-        values, local = torch.topk(per_expert + tie, k=k, dim=-1, sorted=True)
-        return pool_expert_ids[local], values
+        _, local = torch.topk(per_expert + tie, k=k, dim=-1, sorted=True)
+        # Same rule as ``forward``: the epsilon orders a near-tie, the returned
+        # score stays the true max-aggregated cosine.
+        return pool_expert_ids[local], torch.gather(per_expert, 1, local)
 
     # ------------------------------------------------------------------
     def score_for_experts(

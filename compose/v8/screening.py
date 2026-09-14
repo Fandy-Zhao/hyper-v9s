@@ -3,6 +3,25 @@
 The functions in this module are deliberately separate from the full-data
 trainer.  Ground-truth correctness and answer NLL may enter here; the returned
 artifact contains only a frozen set of expert IDs and aggregate diagnostics.
+
+Three things happen here, in order:
+
+1. :func:`sample_teacher_records` draws the seeded, answer-stratified teacher
+   subset from the **train** split, recording the sample id hash so the subset is
+   reproducible and provably disjoint from test.
+2. :func:`aggregate_reusable_experts` collapses the teacher's per-sample
+   ``selected_experts`` into the task-level reusable set ``R_t``.  The criterion
+   is unchanged from the validated campaign -- selected-solver support **and**
+   usage rate -- but the artifact now also reports, per expert,
+   ``solved_single_count``: the samples where that expert solved the task *as a
+   single* without the teacher having selected it.  Those are alternative
+   solvers, and an artifact that only counted selections could not tell a reader
+   how many of them were discarded.
+3. :func:`initialize_reuse_keys` turns the teacher's own evidence into the
+   current-task reuse-key initialisation: the centroid of the queries it selected
+   each reusable expert for, falling back to the task center when support is too
+   thin.  This is the only place teacher decisions may influence training, and it
+   influences **initialisation**, never a loss and never a route.
 """
 
 from __future__ import annotations
@@ -18,6 +37,8 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 import torch
 from torch.nn import functional as F
+
+from compose.v8.pool import alias_key_init
 
 
 SCHEMA_VERSION = 1
@@ -114,13 +135,38 @@ def sample_teacher_records(
     return [record for _sample_id_value, record in selected], report
 
 
+def _solved_as_single(record: Mapping[str, Any], expert_id: int) -> bool:
+    """Did ``expert_id`` meet the task metric on this sample as a *single*?
+
+    Read from ``single_values``, the teacher's full-history single oracle, and
+    compared against the same ``solved_threshold`` the teacher's own decision
+    used.  This is the alternative-solver signal: an expert can solve a sample
+    without having been selected to, and the artifact must be able to say how
+    often that happened.
+    """
+    values = record.get("single_values") or {}
+    value = values.get(str(expert_id), values.get(expert_id))
+    if value is None:
+        return False
+    return float(value) >= float(record.get("solved_threshold", 0.0))
+
+
 def aggregate_reusable_experts(
     teacher_payload: Mapping[str, Any],
     *,
     min_teacher_support: int,
     min_teacher_usage_rate: float,
 ) -> Dict[str, Any]:
-    """Aggregate sample-level valid teacher selections into a task-level set."""
+    """Aggregate sample-level valid teacher selections into a task-level set.
+
+    The criterion below is the one the validated campaign used and is unchanged:
+    an expert is reusable when the teacher **selected** it for at least
+    ``min_teacher_support`` samples and that is at least ``min_teacher_usage_rate``
+    of the teacher subset.  What is new is the evidence kept alongside it --
+    ``solved_single_count`` in particular, which counts the samples this expert
+    solves as a single even when the teacher chose someone else.  It does not
+    affect the decision; it makes the cost of the decision measurable.
+    """
     if min_teacher_support < 1:
         raise ValueError("min_teacher_support must be positive")
     if not 0.0 <= min_teacher_usage_rate <= 1.0:
@@ -158,13 +204,37 @@ def aggregate_reusable_experts(
         keep = count >= int(min_teacher_support) and rate >= float(min_teacher_usage_rate)
         if keep:
             reusable.append(expert_id)
+        solved_singles = [
+            record for record in records if _solved_as_single(record, expert_id)
+        ]
+        alternative_singles = [
+            record for record in solved_singles
+            if expert_id not in [int(value) for value in record.get("selected_experts", ())]
+        ]
+        context_count = sum(
+            1 for record in records
+            if expert_id in [int(value) for value in record.get("residual_context", ())]
+        )
+        tested_count = sum(
+            1 for record in records
+            if expert_id in [int(value) for value in record.get("tested_singles", ())]
+        )
         stats[str(expert_id)] = {
             "teacher_selected_count": count,
             "teacher_selected_rate": rate,
+            "selected_solver_count": count,
+            "selected_single_solver_count": int(raw["single_usage_count"]),
+            "selected_pair_count": int(raw["pair_usage_count"]),
+            "solved_single_count": len(solved_singles),
+            "solved_single_rate": len(solved_singles) / denominator,
+            "alternative_solved_single_count": len(alternative_singles),
+            "context_count": context_count,
+            "tested_single_count": tested_count,
             "mean_nll_gain": (statistics.fmean(raw["nll_gains"])
                               if raw["nll_gains"] else None),
             "median_nll_gain": (statistics.median(raw["nll_gains"])
                                 if raw["nll_gains"] else None),
+            "nll_evidence_count": len(raw["nll_gains"]),
             "correct_gain": sum(raw["correct_gains"]),
             "success_count": count,
             "single_usage_count": int(raw["single_usage_count"]),
@@ -183,6 +253,13 @@ def aggregate_reusable_experts(
             "min_teacher_support": int(min_teacher_support),
             "min_teacher_usage_rate": float(min_teacher_usage_rate),
             "evidence": "correctness-valid selected_experts; NLL ranks ties only",
+            "diagnostic_only": [
+                "solved_single_count",
+                "alternative_solved_single_count",
+                "context_count",
+                "mean_nll_gain",
+                "median_nll_gain",
+            ],
         },
         "expert_statistics": stats,
         "full_training_oracle_eval_sample_count": 0,
@@ -228,6 +305,98 @@ def teacher_router_recall(
     }
 
 
+def initialize_reuse_keys(
+    teacher_payload: Mapping[str, Any],
+    reusable_ids: Sequence[int],
+    query_payload: Mapping[str, Any],
+    *,
+    center: torch.Tensor,
+    perturbation: float,
+    min_support: int,
+    seed: int,
+    task_index: int,
+) -> Tuple[Dict[int, torch.Tensor], Dict[str, Any]]:
+    """Current-task reuse keys for ``R_t``, initialised from teacher evidence.
+
+    For each reusable historical expert the support queries are the samples the
+    teacher **selected it as a solver** for -- the most conservative definition
+    available, and the same evidence the reusable set itself was built from.  The
+    key starts at their normalised centroid and then takes the same tiny
+    deterministic tangential perturbation the candidate initialiser uses, so two
+    experts with identical support do not start from an identical key.
+
+    When support is below ``min_support`` the centroid is not evidence, so the
+    key falls back to the task center with the same deterministic perturbation
+    the previous implementation always used.  Both branches are recorded.
+
+    Returns ``(keys_by_expert, audit)``; the audit is what lands in the screening
+    artifact, so a reader can tell evidence-driven from fallback keys without
+    re-deriving anything.
+    """
+    from compose.v7.pool import initialize_current_task_key, reuse_key_seed
+
+    if min_support < 1:
+        raise ValueError("min_support must be positive")
+    if perturbation <= 0:
+        raise ValueError("perturbation must be positive")
+    records = list(teacher_payload.get("records", ()))
+    query_ids = [str(value) for value in query_payload["sample_ids"]]
+    rows = {sample_id: index for index, sample_id in enumerate(query_ids)}
+    queries = query_payload["queries"]
+    if int(queries.shape[0]) != len(query_ids):
+        raise ValueError("query payload and sample id list disagree on length")
+
+    keys: Dict[int, torch.Tensor] = {}
+    audit: Dict[str, Any] = {}
+    for expert_id in sorted(int(value) for value in reusable_ids):
+        support_ids = sorted(
+            str(record["sample_id"]) for record in records
+            if expert_id in [int(value) for value in record.get("selected_experts", ())]
+        )
+        missing = [sample_id for sample_id in support_ids if sample_id not in rows]
+        if missing:
+            raise ValueError(
+                "teacher support sample missing from the query cache: {}".format(missing[:4])
+            )
+        if len(support_ids) >= int(min_support):
+            rows_index = torch.tensor(
+                [rows[sample_id] for sample_id in support_ids], dtype=torch.long
+            )
+            centroid = alias_key_init(queries[rows_index].detach().float())
+            key = initialize_current_task_key(
+                centroid, perturbation=perturbation,
+                seed=reuse_key_seed(seed, task_index, expert_id),
+            )
+            source = "teacher_selected_query_centroid"
+        else:
+            key = initialize_current_task_key(
+                center, perturbation=perturbation,
+                seed=reuse_key_seed(seed, task_index, expert_id),
+            )
+            source = "task_center_fallback"
+        keys[expert_id] = key
+        audit[str(expert_id)] = {
+            "expert_id": expert_id,
+            "source": source,
+            "support": len(support_ids),
+            "min_support": int(min_support),
+            "query_ids_sha256": hashlib.sha256(
+                ("\n".join(support_ids) + "\n").encode("utf-8")
+            ).hexdigest(),
+            "perturbation": float(perturbation),
+            "seed": reuse_key_seed(seed, task_index, expert_id),
+        }
+    return keys, {
+        "schema_version": SCHEMA_VERSION,
+        "task_id": int(teacher_payload.get("task_id", task_index)),
+        "support_definition": "teacher_selected_solver",
+        "perturbation": float(perturbation),
+        "min_support": int(min_support),
+        "seed": int(seed),
+        "experts": audit,
+    }
+
+
 def load_reusable_screening(
     path: str | Path,
     *,
@@ -253,4 +422,3 @@ def load_reusable_screening(
     if payload.get("task_specific_historical_keys"):
         raise ValueError("task-specific historical keys are forbidden in this experiment")
     return payload
-
