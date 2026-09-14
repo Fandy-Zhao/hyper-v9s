@@ -2,7 +2,7 @@ import json
 import os
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Dict, Optional
+from typing import Dict, Iterable, Optional
 
 import torch
 import transformers
@@ -109,7 +109,16 @@ def load_compose_model(
     dtype: torch.dtype = torch.bfloat16,
     model_max_length: int = 2048,
     apply_persisted_rms: bool = True,
+    expert_ids_to_load: Optional[Iterable[int]] = None,
 ) -> EvaluationBundle:
+    """Build the Compose evaluation bundle.
+
+    ``expert_ids_to_load`` is the inference-time memory lever: pass the union
+    of experts a run's routing manifest can select and only those modules are
+    instantiated (see ``compose.experts.checkpoint.load_expert_checkpoint``).
+    ``None`` -- the default -- loads the whole pool, so every existing caller
+    is unaffected.
+    """
     manifest = _read_compose_manifest(checkpoint_dir)
     adapter = manifest["adapter"]
     model, tokenizer, image_processor = _foundation(
@@ -124,7 +133,9 @@ def load_compose_model(
     injection_summary = validate_compose_injection(model, injected)
     manager = ExpertManager(model)
     pool = ExpertPool(manager)
-    loaded_manifest = load_expert_checkpoint(pool, checkpoint_dir)
+    loaded_manifest = load_expert_checkpoint(
+        pool, checkpoint_dir, keep_ids=expert_ids_to_load
+    )
     calibration = loaded_manifest.get("rms_calibration") or {}
     if apply_persisted_rms and calibration:
         from compose.lora.rms import apply_kappa_calibration
@@ -157,6 +168,11 @@ def load_compose_model(
             ],
             "rms_calibration": calibration,
             "rms_calibration_applied": bool(apply_persisted_rms and calibration),
+            "expert_ids_requested": (
+                None
+                if expert_ids_to_load is None
+                else sorted(int(value) for value in expert_ids_to_load)
+            ),
         },
     )
 

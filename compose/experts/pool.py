@@ -98,9 +98,30 @@ class ExpertPool:
             "experts": [metadata.to_dict() for metadata in self._metadata.values()],
         }
 
-    def restore_metadata(self, entries: Iterable[Dict[str, object]]) -> None:
+    def restore_metadata(
+        self,
+        entries: Iterable[Dict[str, object]],
+        keep_ids: Optional[Iterable[int]] = None,
+    ) -> None:
+        """Restore expert metadata, optionally instantiating only a subset.
+
+        ``keep_ids`` exists for inference-only runs on a shared GPU: a given
+        evaluation split usually routes to a handful of the pool's experts,
+        and an expert the router never selects carries a zero gate, so its
+        tensors cannot reach the output.  Metadata is restored for *every*
+        entry either way -- only module instantiation is skipped -- so
+        ``expert_ids()`` (and therefore ``checkpoint._expected_keys`` and the
+        manifest tensor-count check) still describes the whole checkpoint.
+
+        A partially instantiated pool must never be saved:
+        ``expert_state_dict`` would emit fewer tensors than
+        ``_expected_keys`` and ``save_expert_checkpoint`` raises on that
+        mismatch rather than writing a truncated checkpoint.
+        """
+        keep = None if keep_ids is None else {int(value) for value in keep_ids}
         for entry in entries:
             metadata = ExpertMetadata.from_dict(entry)
-            if metadata.expert_id not in self.manager.expert_ids():
-                self.manager.add_expert(metadata.expert_id)
+            if keep is None or metadata.expert_id in keep:
+                if metadata.expert_id not in self.manager.expert_ids():
+                    self.manager.add_expert(metadata.expert_id)
             self._metadata[metadata.expert_id] = metadata

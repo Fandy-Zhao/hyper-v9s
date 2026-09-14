@@ -42,6 +42,26 @@ def _git_commit() -> str:
         return "unknown"
 
 
+def manifest_expert_union(path: str) -> List[int]:
+    """Every expert id a selection manifest can select, sorted.
+
+    This is the input to the subset load.  It must be a superset of what the
+    run selects -- ``ExpertManager._require_experts`` raises KeyError if a
+    selection names an id that was never instantiated, so an under-computed
+    union fails loudly at the first offending sample rather than silently
+    routing to the wrong expert.
+    """
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return sorted(
+        {
+            int(expert_id)
+            for row in payload.values()
+            for expert_id in row["global_top2"]
+        }
+    )
+
+
 def _prompt(record, model_config, conv_mode):
     question = question_text(record)
     # The UCIT instruction files embed the <image> placeholder in the human
@@ -109,6 +129,14 @@ def main() -> None:
         "--selection-manifest", default=None,
         help="precomputed per-sample expert IDs for validation remove-and-reroute",
     )
+    parser.add_argument(
+        "--load-only-manifest-experts",
+        action="store_true",
+        help="instantiate only the experts the selection manifest can select; "
+        "unselected experts hold a zero gate, so this is a pure memory saving "
+        "(it changes no coefficient), meant for shared GPUs where the full "
+        "23-expert pool does not fit alongside another tenant",
+    )
     parser.add_argument("--max-samples", type=int)
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--model-max-length", type=int, default=2048)
@@ -175,6 +203,14 @@ def main() -> None:
         dtype=torch.bfloat16,
         model_max_length=args.model_max_length,
     )
+    expert_ids_to_load = None
+    if args.load_only_manifest_experts:
+        if args.selection_manifest is None:
+            raise ValueError(
+                "--load-only-manifest-experts requires --selection-manifest: the "
+                "manifest is what says which experts the run can select"
+            )
+        expert_ids_to_load = manifest_expert_union(args.selection_manifest)
     if args.adapter_kind == "compose":
         if (
             args.expert_ids is None
@@ -189,7 +225,9 @@ def main() -> None:
                 **common
             )
         else:
-            bundle = load_compose_model(expert_id=None, **common)
+            bundle = load_compose_model(
+                expert_id=None, expert_ids_to_load=expert_ids_to_load, **common
+            )
             # --router-checkpoint alone means per-sample selection: no fixed
             # expert ids (None), and the default gates follow.
             expert_ids = (
