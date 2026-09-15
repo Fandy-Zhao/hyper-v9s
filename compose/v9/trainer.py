@@ -52,6 +52,7 @@ from compose.v7.training import (
     assert_historical_lora_frozen,
     full_data_coverage_audit,
 )
+from compose.v8.config import KEY_TYPE_TASK_ALIAS
 from compose.v8.pool import LIFECYCLE_PRUNED, tensor_checksum
 
 from .checkpoint import load_v9_checkpoint, save_v9_checkpoint
@@ -1211,6 +1212,100 @@ class V9ComposeTrainer(ComposeTrainer):
         )
         return audit
 
+    #: §33's entire legal trainable set, in the order the report prints it.
+    #: Anything trainable outside these four buckets is FATAL, not a warning.
+    _TRAINABLE_GROUP_LABELS = (
+        ("current_candidate_lora", "current candidate LoRA"),
+        ("current_candidate_key", "current candidate key"),
+        ("current_task_historical_key", "current-task/adapted historical key"),
+        ("router", "V9-S router"),
+    )
+
+    @staticmethod
+    def _expert_id_from_name(name: str) -> Optional[int]:
+        """``…q_proj.experts.3.lora_A.weight`` -> ``3``, else ``None``."""
+        marker = ".experts."
+        if marker not in name:
+            return None
+        head = name.split(marker, 1)[1].split(".", 1)[0]
+        return int(head) if head.isdigit() else None
+
+    @staticmethod
+    def _forbidden_home(name: str) -> str:
+        """Name the frozen module a stray trainable parameter belongs to."""
+        lowered = name.lower()
+        for needle, label in (
+            ("embed_tokens", "token embedding"),
+            ("vision_tower", "vision tower"),
+            ("vision_model", "vision tower"),
+            ("mm_projector", "projector"),
+            ("projector", "projector"),
+            ("query_encoder", "query encoder"),
+        ):
+            if needle in lowered:
+                return label
+        return "historical LoRA" if ".experts." in name else "LLM backbone"
+
+    def _candidate_key_ids(self) -> List[str]:
+        """Origin key ids of this task's candidates, restricted to known keys."""
+        pool = self.v9_key_pool
+        return [
+            key_id
+            for key_id in (pool.origin_key_id(expert_id) for expert_id in pool.current_ids)
+            if key_id in pool.key_records
+        ]
+
+    def trainable_parameter_groups(self) -> Tuple[Dict[str, List[Tuple[str, int]]], List[Tuple[str, str]]]:
+        """Bucket every trainable into §33's legal set, naming any that is not.
+
+        The model census is only half the question: the key pool holds trainable
+        tensors too, and a retained key of an earlier task coming back to life
+        would train a capability the method promises is frozen.  Both halves are
+        classified here; an empty second element is what licenses the run to
+        continue at all.
+        """
+        groups: Dict[str, List[Tuple[str, int]]] = {
+            key: [] for key, _ in self._TRAINABLE_GROUP_LABELS
+        }
+        illegal: List[Tuple[str, str]] = []
+        candidates = {int(item) for item in self.v9_key_pool.current_ids}
+        for name, parameter in self.model.named_parameters():
+            if not parameter.requires_grad:
+                continue
+            numel = int(parameter.numel())
+            if "v9_router" in name:
+                groups["router"].append((name, numel))
+                continue
+            expert_id = self._expert_id_from_name(name)
+            if expert_id is not None and expert_id in candidates:
+                groups["current_candidate_lora"].append((name, numel))
+                continue
+            illegal.append((name, self._forbidden_home(name)))
+        # A legal key is one this task owns: a current candidate's origin key, or
+        # a historical expert's key for exactly this task.  Everything else --
+        # including the origin keys of committed experts -- is retained state.
+        candidate_keys = set(self._candidate_key_ids())
+        for key_id in self.v9_key_pool.trainable_key_ids():
+            record = self.v9_key_pool.key_records[key_id]
+            numel = int(self.v9_key_pool.keys[key_id].numel())
+            if key_id in candidate_keys:
+                groups["current_candidate_key"].append((key_id, numel))
+            elif (
+                record.get("key_type") == KEY_TYPE_TASK_ALIAS
+                and int(record.get("task_id", -1)) == int(self.v9_task_index)
+            ):
+                groups["current_task_historical_key"].append((key_id, numel))
+            else:
+                illegal.append(
+                    (
+                        key_id,
+                        "retained {} key of task {}".format(
+                            record.get("key_type"), record.get("task_id")
+                        ),
+                    )
+                )
+        return groups, illegal
+
     def trainable_parameter_audit(self, print_census: bool = True) -> Dict[str, Any]:
         """Full parameter census (spec §28), printed once per task."""
         rows: List[Dict[str, Any]] = []
@@ -1241,23 +1336,16 @@ class V9ComposeTrainer(ComposeTrainer):
                         "router_parameters", 0
                     ) + int(parameter.numel())
         # Fail fast: a frozen module that somehow requires grad would silently
-        # train the backbone.
-        forbidden = [
-            row["name"]
-            for row in rows
-            if row["requires_grad"]
-            and ".experts." not in row["name"]
-            and "v9_router" not in row["name"]
-        ]
-        if forbidden:
+        # train the backbone, and the grouped classification is the stricter
+        # form of that check -- it also catches a historical expert's LoRA and a
+        # retained key of an earlier task, which the flat name test cannot
+        # distinguish from a current candidate.
+        groups, illegal = self.trainable_parameter_groups()
+        if illegal:
             raise AssertionError(
-                "parameters outside the candidate LoRA / router are trainable: "
-                "{}".format(forbidden[:10])
+                "illegal trainable parameters (spec §33): {}".format(illegal[:10])
             )
-        candidate_keys = [
-            self.v9_key_pool.origin_key_id(expert_id)
-            for expert_id in self.v9_key_pool.current_ids
-        ]
+        candidate_keys = self._candidate_key_ids()
         trainable_keys = self.v9_key_pool.trainable_key_ids()
         #: Historical experts' *current-task* keys: independent, absolute, and
         #: the only part of a historical expert that trains.
@@ -1276,6 +1364,9 @@ class V9ComposeTrainer(ComposeTrainer):
             "trainable_key_ids": list(trainable_keys),
             "candidate_key_ids": candidate_keys,
             "historical_task_key_ids": task_keys,
+            "trainable_parameter_groups": {
+                key: [name for name, _ in members] for key, members in groups.items()
+            },
         }
         if print_census and (not _distributed() or torch.distributed.get_rank() == 0):
             for row in rows:
@@ -1287,6 +1378,25 @@ class V9ComposeTrainer(ComposeTrainer):
                     )
                 )
             print("V9 parameter census: {}".format(totals))
+            # §33: the audit above proves nothing is trainable that should not
+            # be; this prints what *is*, grouped by the role the method gives it,
+            # so the claim is legible in the log rather than only in a JSON file
+            # nobody reads until something has already gone wrong.
+            print("Trainable Parameter Groups (spec §33):")
+            for key, label in self._TRAINABLE_GROUP_LABELS:
+                members = groups[key]
+                print(
+                    "  {label:<38} {count:>5} tensors  {numel:>12,} params".format(
+                        label=label,
+                        count=len(members),
+                        numel=sum(numel for _, numel in members),
+                    )
+                )
+            print(
+                "  {label:<38} {count:>5} entries".format(
+                    label="illegal trainables", count=len(illegal)
+                )
+            )
         return payload
 
     # ------------------------------------------------------------------
