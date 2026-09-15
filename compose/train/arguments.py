@@ -66,6 +66,24 @@ class ModelArguments:
     compose_v8_reuse_quality_enabled: bool = field(default=False)
     compose_v8_reuse_quality_temperature: float = field(default=1.0)
     compose_v8_reuse_quality_floor: float = field(default=0.10)
+    # --- V9: Answer-Guided Key--Expert Co-Evolution (see compose/v9/). ---
+    # The whole recipe lives in the V9 YAML; these flags only locate it and
+    # name the artefacts of this task.  No V9 threshold is ever passed on the
+    # command line, so a run cannot drift from the config it declares.
+    compose_v9_config: Optional[str] = field(default=None)
+    compose_v9_key_state: Optional[str] = field(default=None)
+    compose_v9_query_cache: Optional[str] = field(default=None)
+    compose_v9_retrieval_cache: Optional[str] = field(default=None)
+    compose_v9_metrics_path: Optional[str] = field(default=None)
+    compose_v9_task_index: int = field(default=0)
+    # 0 = derive from the train dataloader the trainer actually builds.
+    compose_v9_total_steps: int = field(default=0)
+    compose_v9_runtime_contract: Optional[str] = field(default=None)
+    #: Fail the task if any training sample never reached the answer loss.
+    #: Off for deliberately compressed preflights, on for formal runs.
+    compose_v9_require_full_coverage: bool = field(default=False)
+    #: JSON manifest naming the held-out split the spec §30 calibration reads.
+    compose_v9_calibration: Optional[str] = field(default=None)
 
 
 @dataclass
@@ -88,3 +106,8 @@ class TrainingArguments(transformers.TrainingArguments):
     mm_projector_lr: Optional[float] = field(default=None)
     group_by_modality_length: bool = field(default=False)
     use_im_start_end: bool = field(default=False)
+    #: V9 trains two parameter groups: the current candidates' LoRA (Path A of
+    #: the answer gradient) and the routing keys plus bias (Path B).  A key is a
+    #: direction in a 1536-D unit sphere, not a weight matrix, so it takes its
+    #: own rate.  ``learning_rate`` remains the LoRA rate for every mode.
+    v9_key_learning_rate: float = field(default=3e-4)

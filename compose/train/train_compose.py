@@ -55,6 +55,7 @@ from .data import (
     make_supervised_data_module,
 )
 from .trainer import ComposeTrainer
+from compose.v9.config import V9_COMPOSE_MODE
 
 
 def _csv_ints(value: str) -> List[int]:
@@ -304,6 +305,94 @@ def _load_old_checkpoint(pool, model_args, training_args):
     return load_summary
 
 
+def _v9_total_steps(trainer) -> int:
+    """Optimizer steps the V9 stage schedule is defined over.
+
+    The three stages are ratios of the whole task, so a total that disagrees
+    with the dataloader the trainer runs moves every boundary at once and the
+    discretisation stage -- the one deployment actually depends on -- lands in
+    the wrong place.  This mirrors HF's own ``max_steps`` derivation rather than
+    approximating it.
+    """
+    import math
+
+    args = trainer.args
+    if int(getattr(args, "max_steps", 0)) > 0:
+        return int(args.max_steps)
+    loader = trainer.get_train_dataloader()
+    accumulation = max(int(args.gradient_accumulation_steps), 1)
+    per_epoch = max(len(loader) // accumulation, 1)
+    epochs = float(args.num_train_epochs)
+    return max(int(math.ceil(epochs * per_epoch)), 1)
+
+
+def _run_v9_calibration(
+    trainer, model_args, training_args, v9_config, tokenizer, data_args
+) -> None:
+    """Spec §30: check the gate-gradient proxy against exact removal, once.
+
+    Runs only on rank 0.  It reuses the model that is already resident, so the
+    check costs a handful of forwards on a small held-out batch instead of a
+    second 7B load.  Ranks that do not run it wait at a barrier rather than
+    racing ahead into checkpoint writing.
+    """
+    import torch as _torch
+
+    from compose.train.data import V7QueryCollator
+    from compose.v9.data import V9QueryDataset
+    from compose.v9.retrieval import HistoricalTopC
+
+    manifest_path = model_args.compose_v9_calibration
+    with open(manifest_path, "r", encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    world_size = int(getattr(training_args, "world_size", 1))
+    rank = int(getattr(training_args, "process_index", 0))
+    if rank != 0:
+        if world_size > 1 and _torch.distributed.is_initialized():
+            _torch.distributed.barrier()
+        return
+    with open(manifest["query_cache"], "r", encoding="utf-8") as handle:
+        query_cache = json.load(handle)
+    dataset = V9QueryDataset(
+        manifest["data_path"],
+        tokenizer,
+        data_args,
+        query_cache,
+        None,
+        historical_topc=HistoricalTopC.load(manifest["retrieval_cache"]),
+    )
+    loader = _torch.utils.data.DataLoader(
+        dataset,
+        batch_size=int(training_args.per_device_train_batch_size),
+        shuffle=False,
+        collate_fn=V7QueryCollator(tokenizer),
+        num_workers=0,
+    )
+    report = trainer.calibration_pass(
+        loader, int(manifest.get("sample_budget", 64))
+    )
+    calibration_dir = training_args.output_dir
+    if report is not None:
+        with open(
+            os.path.join(calibration_dir, "v9_contribution_calibration.json"),
+            "w", encoding="utf-8",
+        ) as handle:
+            json.dump(report, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        print("V9 contribution calibration: {}".format(report), flush=True)
+    with open(
+        os.path.join(calibration_dir, "v9_candidate_validation_gain.json"),
+        "w", encoding="utf-8",
+    ) as handle:
+        json.dump(
+            {str(k): float(v) for k, v in trainer.v9_validation_gain.items()},
+            handle, indent=2, sort_keys=True,
+        )
+        handle.write("\n")
+    if world_size > 1 and _torch.distributed.is_initialized():
+        _torch.distributed.barrier()
+
+
 def _register_new_experts(pool, expert_ids, model_args):
     seed_map = _csv_seed_map(model_args.compose_expert_seeds)
     unknown_seed_ids = sorted(set(seed_map) - set(int(value) for value in expert_ids))
@@ -373,6 +462,19 @@ def _normalize_compose_argv(argv):
     ]
 
 
+#: The one formal V9-S mode.  Kept as a module constant rather than repeated as
+#: a literal because the name decides eleven branches below; a typo in any one
+#: of them would silently fall through to a different training loop.
+V9_MODE = V9_COMPOSE_MODE
+
+#: The V9 v1 spelling of the same mode.  Accepted only so a saved command line
+#: still resolves; ``train()`` prints a warning and continues as V9-S.
+#: legacy_v9_only.
+V9_LEGACY_MODE = "v9_global_coevolution"
+
+V9_MODES = (V9_MODE, V9_LEGACY_MODE)
+
+
 def train() -> None:
     sys.argv = _normalize_compose_argv(sys.argv)
     parser = transformers.HfArgumentParser(
@@ -383,9 +485,23 @@ def train() -> None:
         raise ValueError("Compose training requires --vision_tower")
 
     mode = model_args.compose_mode
-    if mode not in ("fixed", "cluster_expert", "v7_global_coevolution"):
+    if mode == V9_LEGACY_MODE:  # legacy_v9_only
+        print(
+            "[v9s] --compose-mode {} is the V9 v1 spelling; running {} "
+            "instead".format(V9_LEGACY_MODE, V9_MODE),
+            file=sys.stderr,
+            flush=True,
+        )
+        mode = V9_MODE
+    if mode not in (
+        "fixed",
+        "cluster_expert",
+        "v7_global_coevolution",
+        V9_MODE,
+    ):
         raise ValueError(
-            "--compose-mode must be fixed, cluster_expert, or v7_global_coevolution"
+            "--compose-mode must be fixed, cluster_expert, v7_global_coevolution, "
+            "or {}".format(V9_MODE)
         )
     if model_args.compose_v8_config:
         # Applied after the command line and before anything is built, so the
@@ -414,6 +530,17 @@ def train() -> None:
             file=sys.stderr,
             flush=True,
         )
+    if mode == V9_MODE:
+        # Loaded before anything is built: a malformed V9 recipe must fail before
+        # a 7B checkpoint is paged in, and the candidate count it declares is
+        # what the expert registration below is checked against.
+        from compose.v9 import V9Config, assert_frozen_contract
+
+        import yaml as _yaml
+
+        with open(model_args.compose_v9_config, "r", encoding="utf-8") as handle:
+            v9_config = V9Config.from_dict(_yaml.safe_load(handle) or {})
+        assert_frozen_contract(v9_config)
     saved_expert_ids = []
     if mode == "cluster_expert":
         if not model_args.compose_selection_manifest:
@@ -441,6 +568,26 @@ def train() -> None:
             raise ValueError("V7 training forbids max_samples; provide an explicit smoke split")
         if model_args.tune_mm_mlp_adapter:
             raise ValueError("V7 trains only current Candidate LoRA and Key parameters")
+    elif mode == V9_MODE:
+        required = {
+            "compose_v9_config": model_args.compose_v9_config,
+            "compose_v9_key_state": model_args.compose_v9_key_state,
+            "compose_v9_query_cache": model_args.compose_v9_query_cache,
+            "compose_v9_retrieval_cache": model_args.compose_v9_retrieval_cache,
+            "compose_v9_metrics_path": model_args.compose_v9_metrics_path,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError("V9 mode requires {}".format(", ".join(missing)))
+        if not model_args.compose_cluster_expert_ids.strip():
+            raise ValueError("V9 mode requires the current candidate ids")
+        if model_args.max_samples is not None:
+            raise ValueError("V9 training forbids max_samples; provide an explicit smoke split")
+        if model_args.tune_mm_mlp_adapter:
+            raise ValueError(
+                "V9 trains only the current Candidate LoRA, the routing keys and "
+                "the routing bias; the projector stays frozen"
+            )
     else:
         if not model_args.compose_expert_ids.strip():
             raise ValueError("fixed mode requires --compose-expert-ids")
@@ -476,12 +623,20 @@ def train() -> None:
     with profiler.startup_timer("adapter_injection"):
         injected, injection_summary, manager, pool = _inject_and_pool(model, model_args)
 
-    if mode in ("cluster_expert", "v7_global_coevolution"):
+    if mode in ("cluster_expert", "v7_global_coevolution", V9_MODE):
         _prepare_cluster_expert_backward()
         _load_old_checkpoint(pool, model_args, training_args)
         cluster_expert_ids = _csv_ints(model_args.compose_cluster_expert_ids)
         if mode == "v7_global_coevolution" and len(cluster_expert_ids) != 4:
             raise ValueError("V7 requires exactly four current candidate IDs")
+        if mode == V9_MODE and len(cluster_expert_ids) != (
+            v9_config.candidate_count
+        ):
+            raise ValueError(
+                "V9 config declares {} current candidates but {} ids were given".format(
+                    v9_config.candidate_count, len(cluster_expert_ids)
+                )
+            )
         _register_new_experts(pool, cluster_expert_ids, model_args)
         saved_expert_ids = list(cluster_expert_ids)
         pool.train_only(cluster_expert_ids)
@@ -498,7 +653,7 @@ def train() -> None:
             # DDP + find_unused_parameters=True (see S6 4-GPU launch)
             # requires non-reentrant checkpointing.
             _enable_non_reentrant_checkpointing()
-        if mode == "v7_global_coevolution":
+        if mode in ("v7_global_coevolution", V9_MODE):
             # Keep frozen embeddings out of the optimizer while still making
             # checkpointed layer inputs require grad.
             model.model.embed_tokens.weight.requires_grad_(False)
@@ -556,7 +711,7 @@ def train() -> None:
     model.config.mm_projector_lr = training_args.mm_projector_lr
     training_args.use_im_start_end = model_args.mm_use_im_start_end
     model.initialize_vision_tokenizer(model_args, tokenizer)
-    if mode == "v7_global_coevolution":
+    if mode in ("v7_global_coevolution", V9_MODE):
         from compose.v7.provenance import (
             build_runtime_contract,
             load_runtime_contract,
@@ -571,11 +726,24 @@ def train() -> None:
             mm_projector_type=model_args.mm_projector_type,
             projector_path=model_args.pretrain_mm_mlp_adapter,
         )
-        validate_runtime_contract(
-            load_runtime_contract(model_args.compose_v7_runtime_contract),
-            actual_runtime,
-            "training",
+        contract_path = (
+            model_args.compose_v7_runtime_contract
+            if mode == "v7_global_coevolution"
+            else model_args.compose_v9_runtime_contract
         )
+        if contract_path:
+            # V9 checks the runtime contract when one is supplied: the query
+            # cache it routes with is only meaningful under the same image
+            # handling, vision tower and projector that produced it.
+            validate_runtime_contract(
+                load_runtime_contract(contract_path), actual_runtime, "training"
+            )
+        elif mode == V9_MODE:
+            print(
+                "V9 runtime contract not supplied; the query cache is trusted as-is",
+                file=sys.stderr,
+                flush=True,
+            )
 
     if mode == "cluster_expert":
         selections = _load_selection_manifest(model_args.compose_selection_manifest)
@@ -692,6 +860,90 @@ def train() -> None:
             "eval_dataset": None,
             "data_collator": data_collator,
         }
+    elif mode == V9_MODE:
+        from compose.v9 import (
+            V9KeyPool,
+            V9QueryCollator,
+            V9QueryDataset,
+            V9Router,
+        )
+        from compose.v9.retrieval import HistoricalTopC
+
+        task_index = int(model_args.compose_v9_task_index)
+        with profiler.startup_timer("v9_key_state"):
+            key_state = torch.load(
+                model_args.compose_v9_key_state, map_location="cpu", weights_only=False
+            )
+            v9_key_pool = V9KeyPool.from_state(key_state, current_task=task_index)
+            v9_key_pool.validate()
+            # Everything not on this task is frozen before the optimizer exists:
+            # base keys, earlier task keys, and the discarded keys of pruned
+            # experts.  Only this task's candidates and this task's historical
+            # task keys
+            # may train.
+            v9_key_pool.freeze_historical(current_task=task_index)
+        if set(v9_key_pool.current_ids) != set(cluster_expert_ids):
+            raise ValueError(
+                "V9 current candidate ids {} do not match the key state {}".format(
+                    sorted(cluster_expert_ids), sorted(v9_key_pool.current_ids)
+                )
+            )
+        if set(v9_key_pool.historical_ids) != (
+            set(pool.expert_ids()) - set(cluster_expert_ids)
+        ):
+            raise ValueError(
+                "V9 historical key registry {} and LoRA registry {} disagree".format(
+                    sorted(v9_key_pool.historical_ids),
+                    sorted(set(pool.expert_ids()) - set(cluster_expert_ids)),
+                )
+            )
+        v9_router = V9Router(
+            config=v9_config,
+            key_pool=v9_key_pool,
+            candidate_ids=cluster_expert_ids,
+            historical_ids=v9_key_pool.historical_ids,
+            task_index=task_index,
+        )
+        # The pool is a submodule of the router and the router is a submodule of
+        # the model, so one assignment registers every key as an optimizer
+        # parameter, moves it with the model and exposes it to the
+        # trainable-parameter audit.  Nothing here may be held off to the side.
+        model.v9_router = v9_router
+        manager.set_cardinality_scale(v9_config.composition.cardinality_scale)
+
+        query_cache = None
+        query_tensor = None
+        if model_args.compose_v7_query_tensor:
+            with profiler.startup_timer("query_load"):
+                query_tensor = _load_query_tensor(
+                    model_args.compose_v7_query_tensor,
+                    model_args.compose_v9_query_cache,
+                )
+        if query_tensor is None:
+            with profiler.startup_timer("query_load"):
+                with open(model_args.compose_v9_query_cache, "r", encoding="utf-8") as handle:
+                    query_cache = json.load(handle)
+        with profiler.startup_timer("dataset_build"):
+            historical_topc = HistoricalTopC.load(model_args.compose_v9_retrieval_cache)
+            if historical_topc.task_index != task_index:
+                raise ValueError(
+                    "historical Top-C cache belongs to task {} but this run is "
+                    "task {}".format(historical_topc.task_index, task_index)
+                )
+            dataset = V9QueryDataset(
+                data_args.data_path,
+                tokenizer,
+                data_args,
+                query_cache,
+                query_tensor,
+                historical_topc=historical_topc,
+            )
+            data_collator = V9QueryCollator(tokenizer)
+        data_module = {
+            "train_dataset": dataset,
+            "eval_dataset": None,
+            "data_collator": data_collator,
+        }
     else:
         data_module = make_supervised_data_module(tokenizer, data_args)
 
@@ -729,6 +981,39 @@ def train() -> None:
         _profiler_callback = build_step_callback(profiler)
         if _profiler_callback is not None:
             trainer.add_callback(_profiler_callback)
+    elif mode == V9_MODE:
+        from compose.v9.trainer import V9ComposeTrainer
+
+        _profiler_handles = []
+        if profiler.enabled:
+            _profiler_handles.extend(attach_llava_hooks(model, profiler))
+            _profiler_handles.extend(count_compose_linear_calls(manager, profiler))
+            _profiler_handles.extend(count_lora_expert_calls(manager, profiler))
+
+        trainer = V9ComposeTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            args=training_args,
+            expert_pool=pool,
+            v9_config=v9_config,
+            v9_router=v9_router,
+            v9_task_index=task_index,
+            v9_metrics_path=model_args.compose_v9_metrics_path,
+            v9_total_steps=int(model_args.compose_v9_total_steps),
+            v9_require_full_coverage=bool(model_args.compose_v9_require_full_coverage),
+            v9_profiler=profiler,
+            **data_module
+        )
+        # The schedule boundaries must be derived from the dataloader the
+        # trainer will actually run, not from an estimate passed on the command
+        # line: bootstrap/soft/discretisation are ratios, so a wrong total moves
+        # every boundary at once and the last stage would land in the wrong
+        # place.  ``max_steps > 0`` overrides, matching HF.
+        if int(model_args.compose_v9_total_steps) <= 0:
+            trainer.set_total_steps(_v9_total_steps(trainer))
+        _profiler_callback = build_step_callback(profiler)
+        if _profiler_callback is not None:
+            trainer.add_callback(_profiler_callback)
     else:
         trainer = ComposeTrainer(
             model=model,
@@ -742,24 +1027,23 @@ def train() -> None:
         for name in os.listdir(training_args.output_dir)
         if name.startswith("checkpoint-")
     ] if os.path.isdir(training_args.output_dir) else []
-    if checkpoints and mode != "v7_global_coevolution":
+    resumable = ("v7_global_coevolution", V9_MODE)
+    if checkpoints and mode not in resumable:
         raise ValueError(
             "output_dir contains checkpoint-* entries; automatic resume is disabled "
             "because Compose checkpoints are adapter-only: {}".format(sorted(checkpoints))
         )
     distributed_audits = None
-    if mode == "v7_global_coevolution":
+    if mode in resumable:
         trainer.create_optimizer()
         distributed_audits = {
             "before_training": trainer.distributed_state_audit("before_training")
         }
     with profiler.startup_timer("train_wall"):
         trainer.train(
-            resume_from_checkpoint=True
-            if mode == "v7_global_coevolution" and checkpoints
-            else None
+            resume_from_checkpoint=True if mode in resumable and checkpoints else None
         )
-    if mode == "v7_global_coevolution":
+    if mode in resumable:
         profiler.close()
         distributed_audits["after_training"] = trainer.distributed_state_audit(
             "after_training"
@@ -768,13 +1052,55 @@ def train() -> None:
     trainer.save_state()
     coverage_audit = (
         trainer.full_data_coverage_audit(len(data_module["train_dataset"]))
-        if mode == "v7_global_coevolution"
+        if mode in resumable
         else None
     )
+    if mode == V9_MODE and model_args.compose_v9_calibration:
+        _run_v9_calibration(
+            trainer, model_args, training_args, v9_config, tokenizer, data_args
+        )
     model.config.use_cache = True
-    if mode == "v7_global_coevolution":
+    if mode in resumable:
         trainer.distributed_barrier()
     if training_args.should_save:
+        if mode == V9_MODE:
+            with open(
+                os.path.join(training_args.output_dir, "v9_distributed_audit.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(distributed_audits, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            with open(
+                os.path.join(training_args.output_dir, "v9_full_data_coverage.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(coverage_audit, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            with open(
+                os.path.join(training_args.output_dir, "v9_trainable_parameter_audit.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(trainer.trainable_parameter_audit(), handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            with open(
+                os.path.join(training_args.output_dir, "v9_task_statistics.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(
+                    trainer.global_task_statistics(),
+                    handle, indent=2, sort_keys=True,
+                )
+                handle.write("\n")
+            with open(
+                os.path.join(training_args.output_dir, "v9_freeze_audit.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(trainer.assert_task_freeze_integrity(), handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            torch.save(
+                v9_key_pool.export_state(),
+                os.path.join(training_args.output_dir, "v9_key_pool.pt"),
+            )
         if mode == "v7_global_coevolution":
             with open(
                 os.path.join(training_args.output_dir, "v7_distributed_audit.json"),
@@ -818,6 +1144,17 @@ def train() -> None:
         pool.train_only([])
         model.config.save_pretrained(training_args.output_dir)
         if mode == "v7_global_coevolution":
+            from compose.lora.rms import runtime_kappa_calibration
+
+            save_expert_checkpoint(
+                pool,
+                training_args.output_dir,
+                rms_calibration=runtime_kappa_calibration(model),
+            )
+        elif mode == V9_MODE:
+            # Same as V7: the RMS calibration is part of the recipe, not a
+            # convenience.  Dropping it here would silently un-calibrate every
+            # historical expert on the next task's composition.
             from compose.lora.rms import runtime_kappa_calibration
 
             save_expert_checkpoint(

@@ -1,0 +1,203 @@
+# V9-S end-to-end preflight: the *only* run that exercises the whole path before
+# formal training, so it is deliberately compressed in exactly one dimension.
+#
+# What is compressed: the number of optimizer steps, through the stage ratios
+# below, and the training split size -- the latter through an explicit smoke
+# split file, never through --max_samples (which V9-S refuses).  Every other
+# value is byte-identical to configs/v9s_main.yaml, so the run exercises the real
+# recipe: the real ranks, the real retrieval width, the real gates, the real
+# loss, the real audit thresholds.
+#
+# What this run is for: proving the path works end to end (query cache -> pool
+# -> recall -> one-forward training -> gate gradient -> responsibility -> key
+# update -> checkpoint/resume -> task-end audit -> commit) on the real data and
+# the real DDP entry, and checking spec §30 -- that the gate-gradient estimate
+# is a usable proxy for the exact removal effect.  It is not a result and must
+# never be reported as one.
+#
+# Deliberately NOT reduced, in order (spec §26): Top-C, M, the wide-retrieval
+# ratio, the number of answers, the effective batch, or the number of stages.
+# Reducing any of those changes the method and would make the preflight prove
+# nothing.
+
+schema_version: 1
+method: v9s
+seed: 42
+
+query:
+  # q_i = L2Norm(concat(LayerNorm(z_visual), LayerNorm(z_text))), 768+768.
+  # Frozen, parameter-free, cached: re-encoding per epoch would let the query
+  # coordinate system drift, and the keys are learned in that coordinate system.
+  type: fixed_visual_text_concat
+  source_module_hash: v7_fixed_layernorm_concat_l2_v1
+  visual_dim: 768
+  text_dim: 768
+  query_dim: 1536
+  cache: true
+  trainable_parameter_count: 0
+
+expert:
+  # Rank 8 / alpha 16 matches the frozen V7/V8 expert geometry exactly, so a
+  # historical expert's LoRA means the same thing here as it did when it was
+  # trained.
+  rank: 8
+  alpha: 16.0
+  # The main method's claim is that the answer can judge a small candidate set.
+  # Four candidates quadruples the per-step multi-LoRA cost and puts four
+  # experts in competition for one answer signal without adding a distinct
+  # decision; M = 4 is the declared ablation, not the recipe.
+  num_current_candidates: 2
+  lora_dropout: 0.0
+
+historical_retrieval:
+  # Top-C is recall, not selection: it only decides which historical experts are
+  # *offered* to the answer.  Ranking is by cosine against FROZEN base keys, so
+  # the set is computed once per task and cached -- candidate keys change every
+  # step and would invalidate a cache that included them.
+  aggregation: preserve_v8
+  top_c: 4
+  cache: true
+
+wide_retrieval:
+  # The door the fixed exploration expert used to hold open.  Without it, a
+  # historical expert whose base key ranks C+1 never enters the row, never
+  # receives answer gradient, and can never be corrected -- a failure that is
+  # both invisible and self-confirming.  V9-S widens the recall on a fraction of
+  # steps instead of reserving a slot on every row: the persistent cost is one
+  # extra cache column, not one extra active expert.
+  enabled: true
+  ratio: 0.05
+  top_c: 8
+
+key:
+  aggregation: max
+  # Spherical K-Means initialises the candidate *keys* only.  It never assigns a
+  # training sample to an expert: that decision belongs to the answer.
+  candidate_init: spherical_kmeans
+  candidate_init_perturbation: 0.01
+  candidate_init_samples: 4096
+  candidate_init_seed: 42
+
+routing:
+  # Independent per-expert sigmoid, never a softmax over the candidate set: a
+  # sample may need none, one or two experts, and a softmax would force a
+  # constant total gate mass onto every sample regardless.
+  type: independent_sigmoid
+  # Temperature falls across the three stages (spec §35 `temperature`).  It lives
+  # under `routing` because that is the only thing it acts on.
+  temperature_start: 1.0
+  temperature_mid: 0.5
+  temperature_end: 0.2
+  # K in the deployed Top-K rule.
+  max_inference_experts: 2
+  # The answer reaches a key ONLY through contribution -> responsibility ->
+  # L_key.  A direct dL_ans/dkey through the gate would be a second, disagreeing
+  # answer-side gradient on the same parameter; `true` is refused at load time.
+  direct_answer_gradient_to_key: false
+  # One dense bias vector in router-column order, so every expert stays in the
+  # backward graph even when a slot is zeroed and DDP sees no unused parameter.
+  learnable_bias: true
+  bias_init: 0.0
+
+responsibility:
+  # The gate-gradient local conditional contribution G_ik = -a_ik * dL_ans/da_ik.
+  # Local and conditional: it is not the exact marginal contribution, which
+  # needs one removal forward per expert per sample (see `exact_oracle`).
+  estimator: gate_gradient
+  # Only positive contributions survive: a negative estimate says "removing this
+  # expert would have helped", which is not a claim that another expert should
+  # serve the sample.  Rows with no positive contribution get no teacher at all.
+  positive_only: true
+  loss: BCE
+
+bootstrap:
+  # A freshly created expert has Delta_theta ~ 0, hence dL/da_new ~ 0: without a
+  # floor it can never earn the answer gradient that would give it capability.
+  # Exposure only -- the floor breaks symmetry, it never names which expert
+  # serves which sample.  How long it applies is `schedule.bootstrap_ratio`.
+  gate_floor: 0.05
+
+schedule:
+  # 10 bootstrap / 25 soft / 15 discretisation = 50 optimizer steps (spec §29).
+  # The bootstrap share is far above the formal 5% on purpose: the preflight has
+  # to reach the discretisation stage within a handful of steps, and the floors
+  # and stage switches are what it is checking, not the balance between them.
+  bootstrap_ratio: 0.20
+  soft_ratio: 0.50
+  hard_ratio: 0.30
+
+loss:
+  # L_total = L_ans + lambda_key * L_key + lambda_sparse * L_sparse
+  #           [+ lambda_budget * L_budget if use_budget_loss]
+  lambda_key: 0.1
+  # Small, symmetric pull toward a sparse row: deployment keeps two experts and
+  # a row that keeps ten of them would be a distribution mismatch.
+  lambda_sparse: 0.01
+  # Off by default.  L_sparse already says "use few experts"; a one-sided budget
+  # penalty beside it is two objectives on one quantity, and the deployed Top-K
+  # already enforces the budget at inference.  `true` restores the ablation.
+  use_budget_loss: false
+  lambda_budget: 0.01
+  responsibility_epsilon: 1.0e-08
+  sparse_budget: 2.0
+
+composition:
+  # RMS-calibrated composition, inherited from V7/V8 unchanged, so a historical
+  # expert contributes at the scale it was fitted at.
+  rms_calibration: true
+  # h <- base + sum_k a_k * kappa_k * u_k.  No 1/sqrt(N) cardinality factor: it
+  # would scale every expert by the retrieval width, which is a property of the
+  # recall, not of the sample.
+  cardinality_scale: none
+
+validation:
+  # Spec §30, on by default: the one exact measurement in the pipeline.  If the
+  # gate-gradient proxy and the exact removal effect come out uncorrelated, the
+  # method's central assumption is false and the run should stop rather than
+  # train for days on a signal that does not mean anything.
+  contribution_calibration: true
+  # 32 hard samples: the low end of spec §30's 32-128 band.
+  exact_contribution_samples: 32
+  calibration_split: validation
+  pair_rerank_pairs: 4
+
+audit:
+  # Task-end: a historical expert's current-task key is kept only if the answer
+  # actually routed through it.  A candidate is committed only if it was used AND
+  # not a redundant copy of an expert the pool already has.
+  min_key_usage_rate: 0.02
+  min_key_mean_positive_contribution: 0.0
+  min_candidate_usage_rate: 0.01
+  min_candidate_positive_contribution: 0.0
+  min_candidate_positive_rate: 0.0
+  min_validation_answer_gain: 0.0
+  redundancy_cosine_threshold: 0.98
+  validation_gain_samples: 32
+  # The pool must always be able to supply the deployed Top-2.
+  min_committed_experts: 2
+
+inference:
+  # No task id: a run that needed it would be answering "which task is this?"
+  # rather than "which expert does this sample need", and the lower-triangular
+  # evaluation would be measuring the task label rather than transfer.
+  task_id: false
+  # V8's Global Multi-Key rule, inherited unchanged.
+  global_multi_key: true
+  # False is the main experiment: the deployed pair is the two highest gates.
+  # `true` asks the bounded held-out calibration to *measure* what pair
+  # reranking would have bought, so that negative result is evidence instead of
+  # an assumption.  The loss, the routing rule and the training loop are
+  # identical either way.
+  # true, so the single preflight also measures the declared pair-rerank
+  # ablation instead of leaving that code path unexercised.  The training loop is
+  # identical to the false case -- the flag only adds the bounded held-out
+  # measurement.
+  pair_rerank: true
+
+exact_oracle:
+  # G_exact(k) = L(S \ E_k) - L(S) needs one extra backbone forward per expert
+  # per sample.  It is the measurement the method is judged against, and it must
+  # never become a training signal: a training objective derived from it would
+  # be a different, far more expensive method.  Both facts are asserted here.
+  training: false
+  validation_calibration_only: true
