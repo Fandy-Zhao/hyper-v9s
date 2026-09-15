@@ -98,16 +98,21 @@ def _record_from_statistics(expert_id: int, entry: Mapping[str, Any]) -> ExpertA
 def max_key_cosine(
     key_pool: V9KeyPool, expert_id: int, other_expert_ids: Iterable[int]
 ) -> float:
-    """The candidate's nearest neighbour in the pool, by effective-key cosine.
-
-    Computed on the unit base keys, which is the direction routing compares.
-    """
+    """Maximum cosine against every retained routing key, not only bases."""
     others = [int(value) for value in other_expert_ids if int(value) != int(expert_id)]
     if not others:
         return 0.0
     mine = key_pool.effective_key_matrix([key_pool.base_key_id(expert_id)], detach=True)
+    retained_key_ids = [
+        key_id
+        for other_id in others
+        for key_id in key_pool.key_ids(expert_id=other_id)
+        if key_pool.key_records[key_id]["lifecycle"] != LIFECYCLE_PRUNED
+    ]
+    if not retained_key_ids:
+        return 0.0
     theirs = key_pool.effective_key_matrix(
-        [key_pool.base_key_id(value) for value in others], detach=True
+        retained_key_ids, detach=True
     )
     return float((mine @ theirs.T).max().item())
 
@@ -258,7 +263,7 @@ def audit_candidates(
             expert_id, {**entry, "lifecycle": LIFECYCLE_CANDIDATE}
         )
         record.validation_gain = gain.get(int(expert_id))
-        record.redundancy = max_key_cosine(key_pool, int(expert_id), historical_ids)
+        record.redundancy = max_key_cosine(key_pool, int(expert_id), historical_ids + commit)
         low_usage = record.usage_rate < float(config.min_candidate_usage_rate)
         no_contribution = record.mean_positive_contribution <= float(
             config.min_candidate_positive_contribution
