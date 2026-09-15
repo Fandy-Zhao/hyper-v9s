@@ -151,8 +151,17 @@ class ComposeLlavaForCausalLM(LlamaForCausalLM, ComposeLlavaMetaForCausalLM):
                 per_sample_token_mean_nll,
             )
 
-            outputs.v7_per_sample_answer_nll = per_sample_token_mean_nll(outputs.logits, labels)
-            outputs.loss = outputs.v7_per_sample_answer_nll.sum()
+            nll = per_sample_token_mean_nll(outputs.logits, labels)
+            outputs.v7_per_sample_answer_nll = nll
+            # Item assignment, not ``outputs.loss = ...``.  ``ModelOutput``
+            # forwards an attribute write into the underlying mapping only when
+            # the field is *already* present.  The parent ran with
+            # ``labels=None``, so it dropped ``loss`` as an empty field and an
+            # attribute write would leave the mapping without a "loss" key --
+            # the step then dies in the HF trainer with "The model did not
+            # return a loss from the inputs, only the following keys: logits",
+            # naming every input but never the missing field.
+            outputs["loss"] = nll.sum()
         return outputs
 
     def prepare_inputs_for_generation(

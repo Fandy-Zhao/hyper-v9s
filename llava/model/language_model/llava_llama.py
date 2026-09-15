@@ -265,8 +265,13 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
         if v7_sum_per_sample_loss and labels is not None:
             if return_dict is False:
                 raise ValueError("V7 per-sample loss requires return_dict output")
-            outputs.v7_per_sample_answer_nll = per_sample_token_mean_nll(outputs.logits, labels)
-            outputs.loss = outputs.v7_per_sample_answer_nll.sum()
+            nll = per_sample_token_mean_nll(outputs.logits, labels)
+            outputs.v7_per_sample_answer_nll = nll
+            # Item assignment, not ``outputs.loss = ...``: see
+            # ComposeLlavaForCausalLM.forward.  ``ModelOutput`` only mirrors an
+            # attribute write into the mapping for a field that is already
+            # there, and the parent was called with ``labels=None``.
+            outputs["loss"] = nll.sum()
         routing_mode = getattr(self.config, "modality_routing_mode", "task")
         if self.training and routing_mode == "sample":
             router_loss = getattr(self, "router_aux_loss", None)
@@ -285,7 +290,7 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
                     loss = loss + getattr(self.config, "router_loss_weight", 0.1) * router_loss
                 if replay_loss is not None:
                     loss = loss + getattr(self.config, "router_replay_weight", 0.0) * replay_loss
-                outputs.loss = loss
+                outputs["loss"] = loss
         return outputs
 
     def prepare_inputs_for_generation(self, input_ids, past_key_values=None, inputs_embeds=None, **kwargs):

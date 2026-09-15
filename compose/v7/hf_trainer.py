@@ -539,8 +539,15 @@ class V7ComposeTrainer(ComposeTrainer):
         queries = inputs.pop("fixed_queries")
         inputs.pop("sample_ids", None)
         inputs["v7_sum_per_sample_loss"] = True
-        result = super().compute_loss(model, inputs, return_outputs=return_outputs)
-        answer_loss, outputs = result if return_outputs else (result, None)
+        # Outputs are requested unconditionally.  The reuse-quality weight is
+        # built from the per-sample answer NLL, which lives on the model's output
+        # object, and *neither* caller asks for that object: HF's
+        # ``training_step`` and this class's ``_ddp_training_step`` both want a
+        # scalar.  Passing the caller's ``return_outputs`` straight through would
+        # therefore hand ``None`` to the check below and fail the first step with
+        # "formal V8 requires per-sample routed answer NLL"; the caller's own
+        # contract is re-applied on the way out instead.
+        answer_loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
         if self._v7_active is None:
             raise RuntimeError("V7 routing must run before compute_loss")
         _, routed, current_selected = self._v7_active
