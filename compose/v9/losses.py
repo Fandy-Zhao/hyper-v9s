@@ -16,15 +16,20 @@ compares quantities that do not live on the same scale.
 
 ``L_sparse`` and ``L_budget`` shape *how many* experts the deployed Top-2 will
 keep.  Early in training a row may sit at ``[0.4, 0.35, 0.3, 0.25]``; the
-budget term is what pulls it toward ``[0.91, 0.63, 0.02, 0.00]`` without ever
+sparse term is what pulls it toward ``[0.91, 0.63, 0.02, 0.00]`` without ever
 telling the method *which* expert should win -- that remains the answer's job.
+
+Both are defined on the **routing row**, so neither is masked by
+``contribution.valid``.  That row-level mask says "the answer could not rank
+this sample", which is a statement about the *key* supervision and nothing
+else.  Letting it reach these two made them vanish on exactly the early steps
+whose routing is undecided -- the steps they exist for -- and vanish
+*silently*, reporting ``0.0`` where a reader expects the pressure to be.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
-
 import torch
 
 from .config import V9LossConfig
@@ -83,39 +88,30 @@ def key_responsibility_loss(
 def _active_mass(
     probabilities: torch.Tensor,
     slot_mask: torch.Tensor,
-    valid_rows: Optional[torch.Tensor],
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-    """``sum_k a_ik`` per row, plus the rows it is defined on.
+) -> torch.Tensor:
+    """``sum_k a_ik`` per row.
 
     The sum is over the row as it stands, with padded slots contributing their
     zero gate.  Dividing by the number of live slots would make the sparse and
     budget penalties depend on the routing-row width, so the same ``lambda``
     would mean something different on task 0 than on task 5.
     """
-    mask = slot_mask if valid_rows is None else (valid_rows.unsqueeze(1) & slot_mask)
-    mass = (probabilities * mask.to(probabilities.dtype)).sum(dim=1)
-    if valid_rows is None:
-        return mass, None
-    return mass, valid_rows.to(probabilities.dtype)
+    mask = slot_mask.to(probabilities.dtype)
+    return (probabilities * mask).sum(dim=1)
 
 
 def sparse_loss(
     probabilities: torch.Tensor,
     slot_mask: torch.Tensor,
-    valid_rows: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """``mean(sum_k a_ik)`` -- the expected number of active experts."""
-    mass, selected = _active_mass(probabilities, slot_mask, valid_rows)
-    if selected is None:
-        return mass.mean()
-    return (mass * selected).sum() / selected.sum().clamp_min(1.0)
+    return _active_mass(probabilities, slot_mask).mean()
 
 
 def budget_loss(
     probabilities: torch.Tensor,
     slot_mask: torch.Tensor,
     budget: float,
-    valid_rows: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """``mean(relu(sum_k a_ik - B)^2)`` -- one-sided pressure toward the budget.
 
@@ -123,11 +119,8 @@ def budget_loss(
     experts than the budget, so a sample that genuinely needs one expert is not
     pushed to invent a second.
     """
-    mass, selected = _active_mass(probabilities, slot_mask, valid_rows)
-    excess = (mass - float(budget)).clamp_min(0.0) ** 2
-    if selected is None:
-        return excess.mean()
-    return (excess * selected).sum() / selected.sum().clamp_min(1.0)
+    excess = (_active_mass(probabilities, slot_mask) - float(budget)).clamp_min(0.0)
+    return excess.pow(2).mean()
 
 
 def compose_total_loss(
@@ -148,8 +141,8 @@ def compose_total_loss(
     key = key_responsibility_loss(
         probabilities, responsibility, valid_rows, slot_mask, epsilon=BCE_FLOOR
     )
-    sparse = sparse_loss(probabilities, slot_mask, valid_rows)
-    budget = budget_loss(probabilities, slot_mask, config.sparse_budget, valid_rows)
+    sparse = sparse_loss(probabilities, slot_mask)
+    budget = budget_loss(probabilities, slot_mask, config.sparse_budget)
     total = (
         answer_loss
         + float(config.lambda_key) * key
@@ -161,9 +154,7 @@ def compose_total_loss(
         # Un-normalised, so ``mean_active_experts`` means the same thing here as
         # it does in ``V9RouteOutput.active_counts``: the expected number of
         # experts the deployed Top-2 will have to choose between.
-        active_mass = (probabilities.detach() * slot_mask.to(probabilities.dtype)).sum(
-            dim=1
-        )
+        active_mass = _active_mass(probabilities.detach(), slot_mask)
     return V9LossTerms(
         total=total,
         answer=answer_loss,

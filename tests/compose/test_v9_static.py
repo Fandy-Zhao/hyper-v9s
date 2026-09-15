@@ -644,8 +644,7 @@ def test_bootstrap_floors_every_gate_but_keeps_the_contribution_measurable():
     assert route.hard_gates is None
     # The floor is a forward-only device: the trainable quantity is still the
     # sigmoid, and it is still differentiable w.r.t. the keys.
-    assert torch.equal(route.probabilities, route.soft_gates)
-    assert route.soft_gates.requires_grad
+    assert torch.equal(route.probabilities, route.answer_gates)
     assert (route.forward_gates >= route.probabilities.detach() - 1e-6).all()
 
 
@@ -658,19 +657,33 @@ def test_hard_stage_forward_is_exactly_the_deployed_top2():
     assert k == 2, "deployment is Top-2"
     assert set(route.forward_gates.unique().tolist()) <= {0.0, 1.0}
     assert torch.equal(route.forward_gates.sum(dim=1), torch.full((16,), float(k)))
-    # Under the detach contract the straight-through form collapses to the
-    # indicator itself: `hard - p.detach() + p` with `p` already detached is
-    # `hard`.  The final stage is therefore literally the inference rule.
-    assert not route.forward_gates.requires_grad
-    assert not route.forward_gates.grad_fn
+    # The forward gate is the straight-through form `hard - p.detach() + p`,
+    # whose value is exactly the indicator and whose derivative w.r.t. `p` is
+    # the identity.  Both halves matter: the first is what deployment serves,
+    # the second is what keeps the last stage of training able to measure a
+    # contribution at all -- a bare indicator would report dL_ans/da = 0 for
+    # every expert and supervise nothing.
+    assert route.forward_gates.requires_grad
+    assert route.forward_gates.grad_fn is not None
     # Exactly the Top-2 by probability, per row.
     top = torch.topk(route.probabilities.detach(), k, dim=1).indices
     selected = route.forward_gates.bool().nonzero()[:, 1].reshape(16, k)
     assert torch.equal(selected.sort(dim=1).values, top.sort(dim=1).values)
 
 
-def test_the_forward_gate_carries_no_key_gradient():
-    """Spec §38: the answer reaches a key only through L_key, never the gate."""
+def test_the_answer_gate_is_differentiable_but_reaches_no_key():
+    """Spec §38, and the two halves of the contract it protects.
+
+    The gate the composition consumes must **carry a graph** -- the answer has
+    to be differentiable w.r.t. it, or the contribution is identically zero and
+    the keys are supervised by nothing.  It must **not** carry a key: a key
+    behind that graph would be a second, disagreeing answer-side gradient on the
+    same parameter.
+
+    The distinction is ``p.detach()`` versus *building p from detached inputs*.
+    The first satisfies the second half and silently destroys the first; only
+    the second satisfies both.
+    """
     config = V9Config()
     pool, candidate_ids = _pool(config, historical=4, candidates=config.candidate_count)
     _with_task_keys(pool)
@@ -679,15 +692,29 @@ def test_the_forward_gate_carries_no_key_gradient():
     keys = router.trainable_parameters()["key"]
     assert keys, "the fixture must expose at least one trainable key"
 
-    # The forward gate is what the composition multiplies the expert outputs
-    # by.  It is not merely `allow_unused` for the keys -- it carries no
-    # autograd history at all, so there is no graph along which any downstream
-    # answer loss could reach a key through it.
-    assert not route.forward_gates.requires_grad
-    assert route.forward_gates.grad_fn is None
+    # Half one: the answer is a function of the gate, so a contribution exists.
+    # It is a *leaf* that requires grad -- an input variable the loss is written
+    # in terms of, which is the only way a quantity with no parameter history
+    # can still be differentiated against.
+    assert route.answer_gates.requires_grad
+    assert route.answer_gates.is_leaf
+    probe = (route.answer_gates * torch.arange(
+        route.answer_gates.numel(), dtype=route.answer_gates.dtype
+    ).reshape(route.answer_gates.shape)).sum()
+    assert float(torch.autograd.grad(probe, route.answer_gates, retain_graph=True)[0].abs().sum()) > 0.0
+
+    # Half two: no key is behind it -- not partially, not through the bias.
+    for key in keys:
+        assert torch.autograd.grad(
+            probe, key, retain_graph=True, allow_unused=True
+        )[0] is None
+    assert torch.autograd.grad(
+        probe, router.bias, retain_graph=True, allow_unused=True
+    )[0] is None
 
     # ...while `probabilities` stays differentiable w.r.t. those same keys: that
-    # is what makes the contribution measurable at all.
+    # is the copy ``L_key`` trains, and the value the two copies agree on.
+    assert torch.allclose(route.probabilities.detach(), route.answer_gates.detach())
     gradient = torch.autograd.grad(
         route.probabilities.sum(),
         keys[0],
@@ -805,6 +832,30 @@ def test_local_contribution_is_the_gate_gradient_with_stop_gradient():
     assert not contribution.requires_grad
 
 
+def test_a_gate_that_cannot_be_differentiated_is_an_error_not_a_zero():
+    """Regression: the silent zero that hid a full-length unsupervised run.
+
+    ``gate_gradient`` used to return ``zeros_like(gates)`` when the gate did not
+    require grad.  Every downstream quantity -- contribution, responsibility,
+    ``L_key`` -- then logged a clean ``0.0``, which reads exactly like "measured,
+    and the answer had no preference".  It means the opposite: nothing was
+    measured.  Both disconnections raise now.
+    """
+    detached = torch.tensor([[0.7, 0.2]], requires_grad=False)
+    loss = (detached * torch.tensor([[2.0, -1.0]])).sum()
+    with pytest.raises(RuntimeError, match="does not require grad"):
+        gate_gradient(loss, detached)
+    with pytest.raises(RuntimeError, match="does not require grad"):
+        local_conditional_contribution(loss, detached)
+
+    # A gate that requires grad but that the loss never consumed is the same
+    # failure wearing the other face: the graph is not connected to it.
+    unused = torch.tensor([[0.7, 0.2]], requires_grad=True)
+    unrelated = torch.tensor(3.0, requires_grad=True)
+    with pytest.raises(RuntimeError, match="does not depend on the gate"):
+        gate_gradient(unrelated * 2.0, unused)
+
+
 def test_local_contribution_uses_the_participation_the_forward_used():
     """Bootstrap floors the gate; the credit must follow the floored value."""
     config = V9Config()
@@ -824,12 +875,58 @@ def test_local_contribution_uses_the_participation_the_forward_used():
     )
     loss = route.probabilities.sum()
     with_values = local_conditional_contribution(
-        loss, route.soft_gates, retain_graph=True, values=route.forward_gates
+        loss, route.probabilities, retain_graph=True, values=route.forward_gates
     )
-    without = local_conditional_contribution(loss, route.soft_gates, retain_graph=False)
+    without = local_conditional_contribution(loss, route.probabilities, retain_graph=False)
     assert torch.allclose(without, -(route.probabilities.detach() * 1.0))
     assert torch.allclose(with_values, -(route.forward_gates.detach() * 1.0))
     assert not torch.allclose(with_values, without)
+
+
+def test_a_composition_through_the_answer_gate_has_a_contribution_and_no_key():
+    """The regression test for the failure this file was written to catch.
+
+    A gate that is *detached* is not the same thing as a gate that is *built
+    from detached inputs*.  The first severs the answer loss from the gate
+    entirely: the composition consumes a tensor the loss is not a function of,
+    ``dL_ans/da`` is exactly zero, the responsibility has no signal, and the run
+    trains the candidate LoRAs with the keys frozen at their k-means seeding --
+    while every metric that would have shown it reads a clean 0.0.
+
+    So the test composes the way the model does, through ``answer_gates``, and
+    asserts both halves at once: the contribution is non-zero, and no key has a
+    gradient from it.
+    """
+    config = V9Config()
+    pool, candidate_ids = _pool(config, historical=4, candidates=config.candidate_count)
+    _with_task_keys(pool)
+    pool.freeze_historical(current_task=ROUTING_TASK)
+    router, route, _, _ = _route(config, pool, 8, STAGE_SOFT)
+    keys = router.trainable_parameters()["key"]
+
+    generator = torch.Generator().manual_seed(11)
+    outputs = {
+        int(expert_id): torch.randn(8, 16, generator=generator)
+        for expert_id in route.expert_ids.unique().tolist()
+    }
+    stacked = torch.stack(
+        [outputs[int(value)] for value in route.expert_ids.reshape(-1).tolist()]
+    )
+    mixture = (route.answer_gates.reshape(-1, 1) * stacked.reshape(8, -1, 16)).sum(dim=1)
+    answer_loss = (mixture ** 2).mean()
+
+    contribution = local_conditional_contribution(
+        answer_loss, route.answer_gates, retain_graph=True, values=route.answer_gates
+    )
+    assert float(contribution.abs().sum()) > 0.0, (
+        "the answer loss is a function of no gate; the responsibility teacher "
+        "would be identically zero"
+    )
+    # The keys are still outside that graph, which is the other half.
+    for key in keys:
+        assert torch.autograd.grad(
+            answer_loss, key, retain_graph=True, allow_unused=True
+        )[0] is None
 
 
 def test_responsibility_is_normalised_and_never_invented():
@@ -1010,6 +1107,31 @@ def test_the_sparse_penalty_does_not_depend_on_the_row_width():
     wide = torch.cat([narrow, torch.zeros(1, 5, dtype=torch.bool)], dim=1)
     padded = torch.cat([probabilities, torch.zeros(1, 5)], dim=1)
     assert torch.allclose(sparse_loss(padded, wide), sparse_loss(probabilities, narrow))
+
+
+def test_a_row_the_answer_cannot_rank_still_pays_the_sparse_penalty():
+    """``contribution.valid`` masks the key supervision, and only that.
+
+    Regression: the sparse and budget terms were once masked by the same
+    all-False row mask.  They then read exactly ``0.0`` on precisely the early
+    steps whose routing is undecided -- the steps whose routing they exist to
+    shape -- and nothing in the log distinguished "no pressure applied" from
+    "pressure applied and satisfied".  The key term, by contrast, *should* be
+    zero here: the answer made no statement about which expert helps.
+    """
+    config = V9Config()
+    probabilities = torch.tensor([[0.9, 0.6], [0.4, 0.3]], requires_grad=True)
+    responsibility = torch.zeros_like(probabilities)
+    valid = torch.tensor([False, False])
+    mask = torch.ones_like(probabilities, dtype=torch.bool)
+    terms = compose_total_loss(
+        torch.tensor(1.0), probabilities, responsibility, valid, mask, config.loss
+    )
+    assert float(terms.key) == 0.0, "nothing to distil: the answer ranked no expert"
+    assert torch.allclose(terms.sparse, probabilities.detach().sum(dim=1).mean())
+    assert float(terms.sparse) > 0.0
+    # And it is not merely reported: the pressure has to reach the gates.
+    assert float(torch.autograd.grad(terms.total, probabilities)[0].sum()) > 0.0
 
 
 def test_budget_penalty_is_one_sided():
@@ -1289,7 +1411,12 @@ def test_the_hard_stage_gate_is_the_deployed_rule_not_a_surrogate():
     hard_route = router.route(queries, topc.expert_ids, 1.0, STAGE_HARD)
     assert hard_route.hard_gates is not None
     assert torch.equal(hard_route.forward_gates, hard_route.hard_gates)
-    assert hard_route.forward_gates.requires_grad is False
+    # The straight-through form: identical value, identity derivative.  A bare
+    # indicator would serve the right experts and supervise nothing.
+    assert hard_route.forward_gates.requires_grad
+    assert float(torch.autograd.grad(
+        hard_route.forward_gates.sum(), hard_route.answer_gates, retain_graph=True
+    )[0].abs().sub(1.0).abs().max()) < 1e-6
     assert torch.equal(
         hard_route.forward_gates,
         router.deployed_gates(hard_route.probabilities, hard_route.slot_mask),

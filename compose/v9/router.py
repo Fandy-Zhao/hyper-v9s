@@ -73,9 +73,20 @@ class V9RouteOutput:
     wide: bool = False
 
     @property
-    def soft_gates(self) -> torch.Tensor:
-        """The tensor the contribution gradient is taken against."""
-        return self.probabilities
+    def answer_gates(self) -> torch.Tensor:
+        """The gate tensor the answer loss is a function of.
+
+        This is what the contribution gradient is taken against, and it is the
+        *forward* gate, not the key-differentiable one.  The two hold the same
+        value, but only this one was consumed by the composition -- a derivative
+        taken against the other is a derivative against a tensor the answer
+        never saw, and it is identically zero.
+
+        The name says whose gate it is rather than how it was built: the
+        bootstrap stage floors it and the hard stage drives the forward with the
+        Top-2 indicator, so "soft" describes it on one stage out of three.
+        """
+        return self.forward_gates
 
     @property
     def batch_size(self) -> int:
@@ -295,21 +306,42 @@ class V9Router(nn.Module):
             self.routing_key_ids(), detach=False
         ).to(queries.device)
         query_matrix = F.normalize(queries.float(), dim=-1)
-        cosine = query_matrix @ key_matrix.T          # [B, E]
         columns = self._expert_columns(expert_ids)    # [B, S]
-        slot_cosine = cosine.gather(1, columns)
-        bias = self._bias_vector(queries.device).gather(0, columns.reshape(-1)).reshape(
-            expert_ids.shape
-        )
+        bias_vector = self._bias_vector(queries.device)
         tau = max(float(temperature), 1e-6)
-        logits = slot_cosine / tau - bias
-        probabilities = torch.sigmoid(logits)
-        probabilities = torch.where(
-            slot_mask, probabilities, torch.zeros_like(probabilities)
-        )
+
+        def _gate(keys: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
+            slot_cosine = (query_matrix @ keys.T).gather(1, columns)
+            slot_bias = bias.gather(0, columns.reshape(-1)).reshape(expert_ids.shape)
+            gate = torch.sigmoid(slot_cosine / tau - slot_bias)
+            return torch.where(slot_mask, gate, torch.zeros_like(gate))
+
+        # Two gates, one value.  ``probabilities`` is differentiable w.r.t. the
+        # key vectors, and it is the tensor ``L_key`` trains.  The composition
+        # consumes the *other* one, built from the same cosine against detached
+        # keys and a detached bias: identical numbers, but no parameter sits
+        # behind it.
+        #
+        # The two must be built this way round and not by detaching a shared
+        # result.  ``p.detach()`` severs the loss from ``p`` entirely -- the
+        # answer would then be a function of no gate at all, ``dL_ans/da`` would
+        # be identically zero, and the responsibility would have no signal to
+        # distil.  Building the forward gate from detached *inputs* keeps the
+        # answer differentiable w.r.t. the gate while leaving the keys outside
+        # that graph, which is the whole contract: ``L_ans`` judges the gate, the
+        # gate judges the keys, and the two never touch directly.
+        probabilities = _gate(key_matrix, bias_vector)
+        forward_probabilities = _gate(key_matrix.detach(), bias_vector.detach())
+        # Built from constants, the gate is a *leaf* with no graph, so autograd
+        # would report no gradient for it -- a constant has none.  Marking it as
+        # an input variable is what makes the answer differentiable w.r.t. the
+        # gate while leaving the keys outside: the derivative is taken against
+        # this leaf and stops at it.  Without this line the contribution is
+        # identically zero and every key stays where k-means left it.
+        forward_probabilities.requires_grad_(True)
 
         forward_gates, hard = self._forward_gates(
-            probabilities, slot_mask, stage
+            forward_probabilities, slot_mask, stage, differentiable=self._detach_keys()
         )
         self.last_route = V9RouteOutput(
             expert_ids=expert_ids,
@@ -332,6 +364,7 @@ class V9Router(nn.Module):
         probabilities: torch.Tensor,
         slot_mask: torch.Tensor,
         stage: str,
+        differentiable: bool = True,
     ) -> "tuple[torch.Tensor, Optional[torch.Tensor]]":
         """Stage-dependent forward gate (spec §15, §16).
 
@@ -341,19 +374,22 @@ class V9Router(nn.Module):
         capability.  The floor is an exposure device only -- it breaks symmetry,
         it does not assign a permanent expert boundary.
 
-        ``hard`` is the deployed Top-2 indicator, and under the detach contract
-        it *is* the forward gate: the straight-through form
-        ``hard - p.detach() + p`` differs only by terms that carry a key
-        gradient, and a key receives none from this path.  Enumerating the
-        experts the way the deployment rule will is therefore exact here, not an
-        approximation of it.
+        ``hard`` is the deployed Top-2 indicator.  In the hard stage the
+        composition must *forward* that indicator while remaining differentiable
+        w.r.t. the gate, so the straight-through form
+        ``hard - p.detach() + p`` is used: its value is the deployed rule, its
+        derivative w.r.t. ``p`` is the identity, and ``p`` here is already built
+        from detached keys.  Feeding the sigmoid itself would serve a mixture
+        the deployment never serves; feeding ``hard`` alone would leave the last
+        stage of training with ``dL_ans/da = 0`` and therefore with no
+        responsibility to distil at all.
 
-        Every branch returns a gate that is detached from the keys when
-        ``direct_answer_gradient_to_key`` is false.  The composition multiplies
-        it against per-expert LoRA outputs; a constant multiplier is all the
-        LoRA path needs, and it is the only thing this gate may be.
+        ``probabilities`` is the gate the composition will consume, and it is
+        parameter-free by construction when ``direct_answer_gradient_to_key`` is
+        false -- which the config refuses to set otherwise.  ``differentiable``
+        is the same flag read at this level: with the contract in force there is
+        nothing to detach, because nothing was ever attached.
         """
-        cut = self._detach_keys()
         if stage == STAGE_HARD:
             k = min(
                 int(self.config.routing.max_inference_experts),
@@ -363,7 +399,9 @@ class V9Router(nn.Module):
             hard = torch.zeros_like(probabilities)
             hard.scatter_(1, top, 1.0)
             hard = torch.where(slot_mask, hard, torch.zeros_like(hard))
-            return hard, hard
+            if not differentiable:
+                return hard, hard
+            return hard - probabilities.detach() + probabilities, hard
         gates = probabilities
         if stage == STAGE_BOOTSTRAP:
             floor = float(self.config.bootstrap.gate_floor)
@@ -373,7 +411,7 @@ class V9Router(nn.Module):
                     gates.clamp_min(floor),
                     torch.zeros_like(gates),
                 )
-        return (gates.detach() if cut else gates), None
+        return gates, None
 
     def deployed_gates(
         self, probabilities: torch.Tensor, slot_mask: torch.Tensor
@@ -389,7 +427,7 @@ class V9Router(nn.Module):
         come apart and the soft gates no longer predict what will be served.
         """
         hard, _ = self._forward_gates(
-            probabilities.detach(), slot_mask, STAGE_HARD
+            probabilities.detach(), slot_mask, STAGE_HARD, differentiable=False
         )
         return hard
 

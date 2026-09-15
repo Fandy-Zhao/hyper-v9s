@@ -263,8 +263,11 @@ class V9ComposeTrainer(ComposeTrainer):
             "max_abs_gradient": max(report.values()) if report else 0.0,
             "nonzero_keys": sorted(offenders)[:10],
             "gate_detached": self.v9_router._detach_keys(),
-            "forward_gates_requires_grad": bool(route.forward_gates.requires_grad),
-            "soft_gates_requires_grad": bool(route.soft_gates.requires_grad),
+            # The forward gate *must* carry a graph -- the answer has to be
+            # differentiable w.r.t. it or there is no contribution to measure.
+            # What must be absent is a key behind that graph, which is what
+            # ``max_abs_gradient`` above reports.
+            "answer_gate_requires_grad": bool(route.answer_gates.requires_grad),
         }
         if offenders:
             raise AssertionError(
@@ -600,9 +603,13 @@ class V9ComposeTrainer(ComposeTrainer):
         answer_loss = answer_loss / queries.shape[0]
 
         with self.profiler.timed("contribution_time"):
+            # The derivative is taken against the gate the answer loss is a
+            # function of -- the one the composition consumed.  Taking it
+            # against the key-differentiable copy would be taking it against a
+            # tensor the answer never saw, which is identically zero.
             contribution_raw = local_conditional_contribution(
                 answer_loss,
-                route.soft_gates,
+                route.forward_gates,
                 retain_graph=True,
                 values=route.forward_gates,
             )
@@ -632,7 +639,11 @@ class V9ComposeTrainer(ComposeTrainer):
 
         terms = compose_total_loss(
             answer_loss=answer_loss,
-            probabilities=route.soft_gates,
+            # ``L_key`` must reach the keys, so it is the differentiable copy of
+            # the gate that enters the objective, not the parameter-free one the
+            # composition consumed.  The two carry the same value; only one of
+            # them can carry a gradient home.
+            probabilities=route.probabilities,
             responsibility=contribution.responsibility,
             valid_rows=contribution.valid,
             slot_mask=route.slot_mask,
@@ -693,9 +704,18 @@ class V9ComposeTrainer(ComposeTrainer):
             "trainable_key_max_cosine": self._trainable_key_redundancy(),
             "peak_memory_bytes": self._peak_memory_bytes(),
             "backbone_forwards": int(self.v9_backbone_forwards),
+            # §41 (D) is a claim about the *micro-step*, not about the sample:
+            # every offered expert rides on the one forward, so this is 1.0 and
+            # stays 1.0 as the number of candidates grows.  The per-sample figure
+            # is below it purely because a micro-batch shares the pass, which is
+            # why both are reported rather than the more flattering one.
+            "backbone_forwards_per_micro_step": (
+                self.v9_backbone_forwards / max(self.v9_micro_steps, 1)
+            ),
             "backbone_forwards_per_sample": (
                 self.v9_backbone_forwards / max(self.v9_observed_sample_count, 1)
             ),
+            "extra_forwards": int(self.v9_extra_forwards),
             "per_expert": self._usage_snapshot(),
         }
         if self._v9_step_timing is not None:
@@ -1190,13 +1210,16 @@ class V9ComposeTrainer(ComposeTrainer):
         running mean so the number does not depend on the size of the last
         calibration batch.
         """
-        soft_gates = route.probabilities.detach()
+        # "soft" here means the sigmoid mixture the objective optimises, as
+        # against the Top-2 indicator deployment serves -- a different
+        # distinction from the one ``answer_gates`` draws.
+        mixture_gates = route.probabilities.detach()
         hard_gates = self.v9_router.deployed_gates(route.probabilities, route.slot_mask)
         scores: Dict[str, float] = {}
         was_training = model.training
         model.eval()
         try:
-            for name, gates in (("soft", soft_gates), ("hard_top2", hard_gates)):
+            for name, gates in (("soft", mixture_gates), ("hard_top2", hard_gates)):
                 selection = ComposeSelection(
                     expert_ids=route.expert_ids,
                     gates=gates,
@@ -1270,9 +1293,9 @@ class V9ComposeTrainer(ComposeTrainer):
                     "calibration requires the per-sample routed answer NLL"
                 )
             gradient = gate_gradient(
-                per_sample.mean(), route.soft_gates, retain_graph=False
+                per_sample.mean(), route.answer_gates, retain_graph=False
             )
-            local = -(route.soft_gates.detach() * gradient.detach())
+            local = -(route.answer_gates.detach() * gradient.detach())
             return route, local.detach(), per_sample.detach().clone()
 
     def _exact_removal_matrix(

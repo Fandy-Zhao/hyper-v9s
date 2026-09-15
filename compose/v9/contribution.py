@@ -69,9 +69,23 @@ def gate_gradient(
     ``create_graph`` is deliberately False: the result is a *teacher target*, so
     differentiating through it would buy nothing and cost a full second-order
     graph (spec §11 forbids it in V9 v1).
+
+    A gate that does not require grad, or that the loss does not depend on, is
+    **not** reported as a zero gradient.  A zero is a legitimate mathematical
+    answer, but here it is never the right one: it means the composition never
+    consumed this tensor, so the answer made no statement about any expert and
+    the responsibility teacher is empty.  Returning ``0`` would let a run train
+    for its full length with no key supervision at all while every logged
+    quantity read a clean ``0.0`` -- which is what happened once, and cost a
+    preflight to find.
     """
     if not gates.requires_grad:
-        return torch.zeros_like(gates)
+        raise RuntimeError(
+            "gate_gradient: the gate does not require grad, so the answer loss "
+            "is a constant in it and no contribution can be measured. Build the "
+            "gate from detached inputs and mark it a leaf with "
+            "requires_grad_(True) (see compose.v9.router.V9Router.route)."
+        )
     gradient = torch.autograd.grad(
         outputs=loss,
         inputs=gates,
@@ -80,7 +94,11 @@ def gate_gradient(
         allow_unused=True,
     )[0]
     if gradient is None:
-        return torch.zeros_like(gates)
+        raise RuntimeError(
+            "gate_gradient: the loss does not depend on the gate, so the graph "
+            "is disconnected from the composition. No responsibility teacher "
+            "exists for this step; this is a wiring bug, not a zero."
+        )
     return gradient
 
 
