@@ -232,7 +232,11 @@ cmd_sanity() {
   check_clean_tree
   print_contract
   [ -n "$SANITY_ROOT" ] || fail "SANITY_ROOT is unset"
-  case "$SANITY_ROOT" in "$RUN_ROOT"*) fail "SANITY_ROOT must not be inside RUN_ROOT ($RUN_ROOT)";; esac
+  # A trailing slash on both sides makes this a containment test rather than a
+  # string-prefix one: ``v9s_formal_sanity`` is beside ``v9s_formal``, not
+  # inside it, and a prefix comparison would reject the default layout on a
+  # technicality while still admitting ``v9s_formal/../../v9s_formal/x``.
+  case "$SANITY_ROOT/" in "$RUN_ROOT"/*) fail "SANITY_ROOT must not be inside RUN_ROOT ($RUN_ROOT)";; esac
   rm -rf "$SANITY_ROOT"
   mkdir -p "$SANITY_ROOT"
   log "sanity run -> $SANITY_ROOT (capped at $SANITY_STEPS optimizer steps, tasks 0-1)"
