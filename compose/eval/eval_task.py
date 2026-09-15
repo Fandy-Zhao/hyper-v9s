@@ -96,6 +96,7 @@ def main() -> None:
     parser.add_argument("--gates")
     parser.add_argument("--gate", type=float, default=1.0)
     parser.add_argument("--normalization", choices=("none", "l1", "l2"), default="none")
+    parser.add_argument("--cardinality-scale", choices=("v8", "none"), default=None)
     parser.add_argument("--conv-mode", default="vicuna_v1")
     parser.add_argument("--num-chunks", type=int, default=1)
     parser.add_argument("--chunk-idx", type=int, default=0)
@@ -222,11 +223,11 @@ def main() -> None:
                 expert_id=args.expert_id,
                 gate=args.gate,
                 normalization=args.normalization,
-                **common
+                cardinality_scale=args.cardinality_scale, **common
             )
         else:
             bundle = load_compose_model(
-                expert_id=None, expert_ids_to_load=expert_ids_to_load, **common
+                expert_id=None, expert_ids_to_load=expert_ids_to_load, cardinality_scale=args.cardinality_scale, **common
             )
             # --router-checkpoint alone means per-sample selection: no fixed
             # expert ids (None), and the default gates follow.

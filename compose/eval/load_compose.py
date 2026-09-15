@@ -110,6 +110,7 @@ def load_compose_model(
     model_max_length: int = 2048,
     apply_persisted_rms: bool = True,
     expert_ids_to_load: Optional[Iterable[int]] = None,
+    cardinality_scale: Optional[str] = None,
 ) -> EvaluationBundle:
     """Build the Compose evaluation bundle.
 
@@ -132,6 +133,8 @@ def load_compose_model(
     injected = inject_compose_adapters(model, adapter_config)
     injection_summary = validate_compose_injection(model, injected)
     manager = ExpertManager(model)
+    if cardinality_scale is not None:
+        manager.set_cardinality_scale(str(cardinality_scale))
     pool = ExpertPool(manager)
     loaded_manifest = load_expert_checkpoint(
         pool, checkpoint_dir, keep_ids=expert_ids_to_load
@@ -161,6 +164,7 @@ def load_compose_model(
             "expert_id": expert_id,
             "gate": gate,
             "normalization": normalization,
+            "cardinality_scale": cardinality_scale,
             "injection": injection_summary,
             "checkpoint_load": loaded_manifest["load_summary"],
             "adapter_parameter_count": loaded_manifest["metrics"][

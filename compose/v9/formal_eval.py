@@ -52,7 +52,7 @@ def main():
     metrics=[]
     for item in plan:
         write_selection(item); answers=Path(item["answers"]); answers.parent.mkdir(parents=True,exist_ok=True)
-        command=[a.python,"-m","compose.eval.eval_task","--adapter-kind","compose","--model-path",a.model_path,"--checkpoint-dir",a.checkpoint_dir,"--projector-path",a.projector_path,"--vision-tower",a.vision_tower,"--question-file",item["question_file"],"--image-folder",a.image_folder,"--answers-file",str(answers),"--run-summary-file",str(answers.with_name("run_summary.json")),"--selection-manifest",item["selection"],"--load-only-manifest-experts","--fast-selection-plan","--device",a.device]
+        command=[a.python,"-m","compose.eval.eval_task","--adapter-kind","compose","--model-path",a.model_path,"--checkpoint-dir",a.checkpoint_dir,"--projector-path",a.projector_path,"--vision-tower",a.vision_tower,"--question-file",item["question_file"],"--image-folder",a.image_folder,"--answers-file",str(answers),"--run-summary-file",str(answers.with_name("run_summary.json")),"--selection-manifest",item["selection"],"--load-only-manifest-experts","--fast-selection-plan","--cardinality-scale","none","--device",a.device]
         if subprocess.run(command).returncode: raise V9FormalEvaluationError(f"generation failed for task {item['task_index']}")
         metrics.append(_score_answers(root,a.stage,item["task_index"],answers,annotation_file=item.get("annotation_file")))
     _update_matrix(root,a.stage,metrics)
