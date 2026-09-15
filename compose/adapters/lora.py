@@ -68,20 +68,45 @@ class _SelectionPlan:
         )
 
 
+def _per_sample_composition_scale(
+    selection: ComposeSelection,
+    dtype: torch.dtype,
+    pair_scale: float,
+    cardinality_scale: str,
+) -> torch.Tensor:
+    """Per-sample factor applied to every expert contribution in a row.
+
+    ``"v8"`` is the frozen V8 rule -- 1.0 for a single expert, ``pair_scale``
+    (1/sqrt(2)) for a pair, ``1/sqrt(N)`` otherwise -- which keeps activation
+    variance constant across cardinalities.
+
+    ``"none"`` returns 1.0 for every row.  V9 composes
+    ``h <- base + sum_k a_k * kappa_k * u_k`` with no cardinality factor: the
+    differentiable gate ``a_k`` already carries the per-expert magnitude and
+    ``kappa_k`` carries the RMS normalisation, so an extra ``1/sqrt(N)`` would
+    scale the whole expert delta by the *number* of retrieved candidates
+    instead of by their fitted weights.
+    """
+    active_counts = (
+        selection.expert_ids.ne(PAD_EXPERT_ID) & selection.gates.gt(0)
+    ).sum(dim=1).to(dtype)
+    if cardinality_scale == "none":
+        return torch.ones_like(active_counts)
+    return torch.where(
+        active_counts.eq(2),
+        torch.full_like(active_counts, float(pair_scale)),
+        torch.rsqrt(active_counts.clamp_min(1.0)),
+    )
+
+
 def _build_selection_plan(
     selection: ComposeSelection, key: Tuple
 ) -> _SelectionPlan:
     expert_ids = selection.expert_ids
     gates = selection.gates
     device = expert_ids.device
-    active_mask = expert_ids.ne(PAD_EXPERT_ID) & gates.gt(0)
-    per_sample_active_count = active_mask.sum(dim=1)  # [batch]
-    active_counts = per_sample_active_count.to(key[1])
-    cardinality_scale = torch.rsqrt(active_counts.clamp_min(1.0))
-    per_sample_scale = torch.where(
-        active_counts.eq(2),
-        torch.full_like(active_counts, float(key[3])),
-        cardinality_scale,
+    per_sample_scale = _per_sample_composition_scale(
+        selection, key[1], float(key[3]), str(key[4])
     )
     entries: List[Tuple[int, torch.Tensor, torch.Tensor]] = []
     for expert_id_tensor in torch.unique(expert_ids):
@@ -102,10 +127,14 @@ def _build_selection_plan(
 
 
 def selection_plan(
-    selection: ComposeSelection, device: torch.device, dtype: torch.dtype, pair_scale: float
+    selection: ComposeSelection,
+    device: torch.device,
+    dtype: torch.dtype,
+    pair_scale: float,
+    cardinality_scale: str = "v8",
 ) -> _SelectionPlan:
     """Return the cached plan for this selection, building it at most once."""
-    key = (device, dtype, selection.batch_size, float(pair_scale))
+    key = (device, dtype, selection.batch_size, float(pair_scale), str(cardinality_scale))
     cache = getattr(selection, "_compose_plan_cache", None)
     if cache is None:
         cache = {}
@@ -149,6 +178,13 @@ class LoRAExpert(nn.Module):
 
 DEFAULT_PAIR_SCALE = 1.0 / (2.0 ** 0.5)
 
+#: ``"v8"`` is the frozen cardinality-variance rule.  ``"none"`` is V9's
+#: composition (gate magnitude only, kappa for RMS); see
+#: :func:`_per_sample_composition_scale`.
+CARDINALITY_SCALE_V8 = "v8"
+CARDINALITY_SCALE_NONE = "none"
+CARDINALITY_SCALES = (CARDINALITY_SCALE_V8, CARDINALITY_SCALE_NONE)
+
 
 class ComposeLinear(nn.Module):
     """A frozen base linear layer plus independently stored LoRA experts."""
@@ -181,6 +217,7 @@ class ComposeLinear(nn.Module):
         # scale every expert contribution by ``pair_scale`` (1/sqrt(2)).
         self._expert_calibration = {}  # type: Dict[int, float]
         self._pair_scale = float(DEFAULT_PAIR_SCALE)
+        self._cardinality_scale = CARDINALITY_SCALE_V8
 
     @property
     def in_features(self) -> int:
@@ -267,6 +304,17 @@ class ComposeLinear(nn.Module):
         }
         self._pair_scale = float(pair_scale)
 
+    def set_cardinality_scale(self, mode: str) -> None:
+        """Select the per-sample composition factor rule for this layer."""
+        if mode not in CARDINALITY_SCALES:
+            raise ValueError(
+                "cardinality_scale must be one of {}".format(CARDINALITY_SCALES)
+            )
+        self._cardinality_scale = str(mode)
+
+    def cardinality_scale(self) -> str:
+        return self._cardinality_scale
+
     def clear_expert_calibration(self) -> None:
         """Drop all kappa coefficients and reset the pair scale."""
         self._expert_calibration = {}
@@ -317,7 +365,11 @@ class ComposeLinear(nn.Module):
             # ``pair_scale`` are per layer, and ``pair_scale`` is part of the
             # plan key, so the arithmetic below is unchanged.
             plan = selection_plan(
-                selection, result.device, result.dtype, self._pair_scale
+                selection,
+                result.device,
+                result.dtype,
+                self._pair_scale,
+                self._cardinality_scale,
             )
             delta = torch.zeros_like(result)
             for expert_id, sample_indices, sample_gates, scale in plan.entries:
@@ -352,15 +404,10 @@ class ComposeLinear(nn.Module):
         #   single -> 1.0
         #   pair   -> pair_scale (default 1/sqrt(2))
         #   N experts -> 1/sqrt(N)
-        # 1/sqrt(count) keeps activation variance constant.
-        active_mask = selection.expert_ids.ne(PAD_EXPERT_ID) & selection.gates.gt(0)
-        per_sample_active_count = active_mask.sum(dim=1)  # [batch]
-        active_counts = per_sample_active_count.to(result.dtype)
-        cardinality_scale = torch.rsqrt(active_counts.clamp_min(1.0))
-        per_sample_scale = torch.where(
-            active_counts.eq(2),
-            torch.full_like(active_counts, self._pair_scale),
-            cardinality_scale,
+        # 1/sqrt(count) keeps activation variance constant.  V9 selects
+        # ``cardinality_scale="none"`` instead (gate magnitude + kappa).
+        per_sample_scale = _per_sample_composition_scale(
+            selection, result.dtype, self._pair_scale, self._cardinality_scale
         )
 
         delta = torch.zeros_like(result)

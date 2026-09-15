@@ -41,16 +41,32 @@ class ComposeSelection:
     expert_ids: torch.LongTensor
     gates: torch.FloatTensor
     normalization: str = "none"
+    #: Slot count of this selection.  V8/V7 always build ``MAX_ACTIVE_EXPERTS``
+    #: (4) slots, which is what the default preserves byte for byte.  V9 widens
+    #: it to ``historical_retrieval.top_c + num_candidates`` because every row of a V9
+    #: micro-batch carries the *same number* of active experts (only the expert
+    #: ids differ per row), so the dense row is still a valid sparse selection.
+    max_slots: int = MAX_ACTIVE_EXPERTS
+    #: Opt-in relaxation for a straight-through hard selection: a real expert
+    #: slot may carry a gate of exactly zero, which the composition masks out
+    #: (``active_mask = ids.ne(PAD) & gates.gt(0)``) so the forward result is
+    #: the deployed Top-2 while the slot stays in the backward graph.  V8 never
+    #: sets it, so V8's validation is unchanged.
+    allow_zero_gates: bool = False
 
     def __post_init__(self) -> None:
         if self.expert_ids.ndim != 2 or self.gates.ndim != 2:
             raise ValueError("expert_ids and gates must be rank-2 tensors")
         if self.expert_ids.shape != self.gates.shape:
             raise ValueError("expert_ids and gates must have identical shapes")
-        if self.expert_ids.shape[1] != MAX_ACTIVE_EXPERTS:
+        if self.max_slots < 1:
+            raise ValueError("max_slots must be positive")
+        if self.expert_ids.shape[1] != self.max_slots:
             raise ValueError(
-                "unified ComposeSelection uses exactly {} slots; use {} to "
-                "mark an empty slot".format(MAX_ACTIVE_EXPERTS, PAD_EXPERT_ID)
+                "the unified ComposeSelection uses exactly {} slots; got {}; "
+                "use {} to mark an empty slot".format(
+                    self.max_slots, self.expert_ids.shape[1], PAD_EXPERT_ID
+                )
             )
         if self.expert_ids.dtype != torch.long:
             raise TypeError("expert_ids must use torch.long")
@@ -69,10 +85,12 @@ class ComposeSelection:
             raise ValueError("expert ids must be non-negative or the {} pad".format(PAD_EXPERT_ID))
         if torch.any((~active) & (self.gates != 0)):
             raise ValueError("padded slots must have zero gates")
-        if torch.any(active & (self.gates <= 0)):
+        if torch.any(self.gates < 0):
+            raise ValueError("gates must be non-negative")
+        if not self.allow_zero_gates and torch.any(active & (self.gates <= 0)):
             raise ValueError("active slots must have positive gates")
-        for left in range(MAX_ACTIVE_EXPERTS):
-            for right in range(left + 1, MAX_ACTIVE_EXPERTS):
+        for left in range(self.max_slots):
+            for right in range(left + 1, self.max_slots):
                 if torch.any(
                     (self.expert_ids[:, left] == self.expert_ids[:, right])
                     & (self.expert_ids[:, left] != PAD_EXPERT_ID)
@@ -93,13 +111,9 @@ class ComposeSelection:
         return self.expert_ids.shape[0]
 
     @property
-    def max_slots(self) -> int:
-        return MAX_ACTIVE_EXPERTS
-
-    @property
     def top_k(self) -> int:
         """Backward-compatible alias: the unified slot count (pads included)."""
-        return MAX_ACTIVE_EXPERTS
+        return self.max_slots
 
     def is_empty_row(self, index: int) -> bool:
         return bool(torch.all(self.expert_ids[index] == PAD_EXPERT_ID))
@@ -135,21 +149,23 @@ class ComposeSelection:
             expert_ids=self.expert_ids.to(device=device),
             gates=self.gates.to(device=device),
             normalization=self.normalization,
+            max_slots=self.max_slots,
+            allow_zero_gates=self.allow_zero_gates,
         )
 
 
 def pad_selection(
-    expert_ids: Tuple[int, ...], gates: Tuple[float, ...]
+    expert_ids: Tuple[int, ...],
+    gates: Tuple[float, ...],
+    slots: int = MAX_ACTIVE_EXPERTS,
 ) -> Tuple[Tuple[int, ...], Tuple[float, ...]]:
-    """Pad a (possibly empty) selection to exactly ``MAX_ACTIVE_EXPERTS`` slots."""
-    if len(expert_ids) > MAX_ACTIVE_EXPERTS:
+    """Pad a (possibly empty) selection to exactly ``slots`` slots."""
+    if len(expert_ids) > slots:
         raise ValueError(
-            "at most {} experts per sample; got {}".format(
-                MAX_ACTIVE_EXPERTS, expert_ids
-            )
+            "at most {} experts per sample; got {}".format(slots, expert_ids)
         )
     if len(expert_ids) != len(gates):
         raise ValueError("gates must match expert_ids")
-    padded_ids = tuple(expert_ids) + (PAD_EXPERT_ID,) * (MAX_ACTIVE_EXPERTS - len(expert_ids))
-    padded_gates = tuple(gates) + (0.0,) * (MAX_ACTIVE_EXPERTS - len(gates))
+    padded_ids = tuple(expert_ids) + (PAD_EXPERT_ID,) * (slots - len(expert_ids))
+    padded_gates = tuple(gates) + (0.0,) * (slots - len(gates))
     return padded_ids, padded_gates

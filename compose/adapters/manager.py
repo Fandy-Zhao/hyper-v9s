@@ -47,6 +47,21 @@ class ExpertManager:
         for layer in self.layers.values():
             layer.clear_default_selection()
 
+    def set_cardinality_scale(self, mode: str) -> None:
+        """Apply one composition-scale rule to every injected layer.
+
+        ``"v8"`` (default) keeps the frozen 1/sqrt(N) variance rule; V9 sets
+        ``"none"`` so the differentiable gate is the only magnitude term.
+        """
+        for layer in self.layers.values():
+            layer.set_cardinality_scale(mode)
+
+    def cardinality_scale(self) -> str:
+        modes = {layer.cardinality_scale() for layer in self.layers.values()}
+        if len(modes) != 1:
+            raise ValueError("layers disagree on cardinality scale: {}".format(sorted(modes)))
+        return modes.pop()
+
     def make_selection(
         self,
         expert_ids: Sequence[int],
