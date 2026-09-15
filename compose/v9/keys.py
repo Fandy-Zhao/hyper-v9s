@@ -353,8 +353,18 @@ class V9KeyPool(MultiKeyExpertPool):
         by design, and both are keys the responsibility supervision shapes.
         Including them would make the end-of-task freeze audit fail against the
         training it just ran.
+
+        The base implementation selects on ``key_type == origin`` alone, which
+        admits exactly those two kinds of key, so the lifecycle filter has to be
+        applied here rather than inherited: ``key_type`` records how a key is
+        addressed, ``lifecycle`` records whether this task is allowed to move
+        it, and the freeze audit asks the second question.
         """
-        return super().historical_key_ids()
+        return sorted(
+            key_id
+            for key_id, record in self.key_records.items()
+            if record["lifecycle"] != LIFECYCLE_CANDIDATE
+        )
 
     # ------------------------------------------------------------------
     # serialization
@@ -375,7 +385,14 @@ class V9KeyPool(MultiKeyExpertPool):
             raise V9KeyPoolError(
                 "not a V9-S/V8 key state; migrate V7 pools with load_v7_pool"
             )
-        base = MultiKeyExpertPool.from_state(state, current_task=current_task)
+        # ``pool_kind`` is the only field V9-S adds, so hand the V8 loader the
+        # state it recognises rather than teaching V8 about a V9-S marker it
+        # has no other reason to know.  Without this the round trip cannot be
+        # read back at all: ``export_state`` always writes ``v9s_multi_key``,
+        # so every resume of a V9-S checkpoint would fail to load.
+        base_state = dict(state)
+        base_state["pool_kind"] = "v8_multi_key"
+        base = MultiKeyExpertPool.from_state(base_state, current_task=current_task)
         pool = cls(query_dim=base.query_dim)
         # Re-home the already-validated parameters rather than re-creating them,
         # so a round-trip preserves every byte and every `requires_grad` flag.
@@ -406,7 +423,13 @@ class V9KeyPool(MultiKeyExpertPool):
         """
         legacy = dict(state)
         gamma = float(legacy.get("gamma", 1.0))
-        key_records = legacy.get("key_records") or {}
+        # Records live under ``metadata`` in the V8/V9 layout; the top-level
+        # spelling is accepted for a state written before the metadata block
+        # existed, because a migration path that only reads one of the two
+        # would find nothing to convert and then hand a ``task_residual`` key
+        # to a loader that has no such key type.
+        metadata = legacy.get("metadata") or {}
+        key_records = metadata.get("key_records") or legacy.get("key_records") or {}
         keys = legacy.get("keys") or {}
         # Resolve every residual to its effective absolute key before the V8
         # loader sees the state, so the V8 key store is never asked to hold a
