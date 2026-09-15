@@ -338,8 +338,7 @@ def _run_v9_calibration(
     """
     import torch as _torch
 
-    from compose.train.data import V7QueryCollator
-    from compose.v9.data import V9QueryDataset
+    from compose.v9.data import V9QueryCollator, V9QueryDataset
     from compose.v9.retrieval import HistoricalTopC
 
     manifest_path = model_args.compose_v9_calibration
@@ -365,7 +364,11 @@ def _run_v9_calibration(
         dataset,
         batch_size=int(training_args.per_device_train_batch_size),
         shuffle=False,
-        collate_fn=V7QueryCollator(tokenizer),
+        # The same collator the training loop uses.  ``V7QueryCollator`` would
+        # drop the per-sample historical recall row -- it only knows about the
+        # fixed query -- and the calibration forward would then route without
+        # it.
+        collate_fn=V9QueryCollator(tokenizer),
         num_workers=0,
     )
     report = trainer.calibration_pass(
@@ -1062,6 +1065,15 @@ def train() -> None:
     model.config.use_cache = True
     if mode in resumable:
         trainer.distributed_barrier()
+    # ``global_task_statistics`` all-gathers across ranks, so every rank has to
+    # enter it.  It used to be called inside the ``should_save`` block below,
+    # which runs on rank 0 only: rank 1 walked out of ``train()`` and exited
+    # while rank 0 sat in the collective, and the run died at teardown with a
+    # gloo "connection closed by peer" that names neither the audit nor the
+    # file.  The reduce happens here, on every rank; only the write is rank 0's.
+    v9_global_statistics = (
+        trainer.global_task_statistics() if mode == V9_MODE else None
+    )
     if training_args.should_save:
         if mode == V9_MODE:
             with open(
@@ -1087,7 +1099,7 @@ def train() -> None:
                 "w", encoding="utf-8"
             ) as handle:
                 json.dump(
-                    trainer.global_task_statistics(),
+                    v9_global_statistics,
                     handle, indent=2, sort_keys=True,
                 )
                 handle.write("\n")
@@ -1096,6 +1108,20 @@ def train() -> None:
                 "w", encoding="utf-8"
             ) as handle:
                 json.dump(trainer.assert_task_freeze_integrity(), handle, indent=2, sort_keys=True)
+                handle.write("\n")
+            # Spec §41 (A): the claim that ``L_ans`` trains the Candidate LoRA
+            # and no key is checked on the live training graph, once per task.
+            # Until this file existed the check ran and would have raised, but
+            # the report it produced was discarded, so the evidence for the
+            # report's central claim was a *silence* -- and a silence is what a
+            # check that never ran also looks like.  Written on rank 0 only,
+            # like the audits beside it: ``should_save`` is rank 0's condition
+            # and this block must contain no collective.
+            with open(
+                os.path.join(training_args.output_dir, "v9_answer_key_isolation.json"),
+                "w", encoding="utf-8"
+            ) as handle:
+                json.dump(trainer.v9_answer_key_isolation, handle, indent=2, sort_keys=True)
                 handle.write("\n")
             torch.save(
                 v9_key_pool.export_state(),

@@ -295,6 +295,17 @@ def pair_rerank_report(
     gate ranking is systematically missing a better pair -- which is the only
     reason V9 would ever need V8's pair enumeration in the loop.
 
+    ``pair_is_deployed`` is the **indicator** the probe emits per sample: 1.0
+    when the pair in column 0 is the pair that sample's deployed rule serves,
+    0.0 when it is not.  It is not an index, and reading it as one is a mistake
+    this function made: comparing the arg-min *position* against a 1.0 flag
+    reports ``0/N`` for a run in which column 0 was served on every sample, and
+    reports a spurious success for a sample whose deployed pair was never
+    measured.  The rate below is therefore computed on the comparable subset --
+    samples where the deployed pair is one of the measured ones -- and the
+    denominator is reported with it, because a rate over a subset the reader
+    cannot see is the same defect one level up.
+
     The main experiment declares ``pair_rerank: false``; this makes that a
     measured statement rather than an assumption, and it is the whole reason the
     flag exists.  It runs on the bounded calibration sample and never in
@@ -312,15 +323,31 @@ def pair_rerank_report(
     # sample" is a per-sample question, and averaging over the pair axis would
     # dilute one bad sample by however many pairs were measured.
     regret = (deployed - alternatives.min(dim=1, keepdim=True).values).clamp_min(0)
+    served = pair_is_deployed.detach().reshape(-1).to(torch.float32)
+    if served.numel() != deployed.numel():
+        raise ValueError(
+            "pair_rerank_report expects {} deployed flags".format(deployed.numel())
+        )
+    comparable = served.gt(0)
+    # Column 0 is the pair with the largest summed gate mass -- the pair the
+    # gate ranking itself names -- so "the best measured pair is the deployed
+    # one" is ``argmin == 0``, evaluated where the deployed pair was measured.
+    best_is_column_zero = best.eq(0)
+    count = int(comparable.sum().item())
+    if count:
+        rate = float(best_is_column_zero[comparable].to(torch.float32).mean().item())
+    else:
+        # Nothing was measurable.  Reporting 0.0 would read as "the gate never
+        # deploys the best pair", which is a claim, not an absence.
+        rate = float("nan")
     return {
         "samples": int(deployed.numel()),
+        "comparable_samples": count,
         "pairs_measured": int(alternatives.shape[1]),
         "mean_deployed_loss": float(deployed.mean().item()),
         "mean_best_pair_loss": float(alternatives.min(dim=1).values.mean().item()),
         "mean_regret": float(regret.mean().item()),
-        "best_pair_is_deployed_rate": float(
-            (best == pair_is_deployed.detach().reshape(-1)).to(torch.float32).mean().item()
-        ),
+        "best_pair_is_deployed_rate": rate,
         "deployed_beats_mean_pair_rate": float(
             (deployed < alternatives.mean(dim=1, keepdim=True))
             .to(torch.float32)

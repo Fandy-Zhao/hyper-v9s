@@ -354,9 +354,22 @@ class ComposeSelectionCollator:
         return batch
 
 
+def _query_cache_sample_id(record: Dict[str, Any], index: int) -> str:
+    """The sample id the fixed-query encoder wrote for this record.
+
+    ``id`` first, then ``question_id``, then the position: the training split
+    carries its identifier under the first name and the validation split under
+    the second, and ``compose.eval.query_features`` reads them in exactly this
+    order when it names the entries of the cache.  A dataset that reads only
+    ``id`` cannot address a validation cache at all -- every sample in the split
+    reports as missing -- and the failure lands in whichever stage loads that
+    cache, on data the encoder says it wrote.
+    """
+    return str(record.get("id", record.get("question_id", index)))
+
+
 class V7QueryDataset(LazySupervisedDataset):
     """Full train split joined one-to-one with fixed 1536-D query cache.
-
     Two interchangeable sources:
 
     * ``query_cache`` -- the legacy per-sample JSON document (``train.json``,
@@ -375,9 +388,13 @@ class V7QueryDataset(LazySupervisedDataset):
     ) -> None:
         super().__init__(data_path, tokenizer, data_args)
         dataset_ids = [
-            str(record.get("id", index))
+            _query_cache_sample_id(record, index)
             for index, record in enumerate(self.records)
         ]
+        #: The ids the cache is addressed by, in dataset order.  Kept as state
+        #: so a subclass that has to align a second per-sample artefact aligns
+        #: it by the same rule, rather than re-deriving the rule and drifting.
+        self.dataset_ids = dataset_ids
         self.query_tensor_hash = None
         if query_tensor is not None:
             self.fixed_queries, self._query_rows, self.query_tensor_hash = query_tensor
@@ -430,7 +447,7 @@ class V7QueryDataset(LazySupervisedDataset):
 
     def __getitem__(self, index):
         item = super().__getitem__(index)
-        sample_id = str(self.records[index].get("id", index))
+        sample_id = _query_cache_sample_id(self.records[index], index)
         item["sample_id"] = sample_id
         if self._query_rows is not None:
             # Row view of the shared [N, 1536] tensor; the collator stacks it,

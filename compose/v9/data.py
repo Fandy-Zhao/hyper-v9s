@@ -19,7 +19,6 @@ multi-key geometry (spec §20) and never looks at a training recall file.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -68,9 +67,10 @@ class V9QueryDataset(V7QueryDataset):
         super().__init__(
             data_path, tokenizer, data_args, query_cache, query_tensor=query_tensor
         )
-        self.dataset_ids = [
-            str(record.get("id", index)) for index, record in enumerate(self.records)
-        ]
+        # The parent's ids, not a second derivation of them: the historical
+        # block has to be aligned to the same sample ids the query cache was
+        # addressed by, and two rules for "which sample is this" is one rule
+        # too many.
         self.historical_topc = historical_topc
         self._historical_rows: Optional[torch.Tensor] = None
         if historical_topc is None:
@@ -141,6 +141,14 @@ def build_task_retrieval(
     splits other than the training split: a validation recall set written to a
     path that happens to hold the training rows would be structurally plausible
     and silently wrong.
+
+    It rebuilds *into* ``cache_path``; it does not skip writing it.  The rebuild
+    is a ``cache=False`` in-memory derivation, so the write has to be explicit
+    here -- and it goes to ``cache_path``, which is the path the caller is about
+    to record in the manifest and hand to the training process.  Building into
+    ``os.devnull`` and stopping there left that process loading a path nothing
+    had created, half an hour later.  An explicit cache path is a request for a
+    cache.
     """
     retrieval = config.historical_retrieval
     if force_build:
@@ -151,8 +159,8 @@ def build_task_retrieval(
         if historical_ids
         else torch.zeros(0, key_pool.query_dim, dtype=torch.float32)
     )
-    return load_or_build_historical_topc(
-        cache_path=cache_path if not force_build else os.devnull,
+    topc = load_or_build_historical_topc(
+        cache_path=cache_path,
         queries=queries,
         historical_expert_ids=historical_ids,
         base_keys=base_keys,
@@ -162,6 +170,9 @@ def build_task_retrieval(
         seed=config.key.candidate_init_seed,
         sample_ids=sample_ids,
     )
+    if force_build:
+        topc.save(cache_path)
+    return topc
 
 
 def write_retrieval_manifest(

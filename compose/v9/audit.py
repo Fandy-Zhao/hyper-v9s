@@ -372,20 +372,34 @@ def apply_candidate_commit(
     in place rather than copied, so the direction it was trained to have is the
     direction inference will compare against.  Its LoRA is frozen at the same
     moment -- from here on, reuse is only possible through a new task key.
+
+    ``manager`` may be ``None``.  The task-end audit runs in its own process,
+    after the training process has exited, so there is no model to freeze there;
+    the LoRA half of the commit is applied by the *next* task's startup, which
+    calls ``pool.train_only(current candidates)`` and therefore freezes every
+    expert the committed lifecycle now excludes -- and asserts it.  The
+    lifecycle move is the part that has to persist, because that is what the
+    next task reads when it decides which experts are historical.
     """
     committed: List[int] = []
     deleted: List[int] = []
     for expert_id in decisions.get("commit", ()):
         expert_id = int(expert_id)
-        key_pool.expert_record(expert_id)["lifecycle"] = LIFECYCLE_HISTORICAL
-        key_pool.expert_record(expert_id)["committed_task"] = int(task_index)
+        record = key_pool.expert_record(expert_id)
+        record["lifecycle"] = LIFECYCLE_HISTORICAL
+        # Bookkeeping goes in ``extra``, which is the record's declared place for
+        # it.  A new top-level field would be splatted into ``add_expert`` on the
+        # next load -- ``from_state`` forwards every key it does not recognise --
+        # and the committed pool would fail to load in the task that needs it.
+        record.setdefault("extra", {})["committed_task"] = int(task_index)
         key_id = key_pool.origin_key_id(expert_id)
         key_pool.set_key_trainable(key_id, False)
         key_pool.set_key_lifecycle(key_id, LIFECYCLE_HISTORICAL)
-        for layer in manager.layers.values():
-            for parameter in layer.experts[str(expert_id)].parameters():
-                parameter.requires_grad_(False)
-                parameter.grad = None
+        if manager is not None:
+            for layer in manager.layers.values():
+                for parameter in layer.experts[str(expert_id)].parameters():
+                    parameter.requires_grad_(False)
+                    parameter.grad = None
         committed.append(expert_id)
     for expert_id in decisions.get("delete", ()):
         expert_id = int(expert_id)

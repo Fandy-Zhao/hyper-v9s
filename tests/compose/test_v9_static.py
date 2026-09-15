@@ -20,6 +20,7 @@ Run with ``python -m pytest tests/compose/test_v9_static.py``.
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
 import types
 
@@ -62,6 +63,7 @@ from compose.v9.inference import (
 from compose.v9.keys import V9KeyPool, initialize_candidate_keys
 from compose.v9.losses import budget_loss, compose_total_loss, sparse_loss
 from compose.v9.multi_key import aggregatable_expert_ids, memory_key_ids
+from compose.v9.data import build_task_retrieval
 from compose.v9.retrieval import (
     HistoricalTopC,
     V9RetrievalError,
@@ -70,7 +72,7 @@ from compose.v9.retrieval import (
     load_or_build_historical_topc,
     retrieval_diagnostics,
 )
-from compose.v9.router import V9Router
+from compose.v9.router import V9RouteOutput, V9Router
 from compose.v9.schedule import (
     STAGE_BOOTSTRAP,
     STAGE_HARD,
@@ -522,6 +524,75 @@ def test_historical_topc_cache_rebuilds_when_the_recipe_changes(tmp_path):
     assert second.top_c == 3
 
 
+def test_forcing_a_rebuild_writes_the_cache_it_was_asked_for(tmp_path):
+    """``force_build`` means "do not read one", never "do not write one".
+
+    The validation recall set is built with ``force_build=True`` and its path is
+    then handed to the training process, which loads it half an hour later.  A
+    rebuild that derives into memory and stops there leaves the manifest
+    pointing at a file nothing created -- a crash in a later stage, in a
+    different process, reporting a path the stage that failed never named.
+    """
+    config = V9Config()
+    pool, _ = _pool(config, historical=8, candidates=2)
+    queries = _query_matrix(12, seed=23)
+    ids = ["s{}".format(index) for index in range(12)]
+    path = tmp_path / "historical_topc_val.pt"
+    built = build_task_retrieval(
+        key_pool=pool,
+        queries=queries,
+        sample_ids=ids,
+        config=config,
+        task_index=ROUTING_TASK,
+        cache_path=str(path),
+        force_build=True,
+    )
+    assert path.is_file(), "the caller was handed a path with nothing behind it"
+    loaded = HistoricalTopC.load(str(path))
+    assert loaded.sample_ids == ids
+    assert torch.equal(loaded.expert_ids, built.expert_ids)
+    # And the file is what a later reader gets: forcing a rebuild over an
+    # existing cache replaces it rather than leaving the stale rows in place.
+    later = build_task_retrieval(
+        key_pool=pool,
+        queries=queries,
+        sample_ids=ids,
+        config=config,
+        task_index=ROUTING_TASK,
+        cache_path=str(path),
+        force_build=False,
+    )
+    assert torch.equal(later.expert_ids, built.expert_ids)
+
+
+def test_the_dataset_names_a_sample_the_way_the_encoder_did():
+    """The two halves of the query cache must agree on what a sample is called.
+
+    The encoder reads ``id``, then ``question_id``, and the training split
+    carries the first while the validation split carries the second.  A dataset
+    that reads only ``id`` cannot address a validation cache at all: all 64
+    samples report as missing, in the stage that loads them, on a cache that
+    exists and is correct.  Checked against the encoder's own function rather
+    than against a copy of its rule.
+    """
+    from compose.eval.query_features import shard_expected_ids
+    from compose.train.data import _query_cache_sample_id
+
+    for record in (
+        {"id": "v7_t0_train_7", "question_id": "ignored"},
+        {"question_id": "v7_t0_val_7"},
+        {"id": None, "question_id": "v7_t0_val_8"},
+    ):
+        index = 3
+        assert _query_cache_sample_id(record, index) == shard_expected_ids(
+            [record], 1, 0
+        )[0], record
+    # Position is the last resort, and only the last: a cache whose ids are
+    # missing everywhere is addressed by position, which is what the encoder
+    # itself cannot express and therefore never writes.
+    assert _query_cache_sample_id({}, 3) == "3"
+
+
 # ----------------------------------------------------------------------
 # routing
 # ----------------------------------------------------------------------
@@ -821,6 +892,74 @@ def test_answer_loss_key_gradient_reports_a_max_per_key():
     assert report["b"] > 0.0
 
 
+def test_answer_loss_key_gradient_reports_a_frozen_key_rather_than_differentiating_it():
+    """A frozen key cannot be an input to ``torch.autograd.grad``.
+
+    It is not a differentiable leaf, so autograd raises rather than returning
+    zero -- the gradient is undefined, not absent.  The audit still has to cover
+    such a key, so it reports the structural answer: there is no edge to carry an
+    answer gradient into it.
+    """
+    trainable = torch.nn.Parameter(torch.full((4,), 0.5))
+    frozen = torch.nn.Parameter(torch.full((4,), 2.0), requires_grad=False)
+    loss = trainable.sum() + frozen.detach().sum()
+    report = answer_loss_key_gradient(loss, {"new": trainable, "old": frozen})
+    assert set(report) == {"new", "old"}
+    assert report["new"] > 0.0
+    assert report["old"] == 0.0
+    # And the same call without the fix is an error, not a zero: this is the
+    # assertion that the two are not interchangeable.
+    with pytest.raises(RuntimeError, match="does not require grad"):
+        torch.autograd.grad(loss, [frozen], allow_unused=True)
+
+
+def test_the_isolation_audit_covers_a_frozen_key_instead_of_crashing_on_it():
+    """The production call, on the task shape that first has a frozen key.
+
+    ``_assert_answer_loss_isolated_from_keys`` hands autograd the *whole* key
+    set -- the trainable candidates and task keys and the frozen base keys of the
+    historical experts -- to show that ``L_ans`` reaches none of them.  Task 0
+    owns no historical expert, so that set is entirely trainable there and every
+    task-0 preflight passed; the first task with a committed pool raised ``One of
+    the differentiated Tensors does not require grad`` on its first training
+    step, after the handoff.  What the audit must do with a frozen key is
+    *report* it: it is covered, and the report says on what grounds.
+    """
+    config = V9Config()
+    pool, candidate_ids = _pool(config, historical=4, candidates=config.candidate_count)
+    _with_task_keys(pool)
+    pool.freeze_historical(current_task=ROUTING_TASK)
+    router, route, _, _ = _route(config, pool, 4, STAGE_SOFT)
+
+    generator = torch.Generator().manual_seed(11)
+    mixed = torch.zeros(4, 8)
+    for slot in range(route.slots):
+        for row in range(route.batch_size):
+            expert_id = int(route.expert_ids[row, slot])
+            if expert_id < 0 or not bool(route.slot_mask[row, slot]):
+                continue
+            mixed[row] = mixed[row] + route.forward_gates[row, slot] * torch.randn(
+                8, generator=generator
+            )
+    answer_loss = (mixed ** 2).mean()
+
+    stub = types.SimpleNamespace(v9_key_pool=pool, v9_router=router)
+    V9ComposeTrainer._assert_answer_loss_isolated_from_keys(stub, answer_loss, route)
+    report = stub.v9_answer_key_isolation
+    frozen = set(pool.historical_key_ids())
+    assert frozen, "the fixture must own frozen keys or it cannot reproduce the crash"
+    assert set(report["frozen_keys_not_differentiated"]) == frozen
+    assert report["measured_keys"] == report["keys_checked"] - len(frozen)
+    assert report["measured_keys"] > 0, "the trainable keys must still be measured"
+    assert report["max_abs_gradient"] == 0.0
+    assert report["nonzero_keys"] == []
+    # The report is written to the task's output directory at the end of the
+    # run, so it has to survive ``json.dump``.  A tensor or a parameter in here
+    # would raise *after* the training loop, which is the worst possible moment:
+    # the work is done and the run still ends without its artefacts.
+    assert json.loads(json.dumps(report, sort_keys=True)) == report
+
+
 # ----------------------------------------------------------------------
 # contribution and responsibility
 # ----------------------------------------------------------------------
@@ -982,16 +1121,39 @@ def test_pair_rerank_reports_the_regret_of_the_gate_chosen_pair():
     # Row 0: the gate-chosen pair is the best of the measured set.
     # Row 1: a challenger is strictly better, so the gate ranking lost by 1.0.
     alternatives = torch.tensor([[1.0, 1.5, 2.0], [4.0, 3.0, 5.0]])
+    # ``pair_is_deployed`` is the probe's *indicator* (1.0 = column 0 is what the
+    # deployed rule serves), which is what ``_exact_pair_losses`` returns.  It is
+    # not a column index, and the two were once mixed up: comparing an arg-min
+    # position against a 1.0 flag reported 0/N for a run in which column 0 was
+    # served on every sample.
     report = pair_rerank_report(
-        deployed, alternatives, torch.zeros(2, dtype=torch.long)
+        deployed, alternatives, torch.ones(2, dtype=torch.float32)
     )
     assert report["samples"] == 2
+    assert report["comparable_samples"] == 2
     assert report["pairs_measured"] == 3
     assert report["mean_regret"] == pytest.approx(0.5)
     assert report["best_pair_is_deployed_rate"] == pytest.approx(0.5)
     assert report["mean_best_pair_loss"] == pytest.approx((1.0 + 3.0) / 2)
     with pytest.raises(ValueError):
-        pair_rerank_report(deployed, alternatives[:1], torch.zeros(2, dtype=torch.long))
+        pair_rerank_report(deployed, alternatives[:1], torch.ones(2))
+    # The degenerate case the preflight actually runs: M = 2 candidates, so the
+    # probe has exactly one pair, that pair is column 0, and the deployed rule
+    # serves it on every sample.  The rate of a measurement that could only come
+    # out one way, and it is neither 0.0 nor a claim about column 0.
+    single = pair_rerank_report(
+        deployed, alternatives[:, :1], torch.ones(2, dtype=torch.float32)
+    )
+    assert single["pairs_measured"] == 1
+    assert single["best_pair_is_deployed_rate"] == pytest.approx(1.0)
+    # A sample whose deployed pair was never measured cannot answer the
+    # question.  It leaves the denominator instead of counting as a failure --
+    # and where nothing is left the rate is NaN, not a claim.
+    none = pair_rerank_report(
+        deployed, alternatives, torch.zeros(2, dtype=torch.float32)
+    )
+    assert none["comparable_samples"] == 0
+    assert math.isnan(none["best_pair_is_deployed_rate"])
 
 
 def test_pair_rerank_defaults_off_and_cannot_be_declared_without_calibration():
@@ -1523,3 +1685,395 @@ def test_the_reported_validators_cover_every_spec_34_quantity():
         "§34's soft/hard validation scores are produced by the calibration pass; "
         "turning it off removes them"
     )
+
+
+# ----------------------------------------------------------------------
+# the bounded calibration (spec §30, §35)
+#
+# This path only runs after a task's training, on held-out samples, from a
+# separate process -- so it is the one part of the method a CPU suite can check
+# against a closed form, and the one part a compressed preflight reaches last.
+# Everything below drives the real methods with a model whose answer NLL is a
+# known function of the selection, which makes ``G_exact`` and ``G_grad``
+# predictable rather than merely finite.
+# ----------------------------------------------------------------------
+class _SelectionRecorder:
+    """The ``selection_context`` the composition reads, and a log of it."""
+
+    def __init__(self) -> None:
+        self.current = None
+        self.selections = []
+
+    def selection_context(self, selection):
+        recorder = self
+
+        class _Context:
+            def __enter__(self):
+                self.previous = recorder.current
+                recorder.current = selection
+                recorder.selections.append(selection)
+                return selection
+
+            def __exit__(self, *_exc):
+                recorder.current = self.previous
+                return False
+
+        return _Context()
+
+
+class _NllStubModel:
+    """A model whose per-sample answer NLL is a function of the selection.
+
+    ``gate_sum``: ``L_b = sum_slot(gate)``.  Differentiable in the gate, so
+    ``dL_ans/da == 1`` on every active slot and ``G_grad`` has the closed form
+    ``-a``.
+
+    ``expert_weight``: ``L_b = 10 - sum_slot(gate * (id + 1))``.  Removing
+    expert ``k`` costs exactly the term ``k`` was contributing, which is the
+    quantity §30 calibrates the gate-gradient estimate against.
+    """
+
+    def __init__(self, recorder, mode: str) -> None:
+        self.recorder = recorder
+        self.mode = mode
+        self.training = True
+        self.v7_per_sample_answer_nll = None
+
+    def __call__(self, **_prepared):
+        selection = self.recorder.current
+        if selection is None:
+            raise AssertionError("the model was called outside a selection context")
+        # The body runs inside an activation checkpoint, exactly as the real
+        # backbone does under ``gradient_checkpointing``.  That is what lets
+        # this stub fail the way the GPU fails: recomputation during
+        # ``backward()`` re-enters the body, and a body that can no longer see
+        # the selection rebuilds a *different* graph.  The gates are passed as
+        # checkpoint *inputs* because that is what arms recomputation at all --
+        # a checkpoint called with no tensor inputs runs the body once, eagerly,
+        # and never recomputes it.
+        per_sample = torch.utils.checkpoint.checkpoint(
+            self._block, selection.gates, selection.expert_ids,
+            use_reentrant=False,
+        )
+        self.v7_per_sample_answer_nll = per_sample
+        return None
+
+    def _block(self, gates, ids):
+        if self.recorder.current is None:
+            raise AssertionError(
+                "the checkpointed body was recomputed outside the selection "
+                "context, so it would rebuild a different graph than the "
+                "forward did"
+            )
+        if self.mode == "gate_sum":
+            per_sample = gates.sum(dim=1)
+        elif self.mode == "expert_weight":
+            active = ids.ne(-1).to(gates.dtype)
+            weight = ids.to(gates.dtype).add(1.0)
+            per_sample = 10.0 - (gates * weight * active).sum(dim=1)
+        else:
+            raise AssertionError("unknown stub mode {!r}".format(self.mode))
+        return per_sample
+
+    def train(self, mode: bool = True):
+        self.training = bool(mode)
+        return self
+
+    def eval(self):
+        return self.train(False)
+
+
+def _calibration_stub(config, router, recorder):
+    stub = types.SimpleNamespace(
+        v9_config=config,
+        v9_router=router,
+        expert_pool=types.SimpleNamespace(manager=recorder),
+        v9_extra_forwards=0,
+        _v9_pair_probe=None,
+    )
+    # The pair probe is a method on the trainer, not a value: bind it so the
+    # stub answers ``_pair_probe`` the way the real attribute would.
+    stub._pair_probe = types.MethodType(V9ComposeTrainer._pair_probe, stub)
+    return stub
+
+
+def test_exact_removal_measures_one_expert_removed_per_forward():
+    """``G_exact`` must be a per-sample, per-slot quantity with no broadcast luck.
+
+    Two shape facts are load-bearing and neither is visible from the numbers:
+    the answer loss is per *sample* while the matrix is per *slot*, so the delta
+    has to be oriented down the slot axis; and a removed expert is removed by
+    padding its slot, which the composition only accepts with a zero gate.  The
+    fixture is deliberately ``[3, 5]`` -- a width mismatch would be caught by
+    broadcasting here rather than by a recorded value that looks plausible.
+    """
+    config = V9Config()
+    pool, _ = _pool(config, historical=3, candidates=config.candidate_count)
+    _with_task_keys(pool)
+    router = _router(config, pool)
+    queries = _query_matrix(3, seed=5)
+    topc = _recall(pool, queries, config)
+    route = router.route(queries, topc.expert_ids, 1.0, STAGE_SOFT)
+    assert route.expert_ids.shape == (3, 5), route.expert_ids.shape
+
+    recorder = _SelectionRecorder()
+    model = _NllStubModel(recorder, mode="expert_weight")
+    stub = _calibration_stub(config, router, recorder)
+    _, _, base = V9ComposeTrainer._calibration_gradients(
+        stub, model, queries, topc.expert_ids, {}
+    )
+    matrix = V9ComposeTrainer._exact_removal_matrix(stub, model, {}, route, base)
+
+    ids = route.expert_ids
+    gates = route.forward_gates
+    mask = route.slot_mask
+    expected = torch.zeros_like(matrix)
+    for row in range(ids.shape[0]):
+        for slot in range(ids.shape[1]):
+            if not bool(mask[row, slot]):
+                continue
+            expert_id = int(ids[row, slot])
+            expected[row, slot] = float(gates[row, slot].item()) * (expert_id + 1)
+    assert torch.allclose(matrix, expected, atol=1e-5), (matrix, expected)
+    # One forward per distinct active expert, on top of the base forward.
+    assert stub.v9_extra_forwards == len(
+        {int(value) for value in ids[mask].tolist()}
+    )
+    # The base selection is the first one recorded; every later selection is an
+    # alternative, and none of them may leave a gate on a padded slot.
+    assert len(recorder.selections) == stub.v9_extra_forwards + 1
+    for selection in recorder.selections[1:]:
+        padded = selection.expert_ids.eq(-1)
+        assert not bool(selection.gates[padded].abs().gt(0).any().item())
+    # Every alternative removes exactly one expert, from every row that had it.
+    for selection in recorder.selections[1:]:
+        padded = selection.expert_ids.eq(-1)
+        removed = {int(value) for value in route.expert_ids[padded].tolist()}
+        assert len(removed) == 1, "one alternative removes exactly one expert"
+        expert_id = removed.pop()
+        assert int(padded.sum().item()) == int(route.expert_ids.eq(expert_id).sum().item())
+
+
+def test_the_exact_removal_accumulator_shares_the_device_of_its_inputs():
+    """The removal matrix must be allocated where its inputs are.
+
+    ``torch.zeros(shape, dtype=...)`` defaults to CPU, and on CPU this file
+    cannot see the difference: every other tensor is there too, so the fixture
+    above passes while the same call on a GPU raises ``Expected all tensors to
+    be on the same device`` -- in the post-training calibration, after the
+    training loop has already finished and written its checkpoints.  That is the
+    one place a run cannot afford to be wrong, so the check is a real execution
+    of the real method with the routing tensors on a second device, and it skips
+    only where no second device exists.
+    """
+    if not torch.cuda.is_available():
+        pytest.skip("this failure needs a second device to exist")
+    # ``cuda`` and ``cuda:0`` are different ``torch.device`` values even on a
+    # one-GPU machine, so the pinned form is the one to compare against.
+    device = torch.device("cuda", torch.cuda.current_device())
+    config = V9Config()
+    pool, _ = _pool(config, historical=3, candidates=config.candidate_count)
+    _with_task_keys(pool)
+    router = _router(config, pool)
+    # The recall is built on CPU because that is where the task builds it: its
+    # own scoring is device-checked, and the router moves the row to the query
+    # device itself (``route`` -> ``historical_rows.to(queries.device)``).
+    topc = _recall(pool, _query_matrix(3, seed=5), config)
+    pool = pool.to(device)
+    queries = _query_matrix(3, seed=5).to(device)
+    route = router.route(queries, topc.expert_ids, 1.0, STAGE_SOFT)
+    assert route.expert_ids.device == device
+
+    recorder = _SelectionRecorder()
+    model = _NllStubModel(recorder, mode="expert_weight")
+    stub = _calibration_stub(config, router, recorder)
+    _, _, base = V9ComposeTrainer._calibration_gradients(
+        stub, model, queries, topc.expert_ids, {}
+    )
+    assert base.device == device
+    matrix = V9ComposeTrainer._exact_removal_matrix(stub, model, {}, route, base)
+
+    # Device agreement is the point; the values are the fixture above, so a fix
+    # that moved the accumulator by *accident* still has to produce them.
+    assert matrix.device == route.expert_ids.device
+    ids = route.expert_ids
+    gates = route.forward_gates
+    mask = route.slot_mask
+    expected = torch.zeros_like(matrix)
+    for row in range(ids.shape[0]):
+        for slot in range(ids.shape[1]):
+            if not bool(mask[row, slot]):
+                continue
+            expected[row, slot] = float(gates[row, slot].item()) * (
+                int(ids[row, slot]) + 1
+            )
+    assert torch.allclose(matrix, expected, atol=1e-5), (matrix, expected)
+
+
+def test_the_calibration_gradient_is_taken_against_the_gate_that_deployed():
+    """``G_grad`` on held-out data is ``-a * dL_ans/da``, on the deployed gate.
+
+    The calibration reuses the trained model, so it is the one place the
+    detach contract can silently break a second time: if the gate it
+    differentiates were not the tensor the composition consumed, §30 would be
+    comparing the exact removal effect against a zero.
+
+    The other half of the assertion is the scale.  The per-sample loss is
+    differentiated, not the batch mean: a ``1/batch`` factor changes no
+    correlation, but it would divide the reported ``grad_mean`` and so make the
+    proxy look weaker than the ``exact_mean`` beside it by exactly the width of
+    the batch -- the one comparison §30 exists to make.
+    """
+    config = V9Config()
+    pool, _ = _pool(config, historical=3, candidates=config.candidate_count)
+    _with_task_keys(pool)
+    router = _router(config, pool)
+    queries = _query_matrix(4, seed=7)
+    topc = _recall(pool, queries, config)
+    recorder = _SelectionRecorder()
+    model = _NllStubModel(recorder, mode="gate_sum")
+    stub = _calibration_stub(config, router, recorder)
+    _, local, base = V9ComposeTrainer._calibration_gradients(
+        stub, model, queries, topc.expert_ids, {}
+    )
+    route = router.last_route
+    # L_b = sum_slot(gate) -> dL/da = 1 -> G_ik = -a_ik, with a_ik the forward
+    # gate the composition consumed.
+    assert torch.allclose(local, -route.answer_gates.detach(), atol=1e-6)
+    assert torch.allclose(base, route.answer_gates.detach().sum(dim=1), atol=1e-5)
+    assert not local.requires_grad
+
+
+def test_the_validation_gap_is_the_price_of_serving_the_hard_rule():
+    """``gap`` is hard minus soft: what deployment costs, not what it saves."""
+    config = V9Config()
+    pool, _ = _pool(config, historical=3, candidates=config.candidate_count)
+    _with_task_keys(pool)
+    router = _router(config, pool)
+    queries = _query_matrix(4, seed=11)
+    topc = _recall(pool, queries, config)
+    route = router.route(queries, topc.expert_ids, 1.0, STAGE_SOFT)
+    recorder = _SelectionRecorder()
+    model = _NllStubModel(recorder, mode="gate_sum")
+    stub = _calibration_stub(config, router, recorder)
+    scores = V9ComposeTrainer._validation_score_gap(stub, model, route, {}, None)
+    # ``sum(gate)`` is exactly 2.0 under the two-hot deployed rule and the sum of
+    # the mixture's sigmoids under the soft one: both scores are known, so the
+    # sign convention is checked rather than assumed.
+    soft = float(
+        (route.probabilities.detach() * route.slot_mask).sum(dim=1).mean().item()
+    )
+    assert scores["hard_top2"] == pytest.approx(2.0)
+    assert scores["soft"] == pytest.approx(soft, abs=1e-5)
+    assert scores["gap"] == pytest.approx(scores["hard_top2"] - scores["soft"])
+    assert abs(scores["gap"]) > 1e-3, "the fixture must separate the two rules"
+    assert scores["batches"] == 1.0
+    assert model.training is True, "the calibration restores the training mode"
+    assert stub.v9_extra_forwards == 2
+
+
+def test_pair_rerank_flags_a_pair_only_where_the_gate_deploys_it():
+    """The §35 report must say which samples the deployed pair even applies to.
+
+    The probe is a global, candidate-only pair set; the deployed rule picks two
+    slots per row.  A sample whose deployed pair contains a recalled historical
+    expert is not served the probed pair at all, and counting it as such would
+    turn ``best_pair_is_deployed_rate`` into a statement about column 0.
+    """
+    raw = V9Config().to_dict()
+    raw["expert"] = {**raw["expert"], "num_current_candidates": 3}
+    config = V9Config.from_dict(raw)
+    pool, candidate_ids = _pool(config, historical=1, candidates=3)
+    _with_task_keys(pool)
+    router = _router(config, pool)
+    recorder = _SelectionRecorder()
+    model = _NllStubModel(recorder, mode="expert_weight")
+    stub = _calibration_stub(config, router, recorder)
+
+    historical_id = pool.historical_ids[0]
+    row_ids = torch.tensor(
+        [[historical_id] + list(candidate_ids), [historical_id] + list(candidate_ids)]
+    )
+    gates = torch.tensor([[0.10, 0.90, 0.80, 0.10], [0.95, 0.50, 0.30, 0.10]])
+    route = V9RouteOutput(
+        expert_ids=row_ids,
+        probabilities=gates,
+        forward_gates=gates,
+        slot_mask=row_ids.ne(-1),
+        hard_gates=None,
+        temperature=1.0,
+        stage=STAGE_SOFT,
+    )
+    deployed, alternatives, flag = V9ComposeTrainer._exact_pair_losses(
+        stub, model, {}, route
+    )
+    # Column 0 is the best candidate pair by summed gate mass: (c0, c1).
+    assert alternatives.shape == (2, 3)
+    assert torch.equal(deployed, alternatives[:, 0])
+    # Row 0 deploys exactly that pair; row 1 deploys a historical expert plus c0.
+    assert flag.tolist() == [1.0, 0.0]
+    assert stub.v9_extra_forwards == 3
+    for selection in recorder.selections:
+        padded = selection.expert_ids.eq(-1)
+        assert not bool(selection.gates[padded].abs().gt(0).any().item())
+    # The probe is computed once and reused: ``p`` means one pair for every
+    # batch, which is what makes the columns comparable across the sample.
+    assert stub._v9_pair_probe == [(candidate_ids[0], candidate_ids[1]),
+                                   (candidate_ids[0], candidate_ids[2]),
+                                   (candidate_ids[1], candidate_ids[2])]
+    # The probe and the report are two halves of one interface, and they were
+    # tested apart -- the probe against its own flag, the report against a
+    # hand-written index -- so both passed while the composition of the two was
+    # wrong.  Composed here, on the probe's own output, the excluded row leaves
+    # the denominator and the rate describes only the row it applies to.
+    best = alternatives.argmin(dim=1)
+    report = pair_rerank_report(deployed, alternatives, flag)
+    assert report["comparable_samples"] == 1
+    assert report["best_pair_is_deployed_rate"] == pytest.approx(float(best[0].eq(0)))
+
+
+def test_committing_a_candidate_leaves_a_pool_the_next_task_can_load():
+    """The audit has to *apply* the commit, not just decide it.
+
+    Recording ``commit`` and leaving the lifecycle alone means the next task
+    finds no historical expert, hands this task's candidates back to ``L_ans``,
+    and refuses to start -- so the failure lands one task later, in a different
+    process, with nothing in the log about the audit.
+    """
+    from compose.v9.audit import apply_candidate_commit, audit_candidates
+
+    config = V9Config()
+    pool, candidate_ids = _pool(config, historical=2, candidates=2)
+    _with_task_keys(pool)
+    good = {
+        "usage": 100,
+        "usage_rate": 1.0,
+        "selected": 100,
+        "selected_rate": 1.0,
+        "effective_support": 1.0,
+        "mean_contribution": 0.5,
+        "mean_positive_contribution": 0.5,
+        "positive_contribution_rate": 1.0,
+    }
+    dead = dict(good, usage=0, usage_rate=0.0, mean_positive_contribution=0.0,
+                positive_contribution_rate=0.0)
+    kept, dropped = candidate_ids[0], candidate_ids[1]
+    decisions = audit_candidates(
+        pool,
+        {str(kept): good, str(dropped): dead},
+        config.audit,
+        ROUTING_TASK,
+    )
+    assert decisions["commit"] == [kept]
+    assert decisions["delete"] == [dropped]
+    applied = apply_candidate_commit(pool, None, decisions, ROUTING_TASK)
+    assert applied["committed"] == [kept]
+    assert pool.current_ids == []
+    assert kept in pool.historical_ids
+    assert dropped not in pool.historical_ids
+    # And the committed pool is exactly what the next task loads: no leftover
+    # candidate, on any of the three paths a candidate can take.
+    restored = V9KeyPool.from_state(pool.export_state(), current_task=ROUTING_TASK + 1)
+    assert restored.current_ids == []
+    assert set(restored.historical_ids) == set(pool.historical_ids)
+    assert restored.validate() is not None

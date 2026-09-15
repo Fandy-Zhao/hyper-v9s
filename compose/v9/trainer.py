@@ -110,24 +110,41 @@ def answer_loss_key_gradient(
     key.  Used once per task as a live assertion on the real training graph, and
     in the gradient unit tests, so the claim "``L_ans`` does not update any Key"
     is *checked* rather than asserted in prose.
+
+    A frozen key is reported as ``0.0`` **without being differentiated**, and it
+    is worth being exact about what that number then means.  ``torch.autograd.grad``
+    raises ``RuntimeError: One of the differentiated Tensors does not require
+    grad`` for such an input, because autograd cannot deliver a gradient to a
+    tensor that is not a differentiable leaf -- there is no edge to carry one.
+    Differentiating the whole key set naively therefore crashed the first task
+    that had a historical expert to freeze, on its first training step: task 0
+    has no frozen key at all, so no task-0 preflight could reach it.  What is
+    differentiable is measured here; what is frozen is zero because the graph
+    has no edge to it, and the complementary half of that claim -- that the key
+    really is frozen -- is checked independently by the freeze audit
+    (``assert_historical_keys_frozen``: ``requires_grad`` False and a null
+    ``.grad``), which is also what makes the two halves cover the whole key set.
     """
     ids = list(key_parameters)
     if not ids:
         return {}
+    trainable = [key_id for key_id in ids if key_parameters[key_id].requires_grad]
+    report = {key_id: 0.0 for key_id in ids}
+    if not trainable:
+        return report
     grads = torch.autograd.grad(
         outputs=answer_loss,
-        inputs=[key_parameters[key_id] for key_id in ids],
+        inputs=[key_parameters[key_id] for key_id in trainable],
         retain_graph=True,
         create_graph=False,
         allow_unused=True,
     )
-    return {
-        key_id: (
+    for key_id, gradient in zip(trainable, grads):
+        report[key_id] = (
             0.0 if gradient is None
             else float(gradient.detach().abs().max().item())
         )
-        for key_id, gradient in zip(ids, grads)
-    }
+    return report
 
 
 class V9ComposeTrainer(ComposeTrainer):
@@ -249,12 +266,16 @@ class V9ComposeTrainer(ComposeTrainer):
     ) -> None:
         """Prove on the live graph that ``L_ans`` touches no key parameter.
 
-        Every key the router can route by is checked -- candidates, historical
+        Every key the router can route by is covered -- candidates, historical
         current-task keys, and the frozen base keys of the historical experts --
-        so the report covers the whole key set, not just the trainable subset.
-        A nonzero entry means the forward gate was not detached, or something
-        else reintroduced a key into the answer path; either way the run must
-        stop before it trains a key with a second, conflicting signal.
+        so the report is about the whole key set, not just the trainable subset.
+        The trainable keys are *measured*; a frozen key is reported as zero
+        because it is not a differentiable leaf and no edge can reach it, and
+        ``frozen_keys_not_differentiated`` names those, so the report never
+        presents a structural zero as a measurement.  A nonzero entry means the
+        forward gate was not detached, or something else reintroduced a key into
+        the answer path; either way the run must stop before it trains a key with
+        a second, conflicting signal.
         """
         parameters: Dict[str, torch.nn.Parameter] = {}
         for key_id in self.v9_key_pool.key_ids():
@@ -265,8 +286,13 @@ class V9ComposeTrainer(ComposeTrainer):
                 parameters[key_id] = parameter
         report = answer_loss_key_gradient(answer_loss, parameters)
         offenders = {key_id: value for key_id, value in report.items() if value > 0.0}
+        frozen = sorted(
+            key_id for key_id, parameter in parameters.items() if not parameter.requires_grad
+        )
         self.v9_answer_key_isolation = {
             "keys_checked": len(report),
+            "measured_keys": len(report) - len(frozen),
+            "frozen_keys_not_differentiated": frozen,
             "max_abs_gradient": max(report.values()) if report else 0.0,
             "nonzero_keys": sorted(offenders)[:10],
             "gate_detached": self.v9_router._detach_keys(),
@@ -1177,6 +1203,7 @@ class V9ComposeTrainer(ComposeTrainer):
         gain_count: Dict[int, int] = {}
         pair_deployed: List[torch.Tensor] = []
         pair_alternatives: List[torch.Tensor] = []
+        pair_is_deployed: List[torch.Tensor] = []
         consumed = 0
         try:
             for inputs in loader:
@@ -1203,11 +1230,12 @@ class V9ComposeTrainer(ComposeTrainer):
                 )
                 self.v9_validation_scores = scores
                 if self.v9_config.inference.pair_rerank:
-                    deployed, alternatives = self._exact_pair_losses(
+                    deployed, alternatives, flag = self._exact_pair_losses(
                         model, prepared, route
                     )
                     pair_deployed.append(deployed.detach().cpu())
                     pair_alternatives.append(alternatives.detach().cpu())
+                    pair_is_deployed.append(flag.detach().cpu())
                 consumed += int(base.shape[0])
                 del route, local, base, exact, prepared
         finally:
@@ -1221,10 +1249,13 @@ class V9ComposeTrainer(ComposeTrainer):
         self.v9_calibration["samples"] = int(consumed)
         if pair_deployed:
             deployed = torch.cat(pair_deployed)
-            # Column 0 is the deployed pair, so "which challenger was best" is a
-            # direct read of the argmin.
+            # "Which challenger was best" is the argmin over the columns, and
+            # ``pair_is_deployed`` says per sample whether the best one was the
+            # pair the gate itself serves.
             self.v9_calibration["pair_rerank"] = pair_rerank_report(
-                deployed, torch.cat(pair_alternatives), torch.zeros_like(deployed)
+                deployed,
+                torch.cat(pair_alternatives),
+                torch.cat(pair_is_deployed),
             )
         #: Mean exact answer-loss reduction each expert buys on held-out data,
         #: under the deployed routing rule.  Consumed by the candidate commit
@@ -1256,6 +1287,11 @@ class V9ComposeTrainer(ComposeTrainer):
         rule instead of the mixture the objective trains.  Accumulated as a
         running mean so the number does not depend on the size of the last
         calibration batch.
+
+        ``gap = hard - soft``, so it is the price *paid*, not the headroom
+        available: positive means deployment scores worse than the objective the
+        run minimised, and it is that direction the report needs to be readable
+        in.
         """
         # "soft" here means the sigmoid mixture the objective optimises, as
         # against the Top-2 indicator deployment serves -- a different
@@ -1291,7 +1327,7 @@ class V9ComposeTrainer(ComposeTrainer):
         finally:
             if was_training:
                 model.train()
-        scores["gap"] = scores["soft"] - scores["hard_top2"]
+        scores["gap"] = scores["hard_top2"] - scores["soft"]
         if running:
             previous = float(running.get("batches", 0.0))
             for name in ("soft", "hard_top2", "gap"):
@@ -1323,6 +1359,23 @@ class V9ComposeTrainer(ComposeTrainer):
 
         The graph is created inside this call and dropped when it returns, so at
         most one calibration batch is ever resident at a time.
+
+        The derivative is taken against the batch's *sum* of per-sample losses,
+        not their mean.  Either answers §30's ranking questions identically -- a
+        uniform factor cancels out of every correlation, sign and top-k test --
+        but the report also prints ``grad_mean`` beside ``exact_mean``, and a
+        ``1/batch`` factor there would make the proxy look weaker than it is by
+        exactly the batch width.  The quantity being calibrated is one sample's
+        removal effect, so the estimate has to be one sample's derivative.
+
+        The backward runs *inside* the selection context.  Activation
+        checkpointing recomputes each block's forward during ``backward()``, and
+        a recomputation that cannot see the routing rebuilds a different graph
+        than the forward did -- PyTorch then reports the two having saved a
+        different number of tensors and the calibration dies on its first batch.
+        The training loop already holds the context across forward *and*
+        backward for exactly this reason (``_ddp_training_step``); this is the
+        same contract, not a second one.
         """
         with torch.enable_grad():
             route = self.v9_router.route(
@@ -1334,14 +1387,14 @@ class V9ComposeTrainer(ComposeTrainer):
             with self.expert_pool.manager.selection_context(route.selection()):
                 model.train()
                 model(**prepared)
-            per_sample = getattr(model, "v7_per_sample_answer_nll", None)
-            if per_sample is None:
-                raise RuntimeError(
-                    "calibration requires the per-sample routed answer NLL"
+                per_sample = getattr(model, "v7_per_sample_answer_nll", None)
+                if per_sample is None:
+                    raise RuntimeError(
+                        "calibration requires the per-sample routed answer NLL"
+                    )
+                gradient = gate_gradient(
+                    per_sample.sum(), route.answer_gates, retain_graph=False
                 )
-            gradient = gate_gradient(
-                per_sample.mean(), route.answer_gates, retain_graph=False
-            )
             local = -(route.answer_gates.detach() * gradient.detach())
             return route, local.detach(), per_sample.detach().clone()
 
@@ -1357,16 +1410,39 @@ class V9ComposeTrainer(ComposeTrainer):
         One backbone forward per distinct expert, which is exactly why this is
         bounded to a handful of held-out samples and is unreachable from the
         training path.
+
+        Two details the composition insists on.  The removal is expressed by
+        replacing the expert's ids with ``PAD_EXPERT_ID``, and a padded slot must
+        carry a zero gate -- the selection validates that, so the gate is zeroed
+        with the id.  And the answer loss is per *sample* while the matrix is per
+        *slot*: the delta is broadcast down the slot axis explicitly rather than
+        left to ``torch.where``, which would align it against the wrong axis (and
+        only complain when the micro-batch width happens to differ from the slot
+        count).
         """
         expert_ids = route.expert_ids
+        gate_template = route.forward_gates
         distinct = sorted({int(value) for value in expert_ids[route.slot_mask].tolist()})
-        matrix = torch.zeros(expert_ids.shape, dtype=torch.float32)
+        # On the routing device: the accumulator is compared against ``delta``
+        # by ``torch.where``, and a shape-only allocation defaults to CPU, where
+        # it agrees with a CPU fixture and with nothing else.  This is the
+        # post-training calibration -- the stage that runs after the training
+        # loop has already committed its checkpoints -- so the failure it used
+        # to produce was an abort with no report at all.
+        matrix = torch.zeros(
+            expert_ids.shape, dtype=torch.float32, device=expert_ids.device
+        )
         for expert_id in distinct:
-            kept = expert_ids.clone()
-            kept[kept == expert_id] = -1
+            removed_slot = expert_ids.eq(expert_id)
+            kept = torch.where(
+                removed_slot, torch.full_like(expert_ids, PAD_EXPERT_ID), expert_ids
+            )
+            kept_gates = torch.where(
+                removed_slot, torch.zeros_like(gate_template), gate_template
+            )
             alternative = ComposeSelection(
                 expert_ids=kept,
-                gates=route.forward_gates,
+                gates=kept_gates,
                 max_slots=int(kept.shape[1]),
                 allow_zero_gates=True,
             )
@@ -1379,7 +1455,7 @@ class V9ComposeTrainer(ComposeTrainer):
                     )
                 delta = exact_removal_contribution(base_losses, removed.detach())
             self.v9_extra_forwards += 1
-            matrix = torch.where(expert_ids == expert_id, delta, matrix)
+            matrix = torch.where(removed_slot, delta.reshape(-1, 1), matrix)
         return matrix
 
     def _exact_pair_losses(
@@ -1387,28 +1463,45 @@ class V9ComposeTrainer(ComposeTrainer):
         model,
         prepared: Dict[str, Any],
         route: V9RouteOutput,
-    ) -> "tuple[torch.Tensor, torch.Tensor]":
+    ) -> "tuple[torch.Tensor, torch.Tensor, torch.Tensor]":
         """Exact answer NLL of the deployed pair versus its challengers (§35).
 
-        Column 0 is the pair the gate score actually selects -- the two highest
-        forward gates, which is what deployment ships.  The remaining columns are
-        the next-best pairs by summed gate score, deduplicated.  One backbone
-        forward per pair, on the calibration sample only; the main loop never
-        reaches this function.
+        Returns ``(column_0, all_columns, is_deployed_flag)``.  Column 0 is the
+        pair with the largest summed gate mass among the candidates, which is the
+        pair the gate ranking deploys when it has to name one; the remaining
+        columns are the next-best pairs by the same score.  One backbone forward
+        per pair, on the calibration sample only; the main loop never reaches
+        this function.
+
+        ``is_deployed_flag`` marks, per sample, whether column 0 *is* the pair
+        that sample's deployed rule selects.  Without it the report would be
+        comparing every sample against a pair it may never have served, and
+        ``best_pair_is_deployed_rate`` would be a statement about column 0 rather
+        than about the gate.  The probe is a global (per-batch, per-task) set, so
+        a sample whose deployed pair contains a recalled historical expert is
+        flagged 0 -- honestly, since that pair is not among the challengers.
         """
         pairs = self._pair_probe(route)
-        alternatives = torch.zeros(
-            (int(route.expert_ids.shape[0]), len(pairs)), dtype=torch.float32
+        rows = int(route.expert_ids.shape[0])
+        alternatives = torch.zeros((rows, len(pairs)), dtype=torch.float32)
+        deployed_flag = torch.zeros(rows, dtype=torch.float32)
+        deployed_gates = self.v9_router.deployed_gates(
+            route.probabilities.detach(), route.slot_mask
         )
         for column, pair in enumerate(pairs):
-            kept = torch.full_like(route.expert_ids, PAD_EXPERT_ID)
+            wanted = torch.zeros_like(route.expert_ids, dtype=torch.bool)
             for expert_id in pair:
-                kept = torch.where(
-                    route.expert_ids == int(expert_id), route.expert_ids, kept
-                )
+                wanted |= route.expert_ids.eq(int(expert_id))
+            wanted &= route.slot_mask
+            kept = torch.where(
+                wanted, route.expert_ids, torch.full_like(route.expert_ids, PAD_EXPERT_ID)
+            )
+            kept_gates = torch.where(
+                wanted, route.forward_gates, torch.zeros_like(route.forward_gates)
+            )
             alternative = ComposeSelection(
                 expert_ids=kept,
-                gates=route.forward_gates,
+                gates=kept_gates,
                 max_slots=int(kept.shape[1]),
                 allow_zero_gates=True,
             )
@@ -1419,9 +1512,21 @@ class V9ComposeTrainer(ComposeTrainer):
                     raise RuntimeError("pair rerank requires the per-sample answer NLL")
             self.v9_extra_forwards += 1
             alternatives[:, column] = losses.detach().float().cpu()
-        # Column 0 is the pair with the largest summed gate mass -- the pair the
-        # gate ranking deploys when it has to name one.
-        return alternatives[:, 0].clone(), alternatives
+            if column == 0:
+                chosen = torch.where(
+                    deployed_gates.detach().gt(0),
+                    route.expert_ids,
+                    torch.full_like(route.expert_ids, PAD_EXPERT_ID),
+                )
+                target = set(int(value) for value in pair)
+                for row in range(rows):
+                    served = {
+                        int(value)
+                        for value in chosen[row].tolist()
+                        if int(value) != PAD_EXPERT_ID
+                    }
+                    deployed_flag[row] = 1.0 if served == target else 0.0
+        return alternatives[:, 0].clone(), alternatives, deployed_flag
 
     def _pair_probe(self, route: V9RouteOutput) -> "list[tuple[int, int]]":
         """Candidate pairs to measure, ordered by summed gate mass.

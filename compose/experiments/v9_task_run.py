@@ -408,6 +408,14 @@ def audit_task(
         task_index,
         validation_gain=validation_gain,
     )
+    # The decision has to be *applied*, not only recorded.  Deciding without
+    # applying leaves every candidate labelled a candidate, so the next task
+    # finds no historical expert to recall, hands this task's candidates back to
+    # ``L_ans`` (they are the only trainable experts), and refuses to start at
+    # all.  ``manager`` is None here -- see ``apply_candidate_commit``.
+    candidate_applied = apply_candidate_commit(
+        pool, manager, candidate_decisions, task_index
+    )
     pool.validate()
     return {
         "task_index": int(task_index),
@@ -415,6 +423,7 @@ def audit_task(
         "task_key_applied": key_applied,
         "new_key_retention_rate": key_decisions["new_key_retention_rate"],
         "candidate_audit": candidate_decisions,
+        "candidate_commit_applied": candidate_applied,
         "candidate_usage_entropy": candidate_usage_entropy(statistics, candidate_ids),
         "historical_slot_usage": {
             str(expert_id): statistics.get(str(expert_id), {}).get("usage_rate", 0.0)
@@ -636,20 +645,40 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 def _previous_state_path(
     state_dir: Path, previous_checkpoint: Optional[str], task_index: int
 ) -> Optional[str]:
+    """Where the previous task's *committed* key state lives.
+
+    The search order matters, because the obvious answer is wrong.  A chain that
+    shares one ``--root`` finds the committed state at
+    ``state/key_pool_task{N-1}.pt``.  The formal sequence does not share a root
+    -- the query cache is ``features/train.json``, a name without the task in it
+    that is never re-encoded (spec §4), so a shared root would hand every task
+    after the first the previous task's queries -- and reaches the same file
+    through the third candidate below instead.
+
+    Failing that, it is looked for beside the checkpoint directory, not inside
+    it.  ``--previous-checkpoint`` names the directory ``--compose_checkpoint``
+    loads the LoRA weights from, i.e. ``<root>/training/task{N-1}``, and that
+    directory *does* contain a ``v9_key_pool.pt`` -- the pool as training left
+    it, with this task's candidates still candidates.  Loading that one would
+    hand the next task an uncommitted pool, which ``load_previous_pool``
+    correctly refuses; the committed pool is written one level up, by the audit,
+    after the training process has exited.
+    """
     if int(task_index) == 0:
         return None
-    explicit = state_dir / "key_pool_task{}.pt".format(int(task_index) - 1)
-    if explicit.is_file():
-        return str(explicit)
+    name = "key_pool_task{}.pt".format(int(task_index) - 1)
+    candidates = [state_dir / name]
     if previous_checkpoint:
-        candidate = Path(previous_checkpoint) / "state" / "key_pool_task{}.pt".format(
-            int(task_index) - 1
-        )
+        root = Path(previous_checkpoint).expanduser()
+        candidates.append(root / "state" / name)
+        # ``<run>/training/taskN`` -> ``<run>/state``.
+        candidates.append(root.parent.parent / "state" / name)
+    for candidate in candidates:
         if candidate.is_file():
             return str(candidate)
     raise V9RunError(
-        "no committed key state for task {}; expected {}".format(
-            int(task_index) - 1, explicit
+        "no committed key state for task {}; looked in {}".format(
+            int(task_index) - 1, [str(value) for value in candidates]
         )
     )
 
