@@ -11,6 +11,7 @@ from pathlib import Path
 import torch
 from .inference import V9InferenceRouter
 from .keys import V9KeyPool
+from .data import resolve_split_query_source
 
 class V9EvaluationError(RuntimeError):
     pass
@@ -26,12 +27,26 @@ def load_fixed_queries(path: str | Path):
         raise V9EvaluationError("fixed queries must be [N,1536]")
     return ids, queries
 
-def build_selection_manifest(key_state: str | Path, query_cache: str | Path, top_k: int = 2):
+def build_selection_manifest(key_state: str | Path, query_cache: str | Path | None = None, top_k: int = 2,
+                             *, query_cache_manifest: str | Path | None = None,
+                             task_index: int | None = None, split: str = "test",
+                             query_cache_root: str | Path | None = None):
     state = torch.load(key_state, map_location="cpu", weights_only=False)
     pool = V9KeyPool.from_state(state, current_task=None)
     if pool.current_ids:
         raise V9EvaluationError("committed-pool inference refuses temporary candidates")
-    ids, queries = load_fixed_queries(query_cache)
+    if query_cache_manifest is not None:
+        if query_cache is not None or task_index is None:
+            raise V9EvaluationError("binary manifest routing needs task_index and no legacy query cache")
+        source = resolve_split_query_source(str(query_cache_manifest), task_index=int(task_index),
+                                            split=split, query_cache_root=(None if query_cache_root is None else str(query_cache_root)))
+        ids, queries = list(source.sample_ids), source.queries
+        query_source = source.contract_record()
+    elif query_cache is not None:
+        ids, queries = load_fixed_queries(query_cache)
+        query_source = {"kind": "legacy_json_query_cache", "path": str(query_cache)}
+    else:
+        raise V9EvaluationError("formal selection requires a precomputed query manifest")
     if not pool.historical_ids:
         raise V9EvaluationError("committed pool has no deployable expert")
     router = V9InferenceRouter(pool, top_k=min(int(top_k), len(pool.historical_ids))).eval()
@@ -45,7 +60,8 @@ def build_selection_manifest(key_state: str | Path, query_cache: str | Path, top
             "source": "v9_committed_global_multi_key_fixed_query",
         }
     return {
-        "method": "v9s", "query_cache": str(query_cache), "key_state": str(key_state),
+        "method": "v9s", "query_cache": (None if query_cache is None else str(query_cache)), "key_state": str(key_state),
+        "query_source": query_source, "query_encoder_calls": 0,
         "top_k": min(int(top_k), len(pool.historical_ids)), "answer_features_used": False,
         "task_id_used": False, "training_retrieval_cache_used": False, "rows": rows,
     }
@@ -55,9 +71,16 @@ def main():
     parser.add_argument("--key-state", required=True)
     parser.add_argument("--query-cache", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--query-cache")
+    parser.add_argument("--query-cache-manifest")
+    parser.add_argument("--query-cache-root")
+    parser.add_argument("--task-index", type=int)
+    parser.add_argument("--split", default="test")
     parser.add_argument("--top-k", type=int, default=2)
     args = parser.parse_args()
-    payload = build_selection_manifest(args.key_state, args.query_cache, args.top_k)
+    payload = build_selection_manifest(args.key_state, args.query_cache, args.top_k,
+                                       query_cache_manifest=args.query_cache_manifest, task_index=args.task_index,
+                                       split=args.split, query_cache_root=args.query_cache_root)
     target = Path(args.output); target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_suffix(target.suffix + ".tmp")
     temporary.write_text(json.dumps(payload["rows"], indent=2, sort_keys=True) + "\n", encoding="utf-8")
