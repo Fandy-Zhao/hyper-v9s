@@ -712,7 +712,9 @@ class V9ComposeTrainer(ComposeTrainer):
         if self._v9_losses is None:
             return
         terms, contribution, stage_state, route = self._v9_losses
-        statistics = contribution_statistics(contribution.raw, route.slot_mask)
+        statistics = contribution_statistics(
+            contribution.raw, contribution.responsibility, route.slot_mask
+        )
         # Asked once per interval rather than per expert: ``_keys_per_expert``
         # walks the pool, and the metrics path must stay off the critical path.
         keys_per_expert = self._keys_per_expert()
@@ -740,9 +742,8 @@ class V9ComposeTrainer(ComposeTrainer):
             "contribution_positive_rate": round(statistics["positive_rate"], 6),
             "contribution_mean": round(statistics["mean"], 6),
             "gate_grad_abs_mean": gate_grad_abs_mean,
-            "responsibility_mean": round(
-                float(statistics.get("responsibility_mean", 0.0)), 6
-            ),
+            "responsibility_mean": round(statistics["responsibility_mean"], 6),
+            "responsibility_max": round(statistics["responsibility_max"], 6),
             "keys_per_expert": keys_per_expert,
             "trainable_key_max_cosine": self._trainable_key_redundancy(),
             "peak_memory_bytes": self._peak_memory_bytes(),

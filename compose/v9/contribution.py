@@ -167,12 +167,25 @@ def answer_derived_responsibility(
 
 
 def contribution_statistics(
-    contribution: torch.Tensor, valid: Optional[torch.Tensor] = None
+    contribution: torch.Tensor,
+    responsibility: torch.Tensor,
+    valid: Optional[torch.Tensor] = None,
 ) -> Dict[str, float]:
-    """Aggregate scalars for the step log -- never per-sample routing dumps."""
+    """Aggregate scalars for the step log -- never per-sample routing dumps.
+
+    ``contribution`` and ``responsibility`` are both required, and deliberately
+    so.  They answer different questions -- the contribution says whether an
+    expert helped, the responsibility says how much of the row's credit it was
+    given -- and an earlier version of this function derived the second from the
+    first, so ``responsibility_mean`` was a second name for
+    ``mean_positive * positive_rate``.  A metric that cannot disagree with the
+    one beside it is not a measurement.
+    """
     values = contribution.detach()
+    shares = responsibility.detach()
     if valid is not None:
         values = values[valid]
+        shares = shares[valid]
     if values.numel() == 0:
         return {
             "mean": 0.0,
@@ -181,6 +194,7 @@ def contribution_statistics(
             "positive_rate": 0.0,
             "std": 0.0,
             "responsibility_mean": 0.0,
+            "responsibility_max": 0.0,
         }
     positives = values[values > 0]
     negatives = values[values < 0]
@@ -190,12 +204,11 @@ def contribution_statistics(
         "mean_negative": float(negatives.mean().item()) if negatives.numel() else 0.0,
         "positive_rate": float((values > 0).to(torch.float32).mean().item()),
         "std": float(values.std(unbiased=False).item()) if values.numel() > 1 else 0.0,
-        # Reported alongside the raw contribution because the two answer
-        # different questions: the contribution says whether an expert helped,
-        # the responsibility says how much of the row's credit it was given.
-        "responsibility_mean": float(
-            torch.clamp(values, min=0.0).sum().item() / max(values.numel(), 1)
-        ),
+        # ``r`` is the teacher the keys are fitted to, so its mean and its
+        # maximum are the two numbers that say whether the answer is committing
+        # to an expert or splitting the credit evenly.
+        "responsibility_mean": float(shares.mean().item()),
+        "responsibility_max": float(shares.max().item()),
     }
 
 

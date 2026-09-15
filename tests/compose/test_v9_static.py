@@ -1496,8 +1496,10 @@ def test_the_reported_validators_cover_every_spec_34_quantity():
     """
     from compose.v9.contribution import contribution_statistics
 
+    contribution = torch.tensor([[0.5, -0.25, 0.75, -1.0]])
+    responsibility = torch.tensor([[0.6, 0.0, 0.4, 0.0]])
     statistics = contribution_statistics(
-        torch.tensor([[0.5, -0.25, 0.75, -1.0]]), torch.ones(1, 4, dtype=torch.bool)
+        contribution, responsibility, torch.ones(1, 4, dtype=torch.bool)
     )
     assert set(statistics) >= {
         "mean",
@@ -1506,10 +1508,15 @@ def test_the_reported_validators_cover_every_spec_34_quantity():
         "positive_rate",
         "std",
         "responsibility_mean",
+        "responsibility_max",
     }
-    # The responsibility mean is taken over the positive part only: a negative
-    # contribution is evidence against the expert, not negative credit.
-    assert statistics["responsibility_mean"] == pytest.approx((0.5 + 0.75) / 4)
+    # Regression: ``responsibility_mean`` used to be ``clamp(contribution, 0)``
+    # averaged -- a second name for ``mean_positive * positive_rate``, which
+    # could never disagree with the number printed beside it.  It is the mean of
+    # the *teacher* now, so the two differ by construction.
+    assert statistics["responsibility_mean"] == pytest.approx(0.25)
+    assert statistics["responsibility_mean"] != pytest.approx(statistics["mean"])
+    assert statistics["responsibility_max"] == pytest.approx(0.6)
 
     config = V9Config()
     assert config.validation.contribution_calibration is True, (
