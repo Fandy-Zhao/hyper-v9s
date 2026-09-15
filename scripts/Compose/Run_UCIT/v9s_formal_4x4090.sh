@@ -234,9 +234,13 @@ cmd_sanity() {
   log "sanity run -> $SANITY_ROOT (capped at $SANITY_STEPS optimizer steps, tasks 0-1)"
   # A capped run cannot satisfy the full-coverage gate, so it is told what it is
   # and keeps its own markers; its product is the 4-GPU evidence, not a matrix.
+  # The capped run has to reach a checkpoint inside its cap, or the reload and
+  # resume paths it exists to exercise are never touched.  ``save_steps`` is
+  # appended after ``chain_arguments`` has already supplied the formal value, so
+  # argparse takes this one; the formal run is unaffected.
   mapfile -t ARGS < <(chain_arguments "$SANITY_ROOT" \
     --sanity --max-steps "$SANITY_STEPS" --to-task 1 --eval-through 0 \
-    --from-task 0 --profile-training)
+    --save-steps 4 --logging-steps 2 --from-task 0 --profile-training)
   cd "$REPO"
   "$PY" -m compose.experiments.v9_chain "${ARGS[@]}" 2>&1 | tee "$SANITY_ROOT/sanity.log"
   local status=${PIPESTATUS[0]}
