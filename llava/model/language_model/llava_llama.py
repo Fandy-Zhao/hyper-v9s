@@ -231,6 +231,11 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
         v7_sum_per_sample_loss = bool(kwargs.pop("v7_sum_per_sample_loss", False))
+        # On the module, not on the output object: the trainer's plumbing
+        # rebuilds the output from its mapping and drops every non-field
+        # attribute, so a value parked there never reaches the consumer.  See
+        # ComposeLlavaForCausalLM.forward.
+        self.v7_per_sample_answer_nll = None
         if inputs_embeds is None:
             (
                 input_ids,
@@ -266,7 +271,7 @@ class LlavaLlamaForCausalLM(LlamaForCausalLM, LlavaMetaForCausalLM):
             if return_dict is False:
                 raise ValueError("V7 per-sample loss requires return_dict output")
             nll = per_sample_token_mean_nll(outputs.logits, labels)
-            outputs.v7_per_sample_answer_nll = nll
+            self.v7_per_sample_answer_nll = nll
             # Item assignment, not ``outputs.loss = ...``: see
             # ComposeLlavaForCausalLM.forward.  ``ModelOutput`` only mirrors an
             # attribute write into the mapping for a field that is already

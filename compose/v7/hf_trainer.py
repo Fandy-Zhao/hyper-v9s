@@ -539,15 +539,8 @@ class V7ComposeTrainer(ComposeTrainer):
         queries = inputs.pop("fixed_queries")
         inputs.pop("sample_ids", None)
         inputs["v7_sum_per_sample_loss"] = True
-        # Outputs are requested unconditionally.  The reuse-quality weight is
-        # built from the per-sample answer NLL, which lives on the model's output
-        # object, and *neither* caller asks for that object: HF's
-        # ``training_step`` and this class's ``_ddp_training_step`` both want a
-        # scalar.  Passing the caller's ``return_outputs`` straight through would
-        # therefore hand ``None`` to the check below and fail the first step with
-        # "formal V8 requires per-sample routed answer NLL"; the caller's own
-        # contract is re-applied on the way out instead.
-        answer_loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
+        result = super().compute_loss(model, inputs, return_outputs=return_outputs)
+        answer_loss, outputs = result if return_outputs else (result, None)
         if self._v7_active is None:
             raise RuntimeError("V7 routing must run before compute_loss")
         _, routed, current_selected = self._v7_active
@@ -563,7 +556,17 @@ class V7ComposeTrainer(ComposeTrainer):
         # objective.  A summed key term against a meaned answer term was what put
         # the effective key weight at 0.4 rather than 0.1 at micro 4.
         answer_loss = answer_loss / queries.shape[0]
-        per_sample_answer_nll = getattr(outputs, "v7_per_sample_answer_nll", None)
+        # Read off the module the forward ran on, never off the returned output
+        # object.  The plumbing between the two rebuilds that object from its
+        # mapping (``type(out)(**out)``): the dataclass fields survive, every
+        # other attribute does not.  A per-sample NLL parked on the output is
+        # therefore already gone here, and the step dies with "formal V8
+        # requires per-sample routed answer NLL" even though ``answer_loss`` is
+        # exactly that per-sample sum divided by the batch width.
+        module = getattr(model, "module", None)
+        if not isinstance(module, torch.nn.Module):
+            module = model
+        per_sample_answer_nll = getattr(module, "v7_per_sample_answer_nll", None)
         if self.v8_reuse_quality_enabled and per_sample_answer_nll is None:
             raise RuntimeError("formal V8 requires per-sample routed answer NLL")
         reuse_quality = None

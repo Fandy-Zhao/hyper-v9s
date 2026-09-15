@@ -106,6 +106,15 @@ class ComposeLlavaForCausalLM(LlamaForCausalLM, ComposeLlavaMetaForCausalLM):
         # was a batch sum, which made the effective loss weight track the
         # micro-batch width.  See ``sum_of_per_sample_token_means``.
         v7_sum_per_sample_loss = bool(kwargs.pop("v7_sum_per_sample_loss", False))
+        # The per-sample NLL travels on the module, never on the output object.
+        # The trainer's plumbing rebuilds the output from its mapping
+        # (``type(out)(**out)`` -- field order, every other attribute dropped),
+        # so a value parked on the output is gone by the time the trainer reads
+        # it: the first step then dies with "formal V8 requires per-sample routed
+        # answer NLL" while ``loss`` -- which *is* that same per-sample sum --
+        # arrives intact.  Clearing here keeps a stale value from an earlier step
+        # from ever satisfying that check.
+        self.v7_per_sample_answer_nll = None
         context = use_selection(compose_selection) if compose_selection is not None else nullcontext()
         with context:
             if inputs_embeds is None:
@@ -152,7 +161,7 @@ class ComposeLlavaForCausalLM(LlamaForCausalLM, ComposeLlavaMetaForCausalLM):
             )
 
             nll = per_sample_token_mean_nll(outputs.logits, labels)
-            outputs.v7_per_sample_answer_nll = nll
+            self.v7_per_sample_answer_nll = nll
             # Item assignment, not ``outputs.loss = ...``.  ``ModelOutput``
             # forwards an attribute write into the underlying mapping only when
             # the field is *already* present.  The parent ran with

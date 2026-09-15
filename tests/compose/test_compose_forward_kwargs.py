@@ -15,6 +15,15 @@ back correctly through ``out.loss`` while leaving ``"loss" not in out`` true and
 the step rejected.  The stub parent therefore drops its loss when it is called
 without labels: a stub that always returns one hides that integration failure
 instead of reproducing it.
+
+The per-sample NLL the trainer folds into the reuse-quality weight travels on
+the *module*, not on the output object, for the same class of reason.  The
+plumbing between the two rebuilds the output from its mapping
+(``type(out)(**out)``): the dataclass fields come through, every other attribute
+does not.  A per-sample NLL parked on the output is therefore already gone by
+the time the trainer reads it, and the step dies with "formal V8 requires
+per-sample routed answer NLL" while ``loss`` -- the very same per-sample sum --
+arrives intact.
 """
 
 import os
@@ -35,22 +44,30 @@ from compose.model.compose_llava import ComposeLlavaForCausalLM  # noqa: E402
 CANNED_LOSS = 7.5
 
 
-def _expected_sum_of_per_sample_means(logits, labels) -> float:
+def _expected_per_sample_means(logits, labels):
     """An independent re-implementation of the contract, one sample at a time."""
     shift_logits = logits[:, :-1].contiguous()
     shift_labels = labels[:, 1:].contiguous()
-    total = 0.0
+    means = []
     for row in range(shift_labels.shape[0]):
         valid = shift_labels[row].ne(-100)
         losses = F.cross_entropy(
             shift_logits[row], shift_labels[row], ignore_index=-100, reduction="none"
         )
-        total += float(losses[valid].mean())
-    return total
+        means.append(float(losses[valid].mean()))
+    return means
+
+
+def _expected_sum_of_per_sample_means(logits, labels) -> float:
+    return sum(_expected_per_sample_means(logits, labels))
 
 
 def _run(monkeypatch, labels, **extra):
-    """Drive the real ``forward`` with a stubbed parent so no weights are needed."""
+    """Drive the real ``forward`` with a stubbed parent so no weights are needed.
+
+    Returns the model as well as its output: the per-sample NLL is a module
+    attribute, so a test that only kept the output could not see it.
+    """
     torch.manual_seed(0)
     logits = torch.randn(labels.shape[0], labels.shape[1], 5)
 
@@ -65,9 +82,10 @@ def _run(monkeypatch, labels, **extra):
     monkeypatch.setattr(LlamaForCausalLM, "forward", fake_forward)
     model = object.__new__(ComposeLlavaForCausalLM)
     embeds = torch.zeros(labels.shape[0], labels.shape[1], 4)
-    return model.forward(
+    out = model.forward(
         inputs_embeds=embeds, labels=labels, return_dict=True, **extra
     )
+    return model, out
 
 
 @pytest.fixture
@@ -78,13 +96,13 @@ def labels():
 
 
 def test_flag_absent_leaves_the_model_loss_alone(monkeypatch, labels):
-    out = _run(monkeypatch, labels)
+    _, out = _run(monkeypatch, labels)
     assert "loss" in out
     assert float(out.loss) == CANNED_LOSS
 
 
 def test_flag_present_replaces_the_loss_with_the_per_sample_sum(monkeypatch, labels):
-    out = _run(monkeypatch, labels, v7_sum_per_sample_loss=True)
+    _, out = _run(monkeypatch, labels, v7_sum_per_sample_loss=True)
     # The parent was called with ``labels=None``, so this loss exists only
     # because the branch wrote it.  Membership is asserted, not just the
     # attribute: ``ModelOutput`` keeps a value that was assigned as an
@@ -107,7 +125,7 @@ def test_the_single_sample_case_takes_the_same_path_as_any_other_width(monkeypat
     change invisible to every width-1 run.
     """
     one = torch.tensor([[1, 2, 3, 4]])
-    out = _run(monkeypatch, one, v7_sum_per_sample_loss=True)
+    _, out = _run(monkeypatch, one, v7_sum_per_sample_loss=True)
     assert "loss" in out
     assert float(out.loss) == pytest.approx(
         _expected_sum_of_per_sample_means(out.logits, one), rel=1e-5
@@ -115,16 +133,49 @@ def test_the_single_sample_case_takes_the_same_path_as_any_other_width(monkeypat
     assert float(out.loss) != CANNED_LOSS
 
 
-def test_the_trainer_fetches_the_outputs_the_quality_weight_needs():
-    """``compute_loss`` requests the outputs for itself, not for its caller.
+def test_the_per_sample_nll_survives_the_output_being_rebuilt(monkeypatch, labels):
+    """The trainer's channel has to outlive the plumbing's rebuild of the output.
 
-    The reused-key quality weight is read off the model's per-sample answer NLL,
-    which exists only on the output object, while both callers -- HF's
-    ``training_step`` and ``V7ComposeTrainer._ddp_training_step`` -- ask for a
-    scalar.  Forwarding the caller's ``return_outputs`` through to the pinned HF
-    ``compute_loss`` leaves ``outputs`` as ``None`` and fails the first step of a
-    formal V8 run with "formal V8 requires per-sample routed answer NLL".  The
-    caller's own contract is re-applied on the way out instead.
+    ``type(out)(**out)`` is what the training plumbing does to a model output on
+    its way from the model to the trainer, and it is lossy in exactly one way:
+    the dataclass fields are carried over and every other attribute is dropped.
+    A per-sample NLL parked on the output therefore never reaches the trainer --
+    the first step of a formal V8 run fails with "formal V8 requires per-sample
+    routed answer NLL" while the loss it wants is sitting right there in the
+    mapping.  Carrying it on the module is what makes the pair survive.
+    """
+    model, out = _run(monkeypatch, labels, v7_sum_per_sample_loss=True)
+
+    rebuilt = type(out)(**out)
+
+    assert not hasattr(rebuilt, "v7_per_sample_answer_nll")
+    assert float(model.v7_per_sample_answer_nll.sum()) == pytest.approx(
+        _expected_sum_of_per_sample_means(out.logits, labels), rel=1e-5
+    )
+    assert [
+        float(value) for value in model.v7_per_sample_answer_nll
+    ] == pytest.approx(_expected_per_sample_means(out.logits, labels), rel=1e-5)
+
+
+def test_the_module_holds_no_nll_when_the_flag_is_absent(monkeypatch, labels):
+    """A stale value must not be able to satisfy the formal-V8 check.
+
+    The trainer reads the attribute straight after its own model call, so
+    clearing it on entry is what makes "absent" mean "this forward did not
+    produce one" rather than "some earlier step did".
+    """
+    model, _ = _run(monkeypatch, labels)
+    assert model.v7_per_sample_answer_nll is None
+
+
+def test_the_trainer_reads_the_per_sample_nll_off_the_module():
+    """The read must not go through the output object.
+
+    An AST check rather than a behavioural one because the failure needs the
+    plumbing in the loop: the value is present on the output at the moment the
+    model returns it, and absent by the moment the trainer looks.  What is
+    checked here is the channel the trainer committed to, and the channel it
+    must not use again.
     """
     import ast
     from pathlib import Path
@@ -135,15 +186,19 @@ def test_the_trainer_fetches_the_outputs_the_quality_weight_needs():
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef) and node.name == "compute_loss"
     )
-    delegations = [
+    reads = [
         node
         for node in ast.walk(method)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "compute_loss"
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value == "v7_per_sample_answer_nll"
     ]
-    assert len(delegations) == 1, "expected one delegation to the pinned HF compute_loss"
-    requested = {keyword.arg: keyword.value for keyword in delegations[0].keywords}
-    assert isinstance(requested.get("return_outputs"), ast.Constant) and (
-        requested["return_outputs"].value is True
-    ), "the trainer must ask for the outputs regardless of what its caller asked for"
+    assert len(reads) == 1, "expected exactly one read of the per-sample NLL"
+    source = ast.unparse(reads[0].args[0])
+    assert "outputs" not in source, (
+        "the per-sample NLL must be read off the module, not off the output "
+        "object the plumbing rebuilds"
+    )
