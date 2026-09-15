@@ -68,7 +68,7 @@ from compose.v7.workers import (
     run_job_logged,
     run_worker_batch,
 )
-from compose.v8.workflow import REUSE_KEY_INIT_NAME
+from compose.v8.workflow import REUSE_KEY_INIT_NAME, SCREENING_DIR, SCREENING_NAME
 from compose.v7.workflow import (
     mean_nll,
     prepare_candidate_pool,
@@ -1308,11 +1308,19 @@ def main():
             command += ["--compose_v8_reuse_quality_enabled", str(bool(teacher_spec.reuse_key_quality_enabled)).lower(),
                         "--compose_v8_reuse_quality_temperature", str(teacher_spec.reuse_key_quality_temperature),
                         "--compose_v8_reuse_quality_floor", str(teacher_spec.reuse_key_quality_floor)]
-        if args.compose_v8_reusable_screening:
-            command += [
-                "--compose_v8_reusable_screening",
-                str(Path(args.compose_v8_reusable_screening).expanduser().resolve()),
-            ]
+        if v8_payload is not None:
+            # Same artifact, same address S2 read it from: the screening lives
+            # at its deterministic path inside this run root and is never a CLI
+            # input nor part of the contract.  S1b writes it for *every* V8
+            # task -- the empty artifact for Task0 included -- so a missing file
+            # here means the stage order was broken, not that history is empty.
+            screening_path = root / SCREENING_DIR / SCREENING_NAME
+            if not screening_path.is_file():
+                raise FileNotFoundError(
+                    "V8 full training requires the screening artifact at {}; "
+                    "S1b writes it before S3 for every V8 task".format(screening_path)
+                )
+            command += ["--compose_v8_reusable_screening", str(screening_path)]
         if args.smoke_max_steps is not None:
             command += ["--max_steps", str(args.smoke_max_steps), "--save_steps", "10"]
         elif training_save_steps is not None:
