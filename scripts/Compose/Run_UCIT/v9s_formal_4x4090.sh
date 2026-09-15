@@ -112,6 +112,10 @@ $compute_apps"
 }
 
 check_runtime() {
+  # The chain has to outlive the shell that starts it.  This is checked up
+  # front because the way it fails otherwise is not an error -- the run simply
+  # dies with the SSH session, hours in, with nothing to resume from.
+  command -v tmux >/dev/null || fail "tmux is not installed; 'start' has nothing to detach into"
   "$PY" - <<'PY' || fail "the Python runtime cannot see CUDA/NCCL"
 import sys, torch
 checks = {
