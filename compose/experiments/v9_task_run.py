@@ -436,8 +436,24 @@ def build_training_command(
     ]
     if world_size > 1 and launcher != "torchrun":
         command += ["--ddp_backend", "gloo"]
+    if getattr(args, "profile_training", False):
+        # Beside the run's other per-step evidence, so a task's profiler output
+        # and its metrics are read from one directory.
+        command += [
+            "--profile_training",
+            "True",
+            "--profile_path",
+            str(root / "metrics" / "task{}_profile_steps.jsonl".format(task_index)),
+        ]
     if args.save_strategy == "steps":
         command += ["--save_steps", str(args.save_steps)]
+    if int(getattr(args, "max_steps", 0)) > 0:
+        # A bounded run, used by the 4-GPU sanity check and never by the formal
+        # sequence.  It is passed to ``TrainingArguments.max_steps`` rather than
+        # approximated with a smaller split so the scheduler and the V9 stage
+        # boundaries are derived from the same total the trainer runs; the data
+        # is still the full split, only the number of optimizer steps is capped.
+        command += ["--max_steps", str(int(args.max_steps))]
     if args.previous_checkpoint:
         command += ["--compose_checkpoint", str(args.previous_checkpoint)]
     if query_source is not None:
@@ -581,12 +597,34 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--save-steps", type=int, default=200)
     parser.add_argument("--save-total-limit", type=int, default=2)
     parser.add_argument("--dataloader-num-workers", type=int, default=4)
+    parser.add_argument(
+        "--profile-training",
+        action="store_true",
+        help=(
+            "write the phase profiler's per-optimizer-step JSONL beside the "
+            "checkpoints.  The trainer's own step log already carries "
+            "inter_step_wait_sec, so the loader verdict is computable without "
+            "this; the profiler adds data_wait_time, which separates the "
+            "dataloader stall from the step body and is the better evidence "
+            "for the 'is the DataLoader worth touching' question"
+        ),
+    )
     parser.add_argument("--model-max-length", type=int, default=2048)
     parser.add_argument("--require-full-coverage", action="store_true")
     parser.add_argument(
         "--calibrate",
         action="store_true",
         help="run the spec §30 gate-gradient vs exact-removal calibration in-process",
+    )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=0,
+        help=(
+            "cap optimizer steps (0 = the full epoch).  The 4-GPU sanity check "
+            "uses this to exercise training, checkpointing, the commit and the "
+            "handoff in minutes; a formal task passes 0 and runs its full split"
+        ),
     )
     parser.add_argument(
         "--stop-after",
