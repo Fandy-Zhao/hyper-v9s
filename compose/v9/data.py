@@ -41,6 +41,7 @@ from compose.v7.query_cache import (
     V7CacheManifest,
     load_split_cache_for_training,
     sha256_file,
+    split_content_hash,
 )
 
 from .config import V9Config
@@ -89,6 +90,7 @@ def resolve_split_query_source(
     query_cache_manifest: str, *, task_index: int, split: str,
     expected_ids: Optional[Sequence[str]] = None,
     query_cache_root: Optional[str] = None,
+    expected_data_path: Optional[str] = None,
 ) -> V9QuerySource:
     """Resolve a manifest-bound V7 split without JSON or live-encoder fallback."""
     manifest = V7CacheManifest.locate(query_cache_manifest)
@@ -101,6 +103,22 @@ def resolve_split_query_source(
         verify_value_hash=True,
         mmap=True,
     )
+    if expected_data_path is not None:
+        declared_path = Path(expected_data_path)
+        records = json.loads(declared_path.read_text(encoding="utf-8"))
+        if not isinstance(records, list):
+            raise V9DataError("declared split is not a JSON list: {}".format(declared_path))
+        contract = _metadata.get("contract") or {}
+        checks = {
+            "source_dataset_sha256": sha256_file(str(declared_path)),
+            "source_content_hash": split_content_hash(records),
+            "query_mode": "v7_fixed",
+            "query_dim": 1536,
+            "query_dtype": "float32",
+        }
+        for field, actual in checks.items():
+            if str(contract.get(field)) != str(actual):
+                raise V9DataError("declared split/cache contract mismatch for {}".format(field))
     ordered = [None] * len(rows)
     for sample_id, row in rows.items():
         if row < 0 or row >= len(ordered) or ordered[row] is not None:

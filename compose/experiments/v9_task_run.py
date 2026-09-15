@@ -162,7 +162,8 @@ def manifest_query_source(args, task_index: int, split: str, data_path: str) -> 
     try:
         return resolve_split_query_source(args.query_cache_manifest, task_index=task_index,
             split=split, expected_ids=declared_sample_ids(data_path),
-            query_cache_root=args.query_cache_root)
+            query_cache_root=args.query_cache_root,
+            expected_data_path=data_path)
     except (FileNotFoundError, ValueError, RuntimeError) as error:
         raise V9RunError("cannot consume precomputed V7 query cache for task{}.{}: {}".format(
             task_index, split, error)) from error
