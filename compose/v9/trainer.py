@@ -176,6 +176,13 @@ class V9ComposeTrainer(ComposeTrainer):
         }
         self.v9_micro_steps = 0
         self.v9_noop_steps = 0
+        #: Gradient-window bookkeeping.  ``_v9_last_micro_was_boundary`` and
+        #: ``_v9_global_step_seen`` exist so that a boundary this trainer fails
+        #: to notice raises instead of showing up as two ranks that quietly stop
+        #: agreeing; see ``_at_sync_boundary``.
+        self._v9_last_micro_was_boundary = False
+        self._v9_global_step_seen: Optional[int] = None
+        self.v9_unsynced_optimizer_steps = 0
         self.v9_observed_sample_count = 0
         self.v9_unique_sample_ids = set()
         self.v9_stage_steps: Dict[str, int] = {}
@@ -379,12 +386,43 @@ class V9ComposeTrainer(ComposeTrainer):
     def _at_sync_boundary(self) -> bool:
         """True on the micro-step that closes an optimizer step.
 
-        HF 4.33's accelerator leaves ``sync_gradients`` permanently True (the
-        ``accumulate`` context that would update it is never entered), so the
-        accumulator index is the honest source of the boundary.
+        The boundary is ``accelerator.sync_gradients``, which HF's loop really
+        does drive: ``create_accelerator_and_postprocess`` builds the
+        ``GradientAccumulationPlugin`` with ``num_steps =
+        gradient_accumulation_steps``, so accelerate sets the flag once per
+        window.  V8 reads this same flag.
+
+        The V9-S v1 draft replaced it with ``(global_step + 1) % accumulation ==
+        0``, on the theory that the flag was stuck True.  It is not, and the
+        replacement reads a counter that **only advances at the boundary it is
+        trying to detect**: ``global_step`` is constant across a window, so the
+        expression was constant too -- it fired on all eight micro-steps of one
+        window in every eight, and on none of the other seven.  The optimizer
+        therefore stepped 44 times out of 50 on each rank's own local gradients.
+        The task-end audit caught the result as differing candidate-LoRA
+        checksums across ranks, which is what that audit is for.
+
+        The second half of this method is the reason the mistake cannot recur
+        silently: a boundary the trainer fails to notice shows up as an
+        optimizer step that happened on a micro-step we did not treat as a
+        window end, and that raises.
         """
-        accumulation = max(int(getattr(self.args, "gradient_accumulation_steps", 1)), 1)
-        return (int(self.state.global_step) + 1) % accumulation == 0
+        boundary = bool(getattr(self.accelerator, "sync_gradients", True))
+        step = int(self.state.global_step)
+        if (
+            self._v9_global_step_seen is not None
+            and step != self._v9_global_step_seen
+            and not self._v9_last_micro_was_boundary
+        ):
+            self.v9_unsynced_optimizer_steps += 1
+            raise V9TrainerError(
+                "optimizer step {} happened on a micro-step this trainer did not "
+                "treat as a gradient window boundary; the ranks would take that "
+                "step on unsynchronised local gradients".format(step)
+            )
+        self._v9_global_step_seen = step
+        self._v9_last_micro_was_boundary = boundary
+        return boundary
 
     def training_step(self, model, inputs):
         step_started = time.perf_counter()
@@ -472,7 +510,10 @@ class V9ComposeTrainer(ComposeTrainer):
                     for group in self.optimizer.param_groups
                     for parameter in group["params"]
                 )
-            self._write_step_metrics()
+        # The timing is assigned before the metrics are written, not after: the
+        # metrics read this dict, so writing first logged the *previous*
+        # boundary's timing -- one window late, and with the previous window's
+        # ``gradient_window_synced`` in it.
         self._v9_step_timing = {
             "wall_time": time.time(),
             "training_step_sec": time.perf_counter() - step_started,
@@ -480,6 +521,8 @@ class V9ComposeTrainer(ComposeTrainer):
             "local_batch_size": len(sample_ids),
             "gradient_window_synced": gradient_window_synced,
         }
+        if boundary:
+            self._write_step_metrics()
         self._v9_previous_step_end = time.perf_counter()
         return loss
 
@@ -792,6 +835,9 @@ class V9ComposeTrainer(ComposeTrainer):
             "per_expert": self._usage_snapshot(),
             "micro_steps": int(self.v9_micro_steps),
             "noop_micro_steps": int(self.v9_noop_steps),
+            # Always zero in a healthy run: a non-zero value would have raised
+            # inside ``_at_sync_boundary`` before reaching a checkpoint.
+            "unsynced_optimizer_steps": int(self.v9_unsynced_optimizer_steps),
             "observed_sample_count": int(self.v9_observed_sample_count),
             "unique_sample_ids": sorted(self.v9_unique_sample_ids),
             "stage_steps": dict(self.v9_stage_steps),
@@ -1512,6 +1558,14 @@ class V9ComposeTrainer(ComposeTrainer):
     def _restore_usage_counters(self, counters) -> None:
         self.v9_micro_steps = int(counters.get("micro_steps", 0))
         self.v9_noop_steps = int(counters.get("noop_micro_steps", 0))
+        # Resume starts a fresh observation of ``global_step``: the counter is
+        # restored, so the *change* it would otherwise see on the first
+        # micro-step after loading is not a missed boundary.
+        self._v9_global_step_seen = None
+        self._v9_last_micro_was_boundary = False
+        self.v9_unsynced_optimizer_steps = int(
+            counters.get("unsynced_optimizer_steps", 0)
+        )
         self.v9_observed_sample_count = int(counters.get("observed_sample_count", 0))
         self.v9_unique_sample_ids = set(counters.get("unique_sample_ids", ()))
         self.v9_stage_steps = dict(counters.get("stage_steps", {}))

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import types
 
 import pytest
 import torch
@@ -76,7 +77,11 @@ from compose.v9.schedule import (
     STAGE_SOFT,
     V9StageScheduler,
 )
-from compose.v9.trainer import answer_loss_key_gradient
+from compose.v9.trainer import (
+    V9ComposeTrainer,
+    V9TrainerError,
+    answer_loss_key_gradient,
+)
 
 QUERY_DIM = 1536
 
@@ -1364,6 +1369,66 @@ def test_a_legacy_v9_residual_state_migrates_to_absolute_task_keys():
     # Nothing in the V9-S package writes the legacy marker, so a fresh pool can
     # never come back through this path.
     assert pool.export_state()["pool_kind"] == "v9s_multi_key"
+
+
+# ----------------------------------------------------------------------
+# gradient-window boundary
+# ----------------------------------------------------------------------
+class _BoundaryStub:
+    """Just enough of the trainer for ``_at_sync_boundary`` to answer."""
+
+    def __init__(self, accumulation: int) -> None:
+        self.accumulation = accumulation
+        self.state = types.SimpleNamespace(global_step=0)
+        self.accelerator = types.SimpleNamespace(sync_gradients=False)
+        self._v9_last_micro_was_boundary = False
+        self._v9_global_step_seen = None
+        self.v9_unsynced_optimizer_steps = 0
+
+    def micro_step(self) -> bool:
+        """One micro-step, then whatever the optimizer did in between."""
+        boundary = V9ComposeTrainer._at_sync_boundary(self)
+        if boundary:
+            self.state.global_step += 1
+        return boundary
+
+
+def test_the_gradient_window_closes_once_per_accumulation_window():
+    """Regression: the V9-S v1 boundary was constant within a window.
+
+    It read ``(global_step + 1) % accumulation == 0``.  ``global_step`` only
+    advances *at* the boundary being detected, so the expression was constant
+    across a window: it fired on all eight micro-steps of one window in every
+    eight and on none of the other seven.  The ranks then stepped the optimizer
+    on their own local gradients for 44 of 50 steps, and the only symptom was
+    the task-end audit's differing LoRA checksums.
+    """
+    stub = _BoundaryStub(accumulation=8)
+    stub.accelerator.sync_gradients = True
+    # Eight windows, one boundary each, in phase -- the real accelerate
+    # behaviour for ``num_steps = gradient_accumulation_steps``.
+    fired = []
+    for index in range(64):
+        stub.accelerator.sync_gradients = (index + 1) % 8 == 0
+        fired.append(stub.micro_step())
+    assert sum(fired) == 8
+    assert all(fired[index * 8 + 7] and not any(fired[index * 8:index * 8 + 7])
+               for index in range(8))
+    assert stub.v9_unsynced_optimizer_steps == 0
+
+
+def test_a_missed_gradient_window_raises_instead_of_diverging():
+    """A boundary the trainer does not notice must not be silent."""
+    stub = _BoundaryStub(accumulation=8)
+    stub.accelerator.sync_gradients = False
+    for _ in range(4):
+        assert stub.micro_step() is False
+    # The optimizer steps here without the trainer having called the window: the
+    # ranks are now accumulating locally and would drift apart.
+    stub.state.global_step += 1
+    with pytest.raises(V9TrainerError, match="did not treat as a gradient window boundary"):
+        stub.micro_step()
+    assert stub.v9_unsynced_optimizer_steps == 1
 
 
 # ----------------------------------------------------------------------

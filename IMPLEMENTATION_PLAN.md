@@ -160,10 +160,11 @@ audit ✅ → clean branch ✅ → plan ✅ → config ✅ → V8 Multi-Key sema
 residual decomposition removed ✅ → answer gate detached from the key graph ✅ →
 responsibility as the only key supervision ✅ → wide retrieval replaces the fixed
 exploration expert ✅ → M = 2 default ✅ → regularization simplified ✅ →
-`legacy_v9_only` schema migration ✅ → 64 static checks ✅ → **one** 2-rank
+`legacy_v9_only` schema migration ✅ → 66 static checks ✅ → **one** 2-rank
 end-to-end preflight (10 bootstrap / 25 soft / 15 ST steps + the §30 calibration
-in the same run) — which found the detach bug and the masked `L_sparse` below,
-both fixed and pinned by the two regression tests it names → re-run of the *same*
+in the same run) — which found the detach bug, the masked `L_sparse` and the
+gradient-window bug below, all three fixed and pinned by the regression tests
+it names → re-run of the *same*
 preflight → full Task0 → Task0 eval/audit/commit → Task1…Task5 →
 lower-triangular matrix → final report.
 
@@ -179,6 +180,7 @@ numbers in which **no key was ever supervised**. Every logged quantity was
 | --- | --- | --- |
 | `gate_grad_abs_mean: 0.0`, `contribution_mean: 0.0`, `responsibility_*: 0.0`, `loss_key: 0.0` | composition consumed `p.detach()`; the answer loss was a function of no gate tensor, and `gate_gradient` returned a clean zero for it | forward gate built from detached inputs and marked a leaf; `gate_gradient` raises instead of returning that zero |
 | `loss_sparse: 0.0` and `loss_total == loss_answer` | the sparse/budget terms were masked by `contribution.valid`, which is all-`False` exactly while the routing is undecided | row-level regularisers are defined on the routing row; the mask no longer reaches them |
+| task-end audit: `candidate_lora_checksums` differ across ranks — the two ranks were never training the same model | `_at_sync_boundary` read `(global_step + 1) % accumulation`, and `global_step` only advances *at* the boundary it detects, so the flag was constant within a window: it fired on all 8 micro-steps of one window in 8 and on none of the other 7 | boundary is `accelerator.sync_gradients` again, as in V8 — and a boundary the trainer fails to notice now raises rather than diverging |
 
 ## 6. Removed from the V9 v1 draft (do not re-introduce)
 
