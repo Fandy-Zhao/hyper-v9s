@@ -22,6 +22,7 @@ Run with ``python -m pytest tests/compose/test_v9_formal_closure.py``.
 from __future__ import annotations
 
 import json
+import types
 from pathlib import Path
 
 import pytest
@@ -34,7 +35,14 @@ from compose.experiments.v9_chain import (
 )
 from compose.v9.closure import go_no_go, task_completion
 from compose.v9.data_wait import DataWaitError, measure, verdict
-from compose.v9.formal_eval import V9FormalEvaluationError, merge_shards
+from compose.v9.formal_eval import (
+    TASK_NAMES,
+    V9FormalEvaluationError,
+    build_cells,
+    main as formal_eval_main,
+    merge_shards,
+    plan_cells,
+)
 
 
 # ----------------------------------------------------------------------
@@ -230,6 +238,200 @@ def test_go_no_go_takes_the_worst_rank(tmp_path):
 
 # ----------------------------------------------------------------------
 # the shard merge
+# ----------------------------------------------------------------------
+# §33: what may train, grouped and named
+# ----------------------------------------------------------------------
+class _Param:
+    def __init__(self, requires_grad: bool, numel: int) -> None:
+        self.requires_grad = requires_grad
+        self._numel = numel
+
+    def numel(self) -> int:
+        return self._numel
+
+
+class _Pool:
+    """The slice of the key pool the grouping reads."""
+
+    def __init__(self, current_ids, historical_ids, records) -> None:
+        self.current_ids = list(current_ids)
+        self.historical_ids = list(historical_ids)
+        self.key_records = records
+        self.keys = {key_id: _Param(True, 1536) for key_id in records}
+
+    def origin_key_id(self, expert_id):
+        return "e{}_t0_origin".format(int(expert_id))
+
+    def trainable_key_ids(self):
+        return sorted(
+            key_id
+            for key_id, record in self.key_records.items()
+            if record.get("trainable") and self.keys[key_id].requires_grad
+        )
+
+
+class _GroupingHarness:
+    """The trainer's classifier, over a model and pool small enough to reason about."""
+
+    from compose.v9.trainer import V9ComposeTrainer as _Trainer
+
+    _TRAINABLE_GROUP_LABELS = _Trainer._TRAINABLE_GROUP_LABELS
+    # ``staticmethod`` because reading one off the class yields the plain
+    # function, which would rebind as an ordinary method here.
+    _expert_id_from_name = staticmethod(_Trainer._expert_id_from_name)
+    _forbidden_home = staticmethod(_Trainer._forbidden_home)
+    _candidate_key_ids = _Trainer._candidate_key_ids
+    trainable_parameter_groups = _Trainer.trainable_parameter_groups
+
+    def __init__(self, params, current_ids=(0, 1), records=None, task_index=1):
+        self.model = types.SimpleNamespace(named_parameters=lambda: list(params.items()))
+        self.v9_key_pool = _Pool(current_ids, [9], records or {})
+        self.v9_task_index = task_index
+
+
+def _pool_records(**overrides):
+    records = {
+        "e0_t0_origin": {"key_type": "origin", "task_id": 0, "trainable": True},
+        "e1_t0_origin": {"key_type": "origin", "task_id": 0, "trainable": True},
+    }
+    records.update(overrides)
+    return records
+
+
+def test_the_four_legal_groups_are_the_only_ones_that_classify(tmp_path):
+    params = {
+        "model.layers.0.self_attn.q_proj.experts.0.lora_A.weight": _Param(True, 10),
+        "model.layers.0.self_attn.q_proj.experts.1.lora_B.weight": _Param(True, 20),
+        "model.layers.0.self_attn.q_proj.base_layer.weight": _Param(False, 999),
+        "model.embed_tokens.weight": _Param(False, 999),
+        "model.v9_router.gate.weight": _Param(True, 5),
+    }
+    harness = _GroupingHarness(params, records=_pool_records())
+    groups, illegal = harness.trainable_parameter_groups()
+    assert illegal == []
+    assert len(groups["current_candidate_lora"]) == 2
+    assert groups["router"] == [("model.v9_router.gate.weight", 5)]
+    assert len(groups["current_candidate_key"]) == 2
+    assert groups["current_task_historical_key"] == []
+
+
+def test_a_historical_experts_lora_is_illegal_even_though_it_is_an_expert():
+    """The flat ``.experts.`` name test cannot tell the two apart; this can."""
+    params = {"model.layers.3.self_attn.v_proj.experts.9.lora_A.weight": _Param(True, 7)}
+    groups, illegal = _GroupingHarness(params).trainable_parameter_groups()
+    assert groups["current_candidate_lora"] == []
+    assert illegal == [("model.layers.3.self_attn.v_proj.experts.9.lora_A.weight", "historical LoRA")]
+
+
+@pytest.mark.parametrize(
+    "name,home",
+    [
+        ("model.embed_tokens.weight", "token embedding"),
+        ("vision_tower.vision_model.encoder.layers.0.mlp.fc1.weight", "vision tower"),
+        ("model.mm_projector.0.weight", "projector"),
+        ("query_encoder.visual_projection.weight", "query encoder"),
+        ("model.layers.7.self_attn.q_proj.weight", "LLM backbone"),
+    ],
+)
+def test_every_frozen_home_is_named_when_it_leaks_into_training(name, home):
+    groups, illegal = _GroupingHarness({name: _Param(True, 3)}).trainable_parameter_groups()
+    assert illegal == [(name, home)]
+
+
+def test_a_retained_key_of_an_earlier_task_is_illegal():
+    """An origin key of a committed expert must not be trainable again."""
+    records = _pool_records(
+        **{"e9_t0_origin": {"key_type": "origin", "task_id": 0, "trainable": True}}
+    )
+    harness = _GroupingHarness({}, records=records)
+    harness.v9_key_pool.keys["e9_t0_origin"] = _Param(True, 1536)
+    groups, illegal = harness.trainable_parameter_groups()
+    assert illegal == [("e9_t0_origin", "retained origin key of task 0")]
+
+
+def test_an_earlier_tasks_alias_key_is_illegal_but_this_tasks_is_not():
+    records = _pool_records(**{
+        "e9_t0_alias": {"key_type": "task_alias", "task_id": 0, "trainable": True},
+        "e9_t1_alias": {"key_type": "task_alias", "task_id": 1, "trainable": True},
+    })
+    groups, illegal = _GroupingHarness({}, records=records, task_index=1).trainable_parameter_groups()
+    assert illegal == [("e9_t0_alias", "retained task_alias key of task 0")]
+    assert groups["current_task_historical_key"] == [("e9_t1_alias", 1536)]
+
+
+def test_a_frozen_parameter_is_not_reported_at_all():
+    """The grouping classifies trainables; frozen state is not evidence of anything."""
+    params = {"model.embed_tokens.weight": _Param(False, 999), "vision_tower.x": _Param(False, 1)}
+    groups, illegal = _GroupingHarness(params).trainable_parameter_groups()
+    assert illegal == []
+    assert all(not members for _, members in
+               ((key, members) for key, members in groups.items()))
+
+
+# ----------------------------------------------------------------------
+# a row holds its own cells and no others
+# ----------------------------------------------------------------------
+def _fake_instructions(root: Path) -> None:
+    for name in TASK_NAMES:
+        target = root / name / "test_3000.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps([{"question_id": "q0", "text": "x"}]), encoding="utf-8")
+
+
+def test_build_cells_emits_the_row_the_stage_asked_for(tmp_path, monkeypatch):
+    """``A[t][0:t]`` is the row; a builder that emits all six is wrong for t<5.
+
+    The chain builds a row's cells immediately before evaluating it, and
+    ``plan_cells`` requires the file to hold exactly ``range(stage+1)``.  Emitting
+    every task here made the first row of every run fail its own check, which is
+    a failure that would otherwise surface hours into a formal chain.
+    """
+    instructions = tmp_path / "instructions"
+    _fake_instructions(instructions)
+    cells_path = tmp_path / "cells_t2.json"
+    monkeypatch.setattr("sys.argv", [
+        "formal_eval", "--build-cells", "--root", str(tmp_path),
+        "--stage", "2", "--key-state", str(tmp_path / "keys.pt"),
+        "--cells-json", str(cells_path), "--instructions-root", str(instructions),
+        "--query-cache-manifest", str(tmp_path / "manifest.json"),
+        "--query-cache-root", str(tmp_path / "query_cache"),
+    ])
+    formal_eval_main()
+    cells = json.loads(cells_path.read_text(encoding="utf-8"))
+    assert [cell["task_index"] for cell in cells] == [0, 1, 2]
+    plan = plan_cells(tmp_path, 2, cells, tmp_path / "keys.pt")
+    assert [item["task_index"] for item in plan] == [0, 1, 2]
+
+
+def test_the_last_row_still_holds_every_cell(tmp_path):
+    """The cap is the stage, not a truncation: stage 5 is the whole triangle."""
+    instructions = tmp_path / "instructions"
+    _fake_instructions(instructions)
+    cells = build_cells(instructions, "manifest.json", "root", tasks=range(6))
+    assert [cell["task_index"] for cell in cells] == [0, 1, 2, 3, 4, 5]
+    plan = plan_cells(tmp_path, 5, cells, tmp_path / "keys.pt")
+    assert len(plan) == 6
+
+
+def test_a_full_cell_file_is_rejected_as_a_row(tmp_path):
+    """The guard that caught this is kept: extra cells are not a row."""
+    instructions = tmp_path / "instructions"
+    _fake_instructions(instructions)
+    all_cells = build_cells(instructions, "manifest.json", "root")
+    with pytest.raises(V9FormalEvaluationError, match="requires cells"):
+        plan_cells(tmp_path, 0, all_cells, tmp_path / "keys.pt")
+
+
+def test_a_missing_cell_is_not_papered_over(tmp_path):
+    """Rows are checked for content, so a gap cannot pass as a shorter row."""
+    instructions = tmp_path / "instructions"
+    _fake_instructions(instructions)
+    cells = [cell for cell in build_cells(instructions, "manifest.json", "root")
+             if cell["task_index"] != 1]
+    with pytest.raises(V9FormalEvaluationError, match="requires cells"):
+        plan_cells(tmp_path, 2, cells, tmp_path / "keys.pt")
+
+
 # ----------------------------------------------------------------------
 def _records(count: int):
     return [{"question_id": "q{}".format(index)} for index in range(count)]

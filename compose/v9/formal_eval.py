@@ -306,8 +306,13 @@ def main():
     if a.build_cells:
         if not a.instructions_root:
             raise V9FormalEvaluationError("--build-cells needs --instructions-root")
+        # A row is ``A[stage][0..stage]`` and nothing else: ``plan_cells``
+        # insists the file hold exactly ``range(stage+1)``, so the builder has
+        # to stop at the stage.  Emitting all six tasks here would make every
+        # row below the last one fail its own integrity check at evaluation
+        # time, hours into the chain.
         cells = build_cells(a.instructions_root, a.query_cache_manifest, a.query_cache_root,
-                            a.legacy_query_cache_root)
+                            a.legacy_query_cache_root, tasks=range(int(a.stage) + 1))
         target = Path(a.cells_json); target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(cells, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps({"cells": len(cells), "written": str(target)}, indent=2))
