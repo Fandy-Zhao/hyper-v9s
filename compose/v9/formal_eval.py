@@ -27,7 +27,7 @@ def plan_cells(root, stage, cells, key_state):
     for cell in cells:
         task=int(cell["task_index"]); selection=root/"evaluation"/"selections"/f"t{stage}"/f"task{task}"/"selections.json"
         answers=root/"evaluation"/"predictions"/f"t{stage}"/f"task{task}"/"answers.jsonl"
-        plan.append({"task_index":task,"question_file":str(cell["question_file"]),"query_cache":str(cell["query_cache"]),"selection":str(selection),"answers":str(answers),"key_state":str(key_state)})
+        plan.append({"task_index":task,"question_file":str(cell["question_file"]),"query_cache":str(cell["query_cache"]),"annotation_file":cell.get("annotation_file"),"selection":str(selection),"answers":str(answers),"key_state":str(key_state)})
     return plan
 
 def write_selection(item):
@@ -54,6 +54,6 @@ def main():
         write_selection(item); answers=Path(item["answers"]); answers.parent.mkdir(parents=True,exist_ok=True)
         command=[a.python,"-m","compose.eval.eval_task","--adapter-kind","compose","--model-path",a.model_path,"--checkpoint-dir",a.checkpoint_dir,"--projector-path",a.projector_path,"--vision-tower",a.vision_tower,"--question-file",item["question_file"],"--image-folder",a.image_folder,"--answers-file",str(answers),"--run-summary-file",str(answers.with_name("run_summary.json")),"--selection-manifest",item["selection"],"--load-only-manifest-experts","--fast-selection-plan","--device",a.device]
         if subprocess.run(command).returncode: raise V9FormalEvaluationError(f"generation failed for task {item['task_index']}")
-        metrics.append(_score_answers(root,a.stage,item["task_index"],answers,annotation_file=item["question_file"]))
+        metrics.append(_score_answers(root,a.stage,item["task_index"],answers,annotation_file=item.get("annotation_file")))
     _update_matrix(root,a.stage,metrics)
 if __name__=="__main__": main()

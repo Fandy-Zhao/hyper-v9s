@@ -444,7 +444,7 @@ def main() -> None:
                     compose_selection = bundle.expert_pool.manager.make_selection(
                         manifest_ids,
                         batch_size=1,
-                        gates=[1.0, 1.0],
+                        gates=[1.0] * len(manifest_ids),
                         device=torch.device(args.device),
                     )
                 else:
