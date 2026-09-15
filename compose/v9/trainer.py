@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import torch
+import torch.nn.functional as F
 
 from compose.adapters.types import ComposeSelection
 from compose.lora.rms import runtime_kappa_calibration
@@ -179,6 +180,12 @@ class V9ComposeTrainer(ComposeTrainer):
         self.v9_unique_sample_ids = set()
         self.v9_stage_steps: Dict[str, int] = {}
         self.v9_extra_forwards = 0
+        #: Main-backbone forwards, counted where they actually happen.  §41 (D)
+        #: asks for the forwards *per training sample*, which is the number that
+        #: says whether the offered experts really do ride on one pass.
+        self.v9_backbone_forwards = 0
+        #: Soft-gate vs deployed-Top-2 answer NLL on held-out data (spec §34).
+        self.v9_validation_scores: Optional[Dict[str, float]] = None
         #: Optimizer steps that used the periodic wide recall.
         self.v9_wide_steps = 0
         #: Pair set measured by the spec §35 ablation, fixed on the first
@@ -488,6 +495,7 @@ class V9ComposeTrainer(ComposeTrainer):
                     "contribution_sum",
                     "positive_contribution",
                     "positive_count",
+                    "responsibility_sum",
                 )
             }
         return self._v9_accumulators
@@ -533,6 +541,14 @@ class V9ComposeTrainer(ComposeTrainer):
             accumulators["positive_count"].index_add_(
                 0, ids, (positive > 0).to(positive.dtype)
             )
+            # The target itself, not just its sign: this is what ``L_key``
+            # pushes the gate towards, so its mean is the quantity that says
+            # whether the responsibility is concentrating or flattening out.
+            accumulators["responsibility_sum"].index_add_(
+                0,
+                ids,
+                contribution.responsibility.detach()[route.slot_mask],
+            )
 
     def _usage_snapshot(self) -> Dict[str, Dict[str, float]]:
         """One device->host transfer per accumulator, at boundaries only."""
@@ -554,6 +570,7 @@ class V9ComposeTrainer(ComposeTrainer):
                     snapshot["positive_contribution"][index]
                 ),
                 "positive_count": int(snapshot["positive_count"][index]),
+                "responsibility_sum": float(snapshot["responsibility_sum"][index]),
             }
         return payload
 
@@ -568,6 +585,9 @@ class V9ComposeTrainer(ComposeTrainer):
         inputs.pop("historical_topc", None)
         inputs["v7_sum_per_sample_loss"] = True
         result = Trainer.compute_loss(self, model, inputs, return_outputs=return_outputs)
+        # One pass carries every offered expert: the selection is applied inside
+        # the model's forward, not by looping over experts around it.
+        self.v9_backbone_forwards += 1
         answer_loss, outputs = result if return_outputs else (result, None)
         if self._v9_active is None:
             raise RuntimeError("V9 routing must run before compute_loss")
@@ -639,6 +659,9 @@ class V9ComposeTrainer(ComposeTrainer):
             return
         terms, contribution, stage_state, route = self._v9_losses
         statistics = contribution_statistics(contribution.raw, route.slot_mask)
+        # Asked once per interval rather than per expert: ``_keys_per_expert``
+        # walks the pool, and the metrics path must stay off the critical path.
+        keys_per_expert = self._keys_per_expert()
         gate_grad_abs_mean = 0.0
         if self._gate_grad_abs_sum is not None and self._gate_grad_count:
             gate_grad_abs_mean = float(
@@ -663,13 +686,82 @@ class V9ComposeTrainer(ComposeTrainer):
             "contribution_positive_rate": round(statistics["positive_rate"], 6),
             "contribution_mean": round(statistics["mean"], 6),
             "gate_grad_abs_mean": gate_grad_abs_mean,
+            "responsibility_mean": round(
+                float(statistics.get("responsibility_mean", 0.0)), 6
+            ),
+            "keys_per_expert": keys_per_expert,
+            "trainable_key_max_cosine": self._trainable_key_redundancy(),
+            "peak_memory_bytes": self._peak_memory_bytes(),
+            "backbone_forwards": int(self.v9_backbone_forwards),
+            "backbone_forwards_per_sample": (
+                self.v9_backbone_forwards / max(self.v9_observed_sample_count, 1)
+            ),
             "per_expert": self._usage_snapshot(),
         }
         if self._v9_step_timing is not None:
             payload.update(self._v9_step_timing)
+            # Throughput of the micro-step just finished, this rank alone.  The
+            # world size multiplies it into the run's real rate, which is why the
+            # local batch size travels beside it rather than being folded in.
+            elapsed = float(self._v9_step_timing.get("training_step_sec") or 0.0)
+            payload["samples_per_second"] = (
+                float(self._v9_step_timing.get("local_batch_size", 0)) / elapsed
+                if elapsed > 0.0
+                else 0.0
+            )
         with self.profiler.timed("metrics_time"):
             self.v9_logger.write(payload)
         self.profiler.bump("optimizer_steps_logged")
+
+    def _keys_per_expert(self) -> Dict[str, int]:
+        """How many routing keys each expert currently carries (spec §34).
+
+        A historical expert that earned a key this task carries two -- a frozen
+        base and this task's own -- while a candidate carries one.  The count is
+        the observable that says whether the multi-key pool is growing the way
+        the method intends or is quietly accumulating aliases.
+        """
+        records = self.v9_key_pool.key_records
+        counts: Dict[str, int] = {}
+        for expert_id in self.v9_order:
+            counts[str(int(expert_id))] = sum(
+                1
+                for key_id in self.v9_key_pool.key_ids(expert_id=int(expert_id))
+                if records[key_id]["lifecycle"] != LIFECYCLE_PRUNED
+            )
+        return counts
+
+    def _trainable_key_redundancy(self) -> float:
+        """Largest cosine between two keys this task may still move (spec §34).
+
+        Two candidates whose keys have collapsed onto each other cannot be told
+        apart at inference, and the failure is silent: the gates look healthy
+        while the pool holds one expert twice.  Reported every logging interval
+        because it is the cheapest early warning the method has.
+        """
+        trainable = [
+            key_id
+            for key_id in self.v9_key_pool.trainable_key_ids()
+            if key_id in self.v9_key_pool.keys
+        ]
+        if len(trainable) < 2:
+            return 0.0
+        matrix = F.normalize(
+            torch.stack([self.v9_key_pool.keys[key_id].detach() for key_id in trainable])
+            .float()
+            .cpu(),
+            dim=-1,
+        )
+        cosine = matrix @ matrix.T
+        cosine.fill_diagonal_(-2.0)
+        return float(cosine.max().item())
+
+    @staticmethod
+    def _peak_memory_bytes() -> int:
+        """Peak allocator usage on this rank; 0 on a CPU-only run."""
+        if not torch.cuda.is_available():
+            return 0
+        return int(torch.cuda.max_memory_allocated())
 
     # ------------------------------------------------------------------
     # task-end aggregation (spec §23)
@@ -709,6 +801,7 @@ class V9ComposeTrainer(ComposeTrainer):
             "contribution_sum",
             "positive_contribution",
             "positive_count",
+            "responsibility_sum",
         )
         per_expert = {}
         for expert_id in order:
@@ -734,6 +827,10 @@ class V9ComposeTrainer(ComposeTrainer):
                 "positive_contribution_rate": (
                     (sums["positive_count"] / usage) if usage else 0.0
                 ),
+                "mean_gate": (sums["support"] / usage) if usage else 0.0,
+                "mean_responsibility": (
+                    (sums["responsibility_sum"] / usage) if usage else 0.0
+                ),
             }
         stage_steps: Dict[str, int] = {}
         for row in gathered:
@@ -742,6 +839,7 @@ class V9ComposeTrainer(ComposeTrainer):
         covered = {
             sample_id for row in gathered for sample_id in row.get("unique_sample_ids", ())
         }
+        keys_per_expert = self._keys_per_expert()
         return {
             "world_size": len(gathered),
             "micro_steps": micro_steps,
@@ -752,6 +850,21 @@ class V9ComposeTrainer(ComposeTrainer):
             ),
             "unique_sample_count": len(covered),
             "per_expert": per_expert,
+            # Spec §34: an expert's usage is only interpretable against how many
+            # keys it holds, so the two are reported together rather than left
+            # for whoever reads the log to join by hand.
+            "keys_per_expert": keys_per_expert,
+            "expert_usage_vs_key_count": [
+                {
+                    "expert_id": int(expert_id),
+                    "keys": keys_per_expert.get(str(expert_id), 0),
+                    "usage_rate": per_expert.get(str(expert_id), {}).get(
+                        "usage_rate", 0.0
+                    ),
+                    "historical": int(expert_id) in self.v9_key_pool.historical_ids,
+                }
+                for expert_id in order
+            ],
             "ranks": gathered,
         }
 
@@ -1018,6 +1131,10 @@ class V9ComposeTrainer(ComposeTrainer):
                 self._accumulate_validation_gain(
                     route.expert_ids[mask], exact[mask], gain_sum, gain_count
                 )
+                scores = self._validation_score_gap(
+                    model, route, prepared, self.v9_validation_scores
+                )
+                self.v9_validation_scores = scores
                 if self.v9_config.inference.pair_rerank:
                     deployed, alternatives = self._exact_pair_losses(
                         model, prepared, route
@@ -1050,7 +1167,71 @@ class V9ComposeTrainer(ComposeTrainer):
             int(expert_id): gain_sum[int(expert_id)] / max(gain_count[int(expert_id)], 1)
             for expert_id in gain_sum
         }
+        if self.v9_validation_scores is not None:
+            # Same artifact as the calibration: both answer "does the training
+            # objective predict what deployment will score", and reading them
+            # apart invites exactly the confusion they exist to prevent.
+            self.v9_calibration["validation_scores"] = dict(self.v9_validation_scores)
         return self.v9_calibration
+
+    def _validation_score_gap(
+        self,
+        model,
+        route: V9RouteOutput,
+        prepared: Dict[str, Any],
+        running: Optional[Dict[str, float]],
+    ) -> Dict[str, float]:
+        """Soft-gate vs deployed-Top-2 answer NLL on held-out data (spec §34).
+
+        Both scores are measured on the same batch, in the same mode, against
+        the same cached expert outputs: the only thing that changes between them
+        is the gate tensor, so the difference is the price of serving the hard
+        rule instead of the mixture the objective trains.  Accumulated as a
+        running mean so the number does not depend on the size of the last
+        calibration batch.
+        """
+        soft_gates = route.probabilities.detach()
+        hard_gates = self.v9_router.deployed_gates(route.probabilities, route.slot_mask)
+        scores: Dict[str, float] = {}
+        was_training = model.training
+        model.eval()
+        try:
+            for name, gates in (("soft", soft_gates), ("hard_top2", hard_gates)):
+                selection = ComposeSelection(
+                    expert_ids=route.expert_ids,
+                    gates=gates,
+                    max_slots=int(route.expert_ids.shape[1]),
+                    allow_zero_gates=True,
+                )
+                with torch.no_grad(), self.expert_pool.manager.selection_context(
+                    selection
+                ):
+                    model(**prepared)
+                    per_sample = getattr(model, "v7_per_sample_answer_nll", None)
+                    if per_sample is None:
+                        raise RuntimeError(
+                            "the soft/hard validation gap requires the per-sample "
+                            "answer NLL"
+                        )
+                    scores[name] = float(per_sample.mean().item())
+                # Counted as an extra forward: it is held-out *measurement*, not
+                # part of the one pass a training sample rides on, and folding it
+                # into the backbone-forward count would understate §41 (D).
+                self.v9_extra_forwards += 1
+        finally:
+            if was_training:
+                model.train()
+        scores["gap"] = scores["soft"] - scores["hard_top2"]
+        if running:
+            previous = float(running.get("batches", 0.0))
+            for name in ("soft", "hard_top2", "gap"):
+                scores[name] = (
+                    float(running.get(name, 0.0)) * previous + scores[name]
+                ) / (previous + 1.0)
+            scores["batches"] = previous + 1.0
+        else:
+            scores["batches"] = 1.0
+        return scores
 
     @staticmethod
     def _accumulate_validation_gain(

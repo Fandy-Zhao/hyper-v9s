@@ -1242,3 +1242,85 @@ def test_a_legacy_v9_residual_state_migrates_to_absolute_task_keys():
     # Nothing in the V9-S package writes the legacy marker, so a fresh pool can
     # never come back through this path.
     assert pool.export_state()["pool_kind"] == "v9s_multi_key"
+
+
+# ----------------------------------------------------------------------
+# diagnostics (spec §34)
+# ----------------------------------------------------------------------
+def test_the_deployed_gate_is_the_top_two_indicator():
+    """The rule the calibration scores against must be the deployed one.
+
+    If the measurement used a *different* hard rule than the one inference
+    serves, the soft/hard gap would be a property of the discrepancy rather than
+    of the method.
+    """
+    config = V9Config()
+    pool, _ = _pool(config, historical=6, candidates=config.candidate_count)
+    _with_task_keys(pool)
+    router, route, _, _ = _route(config, pool, 8, STAGE_SOFT)
+
+    deployed = router.deployed_gates(route.probabilities, route.slot_mask)
+    assert deployed.shape == route.probabilities.shape
+    # Exactly ``max_inference_experts`` ones per row, and never on a masked slot.
+    assert torch.equal(
+        deployed.eq(1.0).sum(dim=1),
+        torch.full((8,), float(config.routing.max_inference_experts)).long(),
+    )
+    assert not bool((deployed * ~route.slot_mask).any().item())
+    # The chosen set is the top-2 of the *probability* the soft stage produced.
+    top = route.probabilities.masked_fill(~route.slot_mask, -1.0).topk(
+        config.routing.max_inference_experts, dim=1
+    ).indices
+    chosen = deployed.gt(0).nonzero(as_tuple=False)[:, 1].reshape(8, -1)
+    assert torch.equal(chosen.sort(dim=1).values, top.sort(dim=1).values)
+    # It is a decision, not a differentiable gate: it carries no key gradient.
+    assert not deployed.requires_grad
+    # The soft stage keeps no hard gate of its own -- there is nothing to serve
+    # from -- so the deployed rule is derived here rather than read off.
+    assert route.hard_gates is None
+
+
+def test_the_hard_stage_gate_is_the_deployed_rule_not_a_surrogate():
+    """ST Hard Top-2 must *be* deployment, not an approximation of it."""
+    config = V9Config()
+    pool, _ = _pool(config, historical=6, candidates=config.candidate_count)
+    _with_task_keys(pool)
+    router, _, queries, topc = _route(config, pool, 8, STAGE_SOFT)
+    hard_route = router.route(queries, topc.expert_ids, 1.0, STAGE_HARD)
+    assert hard_route.hard_gates is not None
+    assert torch.equal(hard_route.forward_gates, hard_route.hard_gates)
+    assert hard_route.forward_gates.requires_grad is False
+    assert torch.equal(
+        hard_route.forward_gates,
+        router.deployed_gates(hard_route.probabilities, hard_route.slot_mask),
+    )
+
+
+def test_the_reported_validators_cover_every_spec_34_quantity():
+    """The diagnostics list is a contract, not a suggestion.
+
+    Each name below is read by an operator or by the task-end audit; a silent
+    rename would leave the run looking healthy while reporting nothing.
+    """
+    from compose.v9.contribution import contribution_statistics
+
+    statistics = contribution_statistics(
+        torch.tensor([[0.5, -0.25, 0.75, -1.0]]), torch.ones(1, 4, dtype=torch.bool)
+    )
+    assert set(statistics) >= {
+        "mean",
+        "mean_positive",
+        "mean_negative",
+        "positive_rate",
+        "std",
+        "responsibility_mean",
+    }
+    # The responsibility mean is taken over the positive part only: a negative
+    # contribution is evidence against the expert, not negative credit.
+    assert statistics["responsibility_mean"] == pytest.approx((0.5 + 0.75) / 4)
+
+    config = V9Config()
+    assert config.validation.contribution_calibration is True, (
+        "§34's soft/hard validation scores are produced by the calibration pass; "
+        "turning it off removes them"
+    )

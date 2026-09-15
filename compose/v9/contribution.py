@@ -162,6 +162,7 @@ def contribution_statistics(
             "mean_negative": 0.0,
             "positive_rate": 0.0,
             "std": 0.0,
+            "responsibility_mean": 0.0,
         }
     positives = values[values > 0]
     negatives = values[values < 0]
@@ -171,6 +172,12 @@ def contribution_statistics(
         "mean_negative": float(negatives.mean().item()) if negatives.numel() else 0.0,
         "positive_rate": float((values > 0).to(torch.float32).mean().item()),
         "std": float(values.std(unbiased=False).item()) if values.numel() > 1 else 0.0,
+        # Reported alongside the raw contribution because the two answer
+        # different questions: the contribution says whether an expert helped,
+        # the responsibility says how much of the row's credit it was given.
+        "responsibility_mean": float(
+            torch.clamp(values, min=0.0).sum().item() / max(values.numel(), 1)
+        ),
     }
 
 

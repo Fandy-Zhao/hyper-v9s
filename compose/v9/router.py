@@ -375,6 +375,24 @@ class V9Router(nn.Module):
                 )
         return (gates.detach() if cut else gates), None
 
+    def deployed_gates(
+        self, probabilities: torch.Tensor, slot_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """The gates the deployed rule would apply to an already-scored row.
+
+        Deployment is Top-``max_inference_experts`` over the gate probability,
+        with no answer, no task id and no training recall -- the same rule
+        ``_forward_gates`` applies in the hard stage.  Exposing it separately
+        lets the calibration measure the *deployed* answer loss on held-out data
+        and compare it with the soft-gate loss the training objective actually
+        minimises (spec §34); a gap that grows without bound means the two have
+        come apart and the soft gates no longer predict what will be served.
+        """
+        hard, _ = self._forward_gates(
+            probabilities.detach(), slot_mask, STAGE_HARD
+        )
+        return hard
+
     # ------------------------------------------------------------------
     # trainability
     # ------------------------------------------------------------------
