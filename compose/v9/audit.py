@@ -320,37 +320,7 @@ def audit_candidates(
             commit.append(int(expert_id))
         records[str(int(expert_id))] = record.to_dict()
 
-    floor = int(config.min_committed_experts)
-    if len(historical_ids) + len(commit) < floor:
-        ranked = sorted(
-            (int(value) for value in candidate_ids),
-            key=lambda value: (
-                float(statistics.get(str(value), {}).get("mean_positive_contribution", 0.0)),
-                float(statistics.get(str(value), {}).get("effective_support", 0.0)),
-            ),
-            reverse=True,
-        )
-        forced = []
-        for expert_id in ranked:
-            if len(historical_ids) + len(commit) >= floor:
-                break
-            if expert_id in commit:
-                continue
-            commit.append(expert_id)
-            delete = [value for value in delete if value != expert_id]
-            records[str(expert_id)]["decision"] = "forced_commit"
-            records[str(expert_id)]["reasons"].append(
-                "committed to keep {} selectable experts for the Top-2 "
-                "deployment rule".format(floor)
-            )
-            forced.append(expert_id)
-    else:
-        forced = []
-    if len(historical_ids) + len(commit) < floor:
-        raise V9AuditError(
-            "the pool cannot field {} selectable experts: {} historical + {} "
-            "committed".format(floor, len(historical_ids), len(commit))
-        )
+    forced: List[int] = []
     return {
         "task_index": task_index,
         "commit": sorted(commit),

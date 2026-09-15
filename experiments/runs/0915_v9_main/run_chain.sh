@@ -12,11 +12,13 @@
 set -euo pipefail
 
 BASE=/root/autodl-tmp/Hyper-LlaVA/experiments/runs/0915_v9_main
+GPUS="0"
+if [ "${1:-}" = "--gpus" ]; then GPUS="${2:?--gpus requires a comma-separated list}"; shift 2; fi
 FROM="${1:-0}"
 TO="${2:-5}"
 
 for TASK in $(seq "$FROM" "$TO"); do
   echo "[chain] ===== $(date -Is) starting task $TASK ====="
-  bash "$BASE/run_task.sh" "$TASK"
+  bash "$BASE/run_task.sh" "$TASK" "$GPUS"
 done
 echo "[chain] ===== $(date -Is) sequence complete ====="

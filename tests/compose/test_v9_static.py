@@ -710,13 +710,17 @@ def test_routing_is_independent_sigmoid_not_softmax():
     assert not torch.allclose(totals, torch.ones_like(totals), atol=1e-3)
 
 
-def test_bootstrap_floors_every_gate_but_keeps_the_contribution_measurable():
+def test_bootstrap_floors_current_candidates_only_but_keeps_contribution_measurable():
     config = V9Config()
     pool, candidate_ids = _pool(config, historical=4, candidates=config.candidate_count)
     _with_task_keys(pool)
     _, route, _, _ = _route(config, pool, 6, STAGE_BOOTSTRAP)
     floor = config.bootstrap.gate_floor
-    assert float(route.forward_gates.min()) >= floor - 1e-6
+    candidate_slots = torch.isin(route.expert_ids, torch.tensor(candidate_ids))
+    assert (route.forward_gates[candidate_slots] >= floor - 1e-6).all()
+    assert torch.allclose(
+        route.forward_gates[~candidate_slots], route.probabilities.detach()[~candidate_slots]
+    )
     assert route.hard_gates is None
     # The floor is a forward-only device: the trainable quantity is still the
     # sigmoid, and it is still differentiable w.r.t. the keys.
@@ -784,9 +788,7 @@ def test_the_answer_gate_is_differentiable_but_reaches_no_key():
         assert torch.autograd.grad(
             probe, key, retain_graph=True, allow_unused=True
         )[0] is None
-    assert torch.autograd.grad(
-        probe, router.bias, retain_graph=True, allow_unused=True
-    )[0] is None
+        assert not router.bias.requires_grad, "formal V9-S disables routing bias"
 
     # ...while `probabilities` stays differentiable w.r.t. those same keys: that
     # is the copy ``L_key`` trains, and the value the two copies agree on.
@@ -800,22 +802,17 @@ def test_the_answer_gate_is_differentiable_but_reaches_no_key():
     assert gradient is not None and float(gradient.abs().sum()) > 0.0
 
 
-def test_key_and_bias_gradients_reach_the_router_parameters():
-    """L_key's route into the keys exists, is wired, and is not dead."""
+def test_key_gradients_reach_the_router_parameters():
+    """L_key reaches trainable keys; formal V9-S has no trainable bias."""
     config = V9Config()
     pool, candidate_ids = _pool(config, historical=4, candidates=config.candidate_count)
     _with_task_keys(pool)
     pool.freeze_historical(current_task=ROUTING_TASK)
     router, route, _, _ = _route(config, pool, 8, STAGE_SOFT)
-    loss = route.probabilities.sum()
-    gradients = torch.autograd.grad(
-        loss, router.trainable_parameters()["key"] + [router.bias], retain_graph=False
-    )
-    assert all(gradient is not None for gradient in gradients)
     keys = router.trainable_parameters()["key"]
-    assert any(float(gradient.abs().sum()) > 0 for gradient in gradients[: len(keys)])
-    assert float(gradients[-1].abs().sum()) > 0
-
+    gradients = torch.autograd.grad(route.probabilities.sum(), keys)
+    assert any(float(gradient.abs().sum()) > 0 for gradient in gradients)
+    assert not router.bias.requires_grad
 
 def test_the_answer_loss_trains_the_candidate_lora_and_no_key():
     """Spec §41 (A) and (B), at the level of a real autograd graph.
@@ -1014,9 +1011,9 @@ def test_local_contribution_uses_the_participation_the_forward_used():
     )
     floor = config.bootstrap.gate_floor
     assert float(route.probabilities.max()) < floor
-    assert torch.allclose(
-        route.forward_gates, torch.full_like(route.forward_gates, floor), atol=1e-6
-    )
+    candidate_slots = torch.isin(route.expert_ids, torch.tensor(candidate_ids))
+    assert torch.allclose(route.forward_gates[candidate_slots], torch.full_like(route.forward_gates[candidate_slots], floor), atol=1e-6)
+    assert torch.allclose(route.forward_gates[~candidate_slots], route.probabilities.detach()[~candidate_slots])
     loss = route.probabilities.sum()
     with_values = local_conditional_contribution(
         loss, route.probabilities, retain_graph=True, values=route.forward_gates

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One formal V9-S task, start to finish (spec §29 execution order).
 #
-#   run_task.sh <task-index 0..5>
+#   run_task.sh <task-index 0..5> [gpu-list]
+# Example: run_task.sh 0 0,1  (real NCCL DDP, not local-ranks)
 #
 # Each task gets its own --root.  That is forced by the query cache, not a
 # preference: the cache path is features/train.json with no task in the name and
@@ -26,10 +27,19 @@ REPO=/root/autodl-tmp/Hyper-LlaVA
 UCIT=/root/autodl-tmp/data/dataset/zhaozhuofan/UCIT
 MODELS=/root/autodl-tmp/data/ckpt/zhaozhuofan/models
 BASE=$REPO/experiments/runs/0915_v9_main
-GPU=0
-WORLD=2
+GPUS="${2:-${GPUS:-0}}"
+IFS=',' read -r -a GPU_LIST <<< "$GPUS"
+WORLD="${#GPU_LIST[@]}"
+TARGET_GLOBAL_BATCH="${TARGET_GLOBAL_BATCH:-32}"
+PER_DEVICE_BATCH="${PER_DEVICE_BATCH:-2}"
+DENOM=$((WORLD * PER_DEVICE_BATCH))
+if [ "$WORLD" -lt 1 ] || [ $((TARGET_GLOBAL_BATCH % DENOM)) -ne 0 ]; then
+  echo "[chain] target global batch ${TARGET_GLOBAL_BATCH} is not divisible by ${WORLD} x ${PER_DEVICE_BATCH}" >&2
+  exit 2
+fi
+GRAD_ACCUM=$((TARGET_GLOBAL_BATCH / DENOM))
 
-TASK="${1:?usage: run_task.sh <task-index 0..5>}"
+TASK="${1:?usage: run_task.sh <task-index 0..5> [gpu-list]}"
 NAMES=(ImageNet-R ArxivQA VizWiz IconQA CLEVR Flickr30k)
 NAME="${NAMES[$TASK]:?task index must be 0..5}"
 
@@ -69,7 +79,7 @@ fi
 echo "[chain] task $TASK = $NAME  root=$RUN  train=$(python -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$TRAIN_FILE")  free=${FREE_GB}G"
 
 cd "$REPO"
-CUDA_VISIBLE_DEVICES=$GPU "$PY" -m compose.experiments.v9_task_run \
+CUDA_VISIBLE_DEVICES=$GPUS "$PY" -m compose.experiments.v9_task_run \
   --config configs/v9s_main.yaml \
   --root "$RUN" \
   --task-index "$TASK" \
@@ -83,9 +93,9 @@ CUDA_VISIBLE_DEVICES=$GPU "$PY" -m compose.experiments.v9_task_run \
   --query-encoder "$MODELS/clip-vit-large-patch14-336" \
   --device cuda:0 \
   --training-world-size "$WORLD" \
-  --training-launcher local-ranks \
-  --training-per-device-batch-size 2 \
-  --training-gradient-accumulation-steps 8 \
+  --training-launcher torchrun \
+  --training-per-device-batch-size "$PER_DEVICE_BATCH" \
+  --training-gradient-accumulation-steps "$GRAD_ACCUM" \
   --num-train-epochs 1 \
   --learning-rate 2e-04 \
   --v9-key-learning-rate 3e-04 \

@@ -340,8 +340,12 @@ class V9Router(nn.Module):
         # identically zero and every key stays where k-means left it.
         forward_probabilities.requires_grad_(True)
 
+        candidate_slots = torch.isin(
+            expert_ids, torch.tensor(self.candidate_ids, device=expert_ids.device)
+        )
         forward_gates, hard = self._forward_gates(
-            forward_probabilities, slot_mask, stage, differentiable=self._detach_keys()
+            forward_probabilities, slot_mask, stage, differentiable=self._detach_keys(),
+            candidate_slot_mask=candidate_slots,
         )
         self.last_route = V9RouteOutput(
             expert_ids=expert_ids,
@@ -365,6 +369,7 @@ class V9Router(nn.Module):
         slot_mask: torch.Tensor,
         stage: str,
         differentiable: bool = True,
+        candidate_slot_mask: Optional[torch.Tensor] = None,
     ) -> "tuple[torch.Tensor, Optional[torch.Tensor]]":
         """Stage-dependent forward gate (spec §15, §16).
 
@@ -406,9 +411,10 @@ class V9Router(nn.Module):
         if stage == STAGE_BOOTSTRAP:
             floor = float(self.config.bootstrap.gate_floor)
             if floor > 0:
+                candidate_mask = candidate_slot_mask if candidate_slot_mask is not None else slot_mask
                 gates = torch.where(
                     slot_mask,
-                    gates.clamp_min(floor),
+                    torch.where(candidate_mask, gates.clamp_min(floor), gates),
                     torch.zeros_like(gates),
                 )
         return gates, None

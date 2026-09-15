@@ -48,7 +48,7 @@ from compose.adapters.types import PAD_EXPERT_ID
 from .config import V9RetrievalConfig, V9WideRetrievalConfig
 
 
-RETRIEVAL_SCHEMA_VERSION = 2
+RETRIEVAL_SCHEMA_VERSION = 3
 
 
 class V9RetrievalError(RuntimeError):
@@ -224,8 +224,9 @@ def build_historical_topc(
     task_index: int = 0,
     seed: int = 42,
     sample_ids: Optional[Sequence[str]] = None,
+    memory_key_expert_ids: Optional[Sequence[int]] = None,
 ) -> HistoricalTopC:
-    """Rank frozen base keys against the fixed queries, once per task.
+    """Rank frozen retained keys against the fixed queries, once per task.
 
     ``queries`` is ``[N, 1536]`` and ``base_keys`` is ``[H, 1536]`` with rows in
     the order of ``historical_expert_ids``.  Both are L2-normalised here, so the
@@ -257,15 +258,18 @@ def build_historical_topc(
             sample_ids=ids,
         )
     query_matrix = F.normalize(queries.detach().float().reshape(rows, -1), dim=-1)
-    key_matrix = F.normalize(base_keys.detach().float().reshape(len(history), -1), dim=-1)
-    if key_matrix.shape[0] != len(history):
-        raise V9RetrievalError(
-            "base key matrix has {} rows for {} historical experts".format(
-                key_matrix.shape[0], len(history)
-            )
-        )
-    similarity = query_matrix @ key_matrix.T  # [N, H] cosine
-    order = similarity.argsort(dim=1, descending=True, stable=True)  # [N, H]
+    key_matrix = F.normalize(base_keys.detach().float().reshape(base_keys.shape[0], -1), dim=-1)
+    owners = list(history if memory_key_expert_ids is None else memory_key_expert_ids)
+    if key_matrix.shape[0] != len(owners):
+        raise V9RetrievalError("frozen key matrix and owner list have different lengths")
+    positions = {expert_id: index for index, expert_id in enumerate(history)}
+    if any(int(owner) not in positions for owner in owners):
+        raise V9RetrievalError("frozen recall key belongs to a non-historical expert")
+    similarity = query_matrix @ key_matrix.T
+    owner_columns = torch.tensor([positions[int(owner)] for owner in owners], dtype=torch.long)
+    expert_scores = torch.full((rows, len(history)), float("-inf"), dtype=similarity.dtype)
+    expert_scores.scatter_reduce_(1, owner_columns.unsqueeze(0).expand(rows, -1), similarity, reduce="amax", include_self=True)
+    order = expert_scores.argsort(dim=1, descending=True, stable=True)
     history_tensor = torch.tensor(history, dtype=torch.long)
     ranked = history_tensor.index_select(0, order.reshape(-1)).reshape(rows, -1)
     expert_ids[:, :slots] = ranked[:, :slots]
@@ -290,6 +294,7 @@ def load_or_build_historical_topc(
     task_index: int = 0,
     seed: int = 42,
     sample_ids: Optional[Sequence[str]] = None,
+    memory_key_expert_ids: Optional[Sequence[int]] = None,
 ) -> HistoricalTopC:
     """Return the task's historical recall set, building it at most once.
 
@@ -338,6 +343,7 @@ def load_or_build_historical_topc(
         task_index=task_index,
         seed=seed,
         sample_ids=ids,
+        memory_key_expert_ids=memory_key_expert_ids,
     )
     if config.cache:
         topc.save(cache_path)

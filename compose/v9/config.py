@@ -73,7 +73,7 @@ AGGREGATION_MAX = "max"
 #: Top-C recall keeps V8's frozen-base-key geometry exactly: the recall set is
 #: ranked by ``cosine(q_i, e_k_base)`` over keys that never move during the
 #: task, so it is computed once and cached.
-HISTORICAL_AGGREGATION_PRESERVE_V8 = "preserve_v8"
+HISTORICAL_AGGREGATION_MULTI_KEY_MAX = "frozen_multi_key_max"
 
 
 @dataclass(frozen=True)
@@ -134,13 +134,13 @@ class V9RetrievalConfig:
     """
 
     top_c: int = 4
-    aggregation: str = HISTORICAL_AGGREGATION_PRESERVE_V8
+    aggregation: str = HISTORICAL_AGGREGATION_MULTI_KEY_MAX
     cache: bool = True
 
     def __post_init__(self) -> None:
         if self.top_c < 0:
             raise ValueError("historical_retrieval.top_c must be non-negative")
-        if self.aggregation != HISTORICAL_AGGREGATION_PRESERVE_V8:
+        if self.aggregation != HISTORICAL_AGGREGATION_MULTI_KEY_MAX:
             raise ValueError(
                 "V9-S keeps V8's historical recall: the candidate set is ranked "
                 "by cosine against frozen base keys, computed once per task"
@@ -223,7 +223,7 @@ class V9RoutingConfig:
     #: the inference rule, and the discretisation stage simply stops pretending
     #: otherwise.
     max_inference_experts: int = 2
-    learnable_bias: bool = True
+    learnable_bias: bool = False
     bias_init: float = 0.0
     #: Must remain ``False``; ``True`` is refused rather than supported.
     #:
@@ -252,6 +252,12 @@ class V9RoutingConfig:
                 "L_key, never through a direct gate gradient.  Two "
                 "simultaneous answer-side gradients on one key is the "
                 "supervision conflict V9-S exists to remove"
+            )
+        if self.learnable_bias:
+            raise ValueError(
+                "V9-S does not permit a learnable routing bias: deployment ranks "
+                "by retained-key cosine, so learning a bias would create a "
+                "train/inference routing mismatch"
             )
         if not (0.0 < self.temperature_end <= self.temperature_mid <= self.temperature_start):
             raise ValueError(
@@ -682,7 +688,7 @@ def assert_frozen_contract(config: V9Config) -> None:
         raise ValueError("the discretisation stage is required")
     if config.key.aggregation != AGGREGATION_MAX:
         raise ValueError("V9-S inference keeps max-per-expert multi-key aggregation")
-    if config.historical_retrieval.aggregation != HISTORICAL_AGGREGATION_PRESERVE_V8:
+    if config.historical_retrieval.aggregation != HISTORICAL_AGGREGATION_MULTI_KEY_MAX:
         raise ValueError("V9-S keeps V8's historical recall geometry")
     if config.selection_slots < 1:
         raise ValueError("the V9-S candidate set must be non-empty")
@@ -709,7 +715,7 @@ __all__ = [
     "CANDIDATE_INIT_KMEANS",
     "CANDIDATE_INIT_PERTURBED_MEAN",
     "CANDIDATE_INITS",
-    "HISTORICAL_AGGREGATION_PRESERVE_V8",
+    "HISTORICAL_AGGREGATION_MULTI_KEY_MAX",
     "ROUTING_INDEPENDENT_SIGMOID",
     "V9_METHOD_NAME",
     "V9_METHOD_TITLE",

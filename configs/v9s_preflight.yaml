@@ -54,7 +54,7 @@ historical_retrieval:
   # *offered* to the answer.  Ranking is by cosine against FROZEN base keys, so
   # the set is computed once per task and cached -- candidate keys change every
   # step and would invalidate a cache that included them.
-  aggregation: preserve_v8
+  aggregation: frozen_multi_key_max
   top_c: 4
   cache: true
 
@@ -96,7 +96,7 @@ routing:
   direct_answer_gradient_to_key: false
   # One dense bias vector in router-column order, so every expert stays in the
   # backward graph even when a slot is zeroed and DDP sees no unused parameter.
-  learnable_bias: true
+  learnable_bias: false
   bias_init: 0.0
 
 responsibility:
@@ -174,7 +174,6 @@ audit:
   redundancy_cosine_threshold: 0.98
   validation_gain_samples: 32
   # The pool must always be able to supply the deployed Top-2.
-  min_committed_experts: 2
 
 inference:
   # No task id: a run that needed it would be answering "which task is this?"

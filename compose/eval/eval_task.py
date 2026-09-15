@@ -437,8 +437,8 @@ def main() -> None:
                     int(value)
                     for value in (row.get("global_top2", row) if isinstance(row, dict) else row)
                 ]
-                if len(manifest_ids) != 2 or len(set(manifest_ids)) != 2:
-                    raise ValueError("V7 validation selection must contain two distinct experts")
+                if not 1 <= len(manifest_ids) <= 2 or len(set(manifest_ids)) != len(manifest_ids):
+                    raise ValueError("selection manifest must contain one or two distinct experts")
                 if args.fast_selection_plan:
                     bundle.expert_pool.manager.clear_default_selection()
                     compose_selection = bundle.expert_pool.manager.make_selection(

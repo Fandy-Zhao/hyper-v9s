@@ -230,6 +230,16 @@ class V9KeyPool(MultiKeyExpertPool):
             [self.base_key_id(expert_id) for expert_id in expert_ids], detach=detach
         )
 
+    def frozen_memory_key_matrix(self, expert_ids: Sequence[int], detach: bool = True) -> tuple[torch.Tensor, list[int]]:
+        """Frozen retained keys plus owner ids for task-start multi-key recall."""
+        key_ids, owners = [], []
+        for expert_id in expert_ids:
+            for key_id in self.memory_key_ids(int(expert_id)):
+                if self.key_records[key_id]["lifecycle"] == LIFECYCLE_CANDIDATE:
+                    continue
+                key_ids.append(key_id); owners.append(int(expert_id))
+        return self.effective_key_matrix(key_ids, detach=detach), owners
+
     def effective_key_matrix(
         self, key_ids: Sequence[str], detach: bool = False
     ) -> torch.Tensor:

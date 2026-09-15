@@ -14,6 +14,16 @@ Two caches, both frozen for the whole task, both built once:
 
 Neither cache is consulted at test time.  Inference routes over the global
 multi-key geometry (spec §20) and never looks at a training recall file.
+
+The fixed query has two interchangeable sources.  Either the orchestrator
+encodes ``features/{train,val}.json`` as before, or it points at the
+precomputed V7 split cache (``queries.pt`` + ``metadata.json`` per split,
+1.4 GB over the six tasks against 19.7 GB for the JSON form) and this module
+resolves it through :func:`resolve_split_query_source`.  The two paths return
+the same ``(queries, sample_ids)`` pair -- see that function for why the row
+order is the load-bearing part of that claim -- and the resolution is
+fail-closed: a cache that cannot be consumed exactly as declared raises rather
+than falling back to JSON or to live encoding.
 """
 
 from __future__ import annotations
@@ -27,6 +37,11 @@ import torch
 
 from compose.adapters.types import PAD_EXPERT_ID
 from compose.train.data import V7QueryCollator, V7QueryDataset
+from compose.v7.query_cache import (
+    V7CacheManifest,
+    load_split_cache_for_training,
+    sha256_file,
+)
 
 from .config import V9Config
 from .keys import V9KeyPool
@@ -154,10 +169,9 @@ def build_task_retrieval(
     if force_build:
         retrieval = replace(retrieval, cache=False)
     historical_ids = key_pool.historical_ids
-    base_keys = (
-        key_pool.base_key_matrix(historical_ids)
-        if historical_ids
-        else torch.zeros(0, key_pool.query_dim, dtype=torch.float32)
+    base_keys, memory_key_expert_ids = (
+        key_pool.frozen_memory_key_matrix(historical_ids, detach=True)
+        if historical_ids else (torch.zeros(0, key_pool.query_dim, dtype=torch.float32), [])
     )
     topc = load_or_build_historical_topc(
         cache_path=cache_path,
@@ -169,6 +183,7 @@ def build_task_retrieval(
         task_index=task_index,
         seed=config.key.candidate_init_seed,
         sample_ids=sample_ids,
+        memory_key_expert_ids=memory_key_expert_ids,
     )
     if force_build:
         topc.save(cache_path)

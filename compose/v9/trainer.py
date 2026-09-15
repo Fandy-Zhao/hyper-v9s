@@ -884,6 +884,7 @@ class V9ComposeTrainer(ComposeTrainer):
             gathered = [None] * torch.distributed.get_world_size()
             torch.distributed.all_gather_object(gathered, local)
         micro_steps = max(sum(int(row["micro_steps"]) for row in gathered), 1)
+        observed_samples = max(sum(int(row["observed_sample_count"]) for row in gathered), 1)
         order = sorted(
             {int(expert_id) for row in gathered for expert_id in row.get("order", ())}
         ) or list(self.v9_order)
@@ -908,8 +909,12 @@ class V9ComposeTrainer(ComposeTrainer):
                     sums[field] += float(entry[field])
             usage = int(sums["usage"])
             per_expert[key] = {
+                "offered_count": usage,
                 "usage": usage,
-                "usage_rate": usage / micro_steps,
+                # Usage is accumulated per sample x offered slot.  Dividing by
+                # micro-steps changes its meaning with batch size/world size.
+                "offered_rate": usage / observed_samples,
+                "usage_rate": usage / observed_samples,
                 "selected": int(sums["selected"]),
                 "selected_rate": (sums["selected"] / usage) if usage else 0.0,
                 "effective_support": sums["support"],
@@ -938,9 +943,7 @@ class V9ComposeTrainer(ComposeTrainer):
             "micro_steps": micro_steps,
             "stage_steps": stage_steps,
             "noop_micro_steps": sum(int(row["noop_micro_steps"]) for row in gathered),
-            "observed_sample_count": sum(
-                int(row["observed_sample_count"]) for row in gathered
-            ),
+            "observed_sample_count": observed_samples,
             "unique_sample_count": len(covered),
             "per_expert": per_expert,
             # Spec §34: an expert's usage is only interpretable against how many
