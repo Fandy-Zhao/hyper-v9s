@@ -69,10 +69,17 @@ def build_selection_manifest(key_state: str | Path, query_cache: str | Path | No
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--key-state", required=True)
-    parser.add_argument("--query-cache", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--query-cache")
-    parser.add_argument("--query-cache-manifest")
+    # Exactly one query source, and which one is not a free choice: a manifest
+    # carries the sample ids the committed pool was routed against, a legacy
+    # JSON cache does not.  ``--query-cache`` used to be declared twice here
+    # (once ``required``), so argparse raised before either could be read and
+    # this entry point could not run at all; the exclusivity that was implied
+    # is now stated.
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--query-cache")
+    source.add_argument("--query-cache-manifest")
+    parser.add_argument("--query-cache-root")
     parser.add_argument("--query-cache-root")
     parser.add_argument("--task-index", type=int)
     parser.add_argument("--split", default="test")
