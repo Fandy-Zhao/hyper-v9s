@@ -208,6 +208,29 @@ class V9ComposeTrainer(ComposeTrainer):
         #: asks for the forwards *per training sample*, which is the number that
         #: says whether the offered experts really do ride on one pass.
         self.v9_backbone_forwards = 0
+        #: Backbone traversals counted by a forward hook on the model module
+        #: itself, independent of this trainer's own bookkeeping.
+        #: ``v9_backbone_forwards`` records what the trainer *believes* it did;
+        #: these record what the model was actually asked to do, and §41 (D)'s
+        #: invariant -- one traversal per micro-step, however many experts a row
+        #: offers -- is precisely the claim that the two agree.  A future
+        #: ``for expert: model(...)`` loop would leave the first counter at one
+        #: and multiply the second, which is the regression the pair exists to
+        #: catch.  The per-scope counters separate the training pass (the
+        #: invariant) from the bounded held-out calibration, whose extra
+        #: forwards are legitimate *measurement* and are counted apart rather
+        #: than folded in.
+        self.v9_model_forwards = 0
+        self.v9_train_model_forwards = 0
+        self.v9_calibration_model_forwards = 0
+        #: Traversals observed on a *wide* recall step, and the number of such
+        #: micro-steps.  Wide retrieval widens the routing row; it must widen
+        #: the LoRA branch set and nothing else, so the ratio below is checked
+        #: against the narrow one rather than assumed equal.
+        self.v9_wide_model_forwards = 0
+        self.v9_wide_micro_steps = 0
+        self._v9_forward_handle = None
+        self._v9_forward_scope: Optional[str] = None
         #: Soft-gate vs deployed-Top-2 answer NLL on held-out data (spec §34).
         self.v9_validation_scores: Optional[Dict[str, float]] = None
         #: Optimizer steps that used the periodic wide recall.
@@ -450,6 +473,43 @@ class V9ComposeTrainer(ComposeTrainer):
         self._v9_last_micro_was_boundary = boundary
         return boundary
 
+    # ------------------------------------------------------------------
+    # one-backbone-forward invariant (§41 D)
+    # ------------------------------------------------------------------
+    def _count_backbone_forward(self, _module, _inputs, _output) -> None:
+        """Forward hook on the model module; counts every traversal."""
+        self.v9_model_forwards += 1
+        scope = self._v9_forward_scope
+        if scope == "train":
+            self.v9_train_model_forwards += 1
+        elif scope == "calibration":
+            self.v9_calibration_model_forwards += 1
+
+    def _attach_backbone_counter(self, model) -> None:
+        """Hook the *unwrapped* module, which every path forwards through.
+
+        The training step receives the DDP wrapper and the calibration reaches
+        for ``self.model`` directly; DDP's own forward calls ``self.module``, so
+        one hook on the unwrapped module sees both and neither path can acquire
+        an uncounted traversal by choosing a different handle.
+        """
+        if self._v9_forward_handle is not None:
+            return
+        target = getattr(model, "module", model)
+        self._v9_forward_handle = target.register_forward_hook(
+            self._count_backbone_forward
+        )
+
+    @contextlib.contextmanager
+    def _backbone_scope(self, scope: str):
+        """Attribute the traversals inside this block to ``scope``."""
+        previous = self._v9_forward_scope
+        self._v9_forward_scope = scope
+        try:
+            yield
+        finally:
+            self._v9_forward_scope = previous
+
     def training_step(self, model, inputs):
         step_started = time.perf_counter()
         inter_step_wait = (
@@ -492,6 +552,7 @@ class V9ComposeTrainer(ComposeTrainer):
         )
         if wide:
             self.v9_wide_steps += 1
+            self.v9_wide_micro_steps += 1
         with self.profiler.timed("routing_time"):
             route = self.v9_router.route(
                 queries,
@@ -513,9 +574,28 @@ class V9ComposeTrainer(ComposeTrainer):
             if _distributed() and hasattr(model, "no_sync")
             else contextlib.nullcontext()
         )
-        with no_sync:
-            with self.profiler.timed("step_body_time"):
-                loss = self._ddp_training_step(model, inputs, selection)
+        # §41 (D), enforced rather than reported: whatever a row offers --
+        # the narrow Top-C, the wide recall, every current candidate -- the
+        # experts ride on ONE traversal.  The hook counts what the model was
+        # asked to do, so a per-expert enumeration cannot pass by leaving the
+        # trainer's own counter at one.
+        self._attach_backbone_counter(model)
+        traversals_before = self.v9_train_model_forwards
+        with self._backbone_scope("train"):
+            with no_sync:
+                with self.profiler.timed("step_body_time"):
+                    loss = self._ddp_training_step(model, inputs, selection)
+        traversals = self.v9_train_model_forwards - traversals_before
+        if traversals != 1:
+            raise V9TrainerError(
+                "one-backbone-forward invariant violated at micro-step {}: the "
+                "model was traversed {} times for one micro-batch (expected 1). "
+                "V9 requires one backbone pass carrying every offered expert; "
+                "a per-expert full-model forward is the exact cost this method "
+                "exists to avoid.".format(self.v9_micro_steps, traversals)
+            )
+        if wide:
+            self.v9_wide_model_forwards += traversals
 
         boundary = self._at_sync_boundary()
         if boundary or not self._v9_audited_first_step:
@@ -785,6 +865,25 @@ class V9ComposeTrainer(ComposeTrainer):
             "backbone_forwards_per_sample": (
                 self.v9_backbone_forwards / max(self.v9_observed_sample_count, 1)
             ),
+            # The same ratio taken from the model's own forward hook rather than
+            # from this trainer's bookkeeping, so the two lines are independent
+            # measurements of one claim and a disagreement means one of them is
+            # wrong.  ``calibration_model_forwards`` is the bounded held-out
+            # measurement and is deliberately outside the ratio above.
+            "model_forwards": int(self.v9_model_forwards),
+            "train_model_forwards": int(self.v9_train_model_forwards),
+            "calibration_model_forwards": int(self.v9_calibration_model_forwards),
+            "model_forwards_per_micro_step": (
+                self.v9_train_model_forwards / max(self.v9_micro_steps, 1)
+            ),
+            # Wide retrieval widens the routing row; it must widen the LoRA
+            # branch set and nothing else.  Reported per wide micro-step so the
+            # claim is checked on the steps that actually exercise it, rather
+            # than diluted by the 95% of steps where the wide path is dormant.
+            "wide_micro_steps": int(self.v9_wide_micro_steps),
+            "wide_model_forwards_per_micro_step": (
+                self.v9_wide_model_forwards / max(self.v9_wide_micro_steps, 1)
+            ),
             "extra_forwards": int(self.v9_extra_forwards),
             "per_expert": self._usage_snapshot(),
         }
@@ -862,6 +961,11 @@ class V9ComposeTrainer(ComposeTrainer):
             "per_expert": self._usage_snapshot(),
             "micro_steps": int(self.v9_micro_steps),
             "noop_micro_steps": int(self.v9_noop_steps),
+            # Serialised with ``micro_steps`` because the two are only
+            # meaningful as a ratio: restoring the denominator without the
+            # numerator made a resumed task report fewer traversals than
+            # micro-steps and fail §41 (D) for having been restarted.
+            "backbone_forwards": int(self.v9_backbone_forwards),
             # Always zero in a healthy run: a non-zero value would have raised
             # inside ``_at_sync_boundary`` before reaching a checkpoint.
             "unsynced_optimizer_steps": int(self.v9_unsynced_optimizer_steps),
@@ -869,6 +973,17 @@ class V9ComposeTrainer(ComposeTrainer):
             "unique_sample_ids": sorted(self.v9_unique_sample_ids),
             "stage_steps": dict(self.v9_stage_steps),
             "order": list(self.v9_order),
+            # §41 (D) evidence.  These survive a resume for the same reason the
+            # usage counters do: a task that is interrupted and resumed must
+            # still report one traversal per micro-step over the micro-steps it
+            # actually took, not over the ones since the last checkpoint.
+            "model_forwards": int(self.v9_model_forwards),
+            "train_model_forwards": int(self.v9_train_model_forwards),
+            "calibration_model_forwards": int(self.v9_calibration_model_forwards),
+            "wide_micro_steps": int(self.v9_wide_micro_steps),
+            "wide_model_forwards": int(self.v9_wide_model_forwards),
+            "wide_steps": int(self.v9_wide_steps),
+            "extra_forwards": int(self.v9_extra_forwards),
         }
 
     def global_task_statistics(self) -> Dict[str, Any]:
@@ -1198,6 +1313,15 @@ class V9ComposeTrainer(ComposeTrainer):
         # and its forwards must not enter DDP's forward/backward bookkeeping,
         # which would leave the reducer waiting for a backward that never comes.
         model = getattr(self.model, "module", self.model)
+        self._attach_backbone_counter(model)
+        # Everything forwarded inside this method is held-out *measurement*, not
+        # the one pass a training sample rides on.  Attributing it to its own
+        # scope is what keeps §41 (D) checkable: the training invariant is
+        # "one traversal per micro-step", and folding the calibration's
+        # legitimate extra forwards into that count would make the invariant
+        # unfalsifiable exactly where it matters most -- on the runs that use
+        # the exact oracle.
+        self._v9_forward_scope = "calibration"
         device = next(self.v9_key_pool.parameters()).device
         was_training = model.training
         grad_values: List[torch.Tensor] = []
@@ -1242,6 +1366,7 @@ class V9ComposeTrainer(ComposeTrainer):
                 consumed += int(base.shape[0])
                 del route, local, base, exact, prepared
         finally:
+            self._v9_forward_scope = None
             if was_training:
                 model.train()
         if not grad_values:
@@ -1678,6 +1803,19 @@ class V9ComposeTrainer(ComposeTrainer):
         self.v9_observed_sample_count = int(counters.get("observed_sample_count", 0))
         self.v9_unique_sample_ids = set(counters.get("unique_sample_ids", ()))
         self.v9_stage_steps = dict(counters.get("stage_steps", {}))
+        # Restored before the early return below: a resumed run whose per-expert
+        # block is empty still has to carry the traversals it already made, or
+        # the §41 (D) ratio would be computed over a partial denominator.
+        self.v9_backbone_forwards = int(counters.get("backbone_forwards", 0))
+        self.v9_model_forwards = int(counters.get("model_forwards", 0))
+        self.v9_train_model_forwards = int(counters.get("train_model_forwards", 0))
+        self.v9_calibration_model_forwards = int(
+            counters.get("calibration_model_forwards", 0)
+        )
+        self.v9_wide_micro_steps = int(counters.get("wide_micro_steps", 0))
+        self.v9_wide_model_forwards = int(counters.get("wide_model_forwards", 0))
+        self.v9_wide_steps = int(counters.get("wide_steps", 0))
+        self.v9_extra_forwards = int(counters.get("extra_forwards", 0))
         per_expert = counters.get("per_expert") or {}
         if not per_expert:
             return
