@@ -199,6 +199,48 @@ def test_teacher_router_recall_is_measured_inside_reusable_pool():
     assert metric["TeacherRouterRecall@2"] == 1.0
 
 
+def test_aggregation_output_feeds_the_reuse_key_provenance_check():
+    """``expert_statistics`` is the provenance source the reuse keys validate against.
+
+    ``initialize_reuse_keys`` fails closed unless each reusable expert's support
+    ids, count and hash match the screening evidence it is handed, so the mapping
+    passed as ``expected_support_by_expert`` must be the aggregation's own
+    ``expert_statistics``.  Naming a different key removes the check by raising
+    ``KeyError`` inside the teacher stage, after the shards have already run.
+    """
+    records = [
+        {"sample_id": str(index), "selected_experts": [1] if index < 5 else []}
+        for index in range(10)
+    ]
+    teacher = {"task_id": 4, "teacher_search_mode": "full_history_single_oracle",
+               "historical_experts_visible": [1, 2], "records": records}
+    result = aggregate_reusable_experts(
+        teacher, min_teacher_support=3, min_teacher_usage_rate=0.2
+    )
+    assert result["reusable_historical_expert_ids"] == [1]
+    assert "expert_statistics" in result and "experts" not in result
+
+    payload = {
+        "sample_ids": [str(index) for index in range(10)],
+        "queries": torch.eye(10, 1536),
+    }
+    keys, audit = initialize_reuse_keys(
+        teacher, result["reusable_historical_expert_ids"], payload,
+        center=None, perturbation=0.0, min_support=3, seed=46, task_index=4,
+        expected_support_by_expert=result["expert_statistics"],
+    )
+    assert sorted(keys) == [1]
+    assert audit["experts"]["1"]["support"] == 5
+
+    tampered = dict(result["expert_statistics"])
+    tampered["1"] = dict(tampered["1"], reuse_support_count=4)
+    with pytest.raises(ValueError):
+        initialize_reuse_keys(
+            teacher, [1], payload, center=None, perturbation=0.0, min_support=3,
+            seed=46, task_index=4, expected_support_by_expert=tampered,
+        )
+
+
 def test_full_data_route_boundary_has_no_answer_or_oracle_inputs():
     source = open("compose/v7/hf_trainer.py", encoding="utf-8").read()
     tree = ast.parse(source)

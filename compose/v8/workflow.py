@@ -421,7 +421,7 @@ def run_teacher_screening(
         min_support=int(spec.min_reuse_key_support),
         seed=int(spec.seed) + int(task_index),
         task_index=int(task_index),
-        expected_support_by_expert=screening["experts"],
+        expected_support_by_expert=screening["expert_statistics"],
     )
     screening["reuse_key_initialization"] = reuse_audit
     screening["task_center"] = center.tolist()
