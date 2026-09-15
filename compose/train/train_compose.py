@@ -350,14 +350,21 @@ def _run_v9_calibration(
         if world_size > 1 and _torch.distributed.is_initialized():
             _torch.distributed.barrier()
         return
-    with open(manifest["query_cache"], "r", encoding="utf-8") as handle:
-        query_cache = json.load(handle)
+    query_cache = None
+    query_tensor = None
+    if manifest.get("query_tensor"):
+        query_tensor = _load_query_tensor(
+            manifest["query_tensor"], manifest["query_cache"]
+        )
+        if query_tensor is None:
+            raise ValueError(
+                "V9 calibration explicitly requires a query tensor; refusing JSON fallback"
+            )
+    else:
+        with open(manifest["query_cache"], "r", encoding="utf-8") as handle:
+            query_cache = json.load(handle)
     dataset = V9QueryDataset(
-        manifest["data_path"],
-        tokenizer,
-        data_args,
-        query_cache,
-        None,
+        manifest["data_path"], tokenizer, data_args, query_cache, query_tensor,
         historical_topc=HistoricalTopC.load(manifest["retrieval_cache"]),
     )
     loader = _torch.utils.data.DataLoader(
@@ -923,6 +930,11 @@ def train() -> None:
                     model_args.compose_v9_query_cache,
                 )
         if query_tensor is None:
+            if model_args.compose_v7_query_tensor:
+                raise ValueError(
+                    "V9 was explicitly given --compose_v7_query_tensor but it "
+                    "was unavailable; refusing JSON/live-cache fallback"
+                )
             with profiler.startup_timer("query_load"):
                 with open(model_args.compose_v9_query_cache, "r", encoding="utf-8") as handle:
                     query_cache = json.load(handle)

@@ -54,7 +54,10 @@ from compose.v9.audit import (
     pairwise_key_cosine,
 )
 from compose.v9.config import V9_COMPOSE_MODE, V9Config, load_v9_config
-from compose.v9.data import build_task_retrieval, write_retrieval_manifest
+from compose.v9.data import (
+    V9QuerySource, build_task_retrieval, resolve_split_query_source,
+    write_retrieval_manifest,
+)
 from compose.v9.keys import V9KeyPool, initialize_candidate_keys
 from compose.v9.retrieval import HistoricalTopC, retrieval_diagnostics
 
@@ -135,6 +138,43 @@ def queries_from_cache(path: Path) -> Tuple[torch.Tensor, Tuple[str, ...]]:
             "the fixed query cache must be [N, 1536], got {}".format(tuple(queries.shape))
         )
     return queries, sample_ids
+
+
+def declared_sample_ids(path: str) -> Tuple[str, ...]:
+    """Canonical ids of a declared V7/V9 split, in file order."""
+    records = read_json(Path(path))
+    if not isinstance(records, list):
+        raise V9RunError("declared split {} is not a JSON record list".format(path))
+    ids = []
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise V9RunError("declared split {} has non-object row {}".format(path, index))
+        value = record.get("id", record.get("question_id"))
+        if value is None:
+            raise V9RunError("declared split {} row {} has no id/question_id".format(path, index))
+        ids.append(str(value))
+    if not ids or len(set(ids)) != len(ids):
+        raise V9RunError("declared split {} has empty or duplicate sample ids".format(path))
+    return tuple(ids)
+
+
+def manifest_query_source(args, task_index: int, split: str, data_path: str) -> V9QuerySource:
+    try:
+        return resolve_split_query_source(args.query_cache_manifest, task_index=task_index,
+            split=split, expected_ids=declared_sample_ids(data_path))
+    except (FileNotFoundError, ValueError, RuntimeError) as error:
+        raise V9RunError("cannot consume precomputed V7 query cache for task{}.{}: {}".format(
+            task_index, split, error)) from error
+
+
+def resolve_training_query_source(args, config, root, env, task_index):
+    """Return the sole fixed-query source; manifest mode is strict."""
+    if args.query_cache_manifest:
+        source = manifest_query_source(args, task_index, "train", args.train_file)
+        print("[v9s] using V7 precomputed query tensor: {}".format(source.tensor_path), flush=True)
+        return source
+    ensure_query_cache(args, config, root, env)
+    return None
 
 
 def ensure_query_cache(args, config: V9Config, root: Path, env: Dict[str, str]) -> None:
@@ -274,6 +314,7 @@ def build_training_command(
     key_state: Path,
     output_dir: Path,
     calibration_manifest: Optional[Path],
+    query_source: Optional[V9QuerySource],
 ) -> List[str]:
     prefix = [args.python]
     world_size = int(args.training_world_size)
@@ -317,7 +358,7 @@ def build_training_command(
         "--compose_origin_task_id", str(task_index),
         "--compose_v9_config", str(args.config),
         "--compose_v9_key_state", str(key_state),
-        "--compose_v9_query_cache", str(root / "features" / "train.json"),
+        "--compose_v9_query_cache", str(query_source.tensor_path if query_source is not None else root / "features" / "train.json"),
         "--compose_v9_retrieval_cache",
         str(root / "features" / "historical_topc_task{}.pt".format(task_index)),
         "--compose_v9_metrics_path",
@@ -358,6 +399,8 @@ def build_training_command(
         command += ["--save_steps", str(args.save_steps)]
     if args.previous_checkpoint:
         command += ["--compose_checkpoint", str(args.previous_checkpoint)]
+    if query_source is not None:
+        command += ["--compose_v7_query_tensor", query_source.tensor_path]
     if calibration_manifest is not None:
         command += ["--compose_v9_calibration", str(calibration_manifest)]
     contract = root / "data" / "v9_runtime_contract.json"
@@ -459,6 +502,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--image-aspect-ratio", default="square")
     # The query encoder is the V7/V8 CLIP entry; never re-implemented here.
     parser.add_argument("--query-encoder", default=None)
+    parser.add_argument("--query-cache-manifest", default=None,
+        help="V7 query_cache_manifest.json or directory; uses validated queries.pt only.")
     parser.add_argument("--query-batch-size", type=int, default=16)
     parser.add_argument("--previous-checkpoint", default=None)
     parser.add_argument("--training-world-size", type=int, default=1)
@@ -513,6 +558,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     env = dict(os.environ)
     task_index = int(args.task_index)
 
+    query_source = resolve_training_query_source(args, config, root, env, task_index)
+    if query_source is None:
+        queries, sample_ids = queries_from_cache(root / "features" / "train.json")
+        query_source_record = {"kind": "legacy_json_query_cache", "path": str((root / "features" / "train.json").resolve()), "sha256": sha256_file(root / "features" / "train.json"), "sample_count": len(sample_ids)}
+    else:
+        queries, sample_ids = query_source.queries, query_source.sample_ids
+        query_source_record = query_source.contract_record()
+
     run_contract = {
         "method": config.method,
         "task_index": task_index,
@@ -525,6 +578,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         "previous_checkpoint": args.previous_checkpoint,
         "training_world_size": int(args.training_world_size),
         "require_full_coverage": bool(args.require_full_coverage),
+        "query_source": query_source_record,
     }
     contract_path = root / "data" / "run_contract_task{}.json".format(task_index)
     if contract_path.is_file():
@@ -534,11 +588,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 "the recorded run contract for task {} was produced by a "
                 "different V9 config; refusing to continue".format(task_index)
             )
+        if previous.get("query_source") != run_contract["query_source"]:
+            raise V9RunError(
+                "the recorded run contract for task {} names a different fixed "
+                "query cache; refusing to resume with shifted routing geometry".format(task_index)
+            )
     write_json(contract_path, run_contract)
 
     # ---- 1. fixed query ----
-    ensure_query_cache(args, config, root, env)
-    queries, sample_ids = queries_from_cache(root / "features" / "train.json")
     if args.stop_after == "queries":
         print("[v9s] fixed query cache ready for {} train samples".format(len(sample_ids)))
         return
@@ -600,7 +657,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     calibration_manifest = None
     if args.calibrate:
-        calibration_manifest = _build_calibration_manifest(args, config, root, task_index)
+        calibration_manifest = _build_calibration_manifest(
+            args, config, root, task_index, query_source
+        )
     if args.stop_after == "retrieval":
         return
 
@@ -615,6 +674,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         initial_state,
         training_dir,
         calibration_manifest,
+        query_source,
     )
     run(command, env, root / "logs" / "train_task{}.log".format(task_index))
     if args.stop_after == "train":
@@ -684,7 +744,8 @@ def _previous_state_path(
 
 
 def _build_calibration_manifest(
-    args, config: V9Config, root: Path, task_index: int
+    args, config: V9Config, root: Path, task_index: int,
+    train_query_source: Optional[V9QuerySource],
 ) -> Path:
     """Point the in-process §30 calibration at the held-out split.
 
@@ -695,10 +756,17 @@ def _build_calibration_manifest(
     """
     if not args.val_file:
         raise V9RunError("--calibrate requires --val-file")
-    val_cache = root / "features" / "val.json"
-    if not val_cache.is_file():
-        raise V9RunError("--calibrate requires the fixed query cache {}".format(val_cache))
-    val_queries, val_ids = queries_from_cache(val_cache)
+    val_source = None
+    if train_query_source is not None:
+        val_source = manifest_query_source(args, task_index, "val", args.val_file)
+        val_queries, val_ids = val_source.queries, val_source.sample_ids
+    else:
+        val_cache = root / "features" / "val.json"
+        if not val_cache.is_file():
+            raise V9RunError(
+                "--calibrate requires the fixed query cache {}".format(val_cache)
+            )
+        val_queries, val_ids = queries_from_cache(val_cache)
     pool = V9KeyPool.from_state(
         torch.load(
             root / "state" / "key_pool_task{}_initial.pt".format(task_index),
@@ -720,7 +788,9 @@ def _build_calibration_manifest(
     )
     manifest = {
         "data_path": str(Path(args.val_file).resolve()),
-        "query_cache": str(val_cache),
+        "query_cache": str(val_source.tensor_path if val_source is not None else val_cache),
+        "query_tensor": val_source.tensor_path if val_source is not None else None,
+        "query_source": val_source.contract_record() if val_source is not None else {"kind": "legacy_json_query_cache", "path": str(val_cache.resolve()), "sha256": sha256_file(val_cache), "sample_count": len(val_ids)},
         "retrieval_cache": str(
             root / "features" / "historical_topc_task{}_val.pt".format(task_index)
         ),

@@ -57,6 +57,62 @@ class V9DataError(RuntimeError):
     """Raised when a V9 batch would be built from mismatched caches."""
 
 
+@dataclass(frozen=True)
+class V9QuerySource:
+    """A validated V7 fixed-query split used by one V9 task."""
+
+    queries: torch.Tensor
+    sample_ids: Tuple[str, ...]
+    tensor_path: str
+    value_hash: str
+    manifest_path: str
+    manifest_sha256: str
+    task_index: int
+    split: str
+
+    def contract_record(self) -> Dict[str, object]:
+        return {
+            "kind": "v7_precomputed_query_tensor",
+            "manifest_path": self.manifest_path,
+            "manifest_sha256": self.manifest_sha256,
+            "task_index": int(self.task_index),
+            "split": self.split,
+            "tensor_path": self.tensor_path,
+            "query_value_hash": self.value_hash,
+            "sample_count": len(self.sample_ids),
+        }
+
+
+def resolve_split_query_source(
+    query_cache_manifest: str, *, task_index: int, split: str,
+    expected_ids: Optional[Sequence[str]] = None,
+) -> V9QuerySource:
+    """Resolve a manifest-bound V7 split without JSON or live-encoder fallback."""
+    manifest = V7CacheManifest.locate(query_cache_manifest)
+    directory = manifest.split_dir(task_index, split)
+    queries, rows, value_hash, _metadata = load_split_cache_for_training(
+        directory,
+        expected_contract_hash=manifest.split_contract_hash(task_index, split),
+        expected_ids=expected_ids,
+        verify_value_hash=True,
+        mmap=True,
+    )
+    ordered = [None] * len(rows)
+    for sample_id, row in rows.items():
+        if row < 0 or row >= len(ordered) or ordered[row] is not None:
+            raise V9DataError("invalid V7 query-cache row map for {}".format(directory))
+        ordered[row] = str(sample_id)
+    if any(sample_id is None for sample_id in ordered):
+        raise V9DataError("non-contiguous V7 query-cache rows for {}".format(directory))
+    return V9QuerySource(
+        queries=queries, sample_ids=tuple(ordered),
+        tensor_path=str((Path(directory) / "queries.pt").resolve()),
+        value_hash=value_hash, manifest_path=manifest.path,
+        manifest_sha256=sha256_file(manifest.path),
+        task_index=int(task_index), split=str(split),
+    )
+
+
 class V9QueryDataset(V7QueryDataset):
     """Full train split joined with the fixed query *and* the task's Top-C.
 
@@ -249,9 +305,11 @@ __all__ = [
     "V9DataError",
     "V9QueryCollator",
     "V9QueryDataset",
+    "V9QuerySource",
     "V9TaskData",
     "build_task_retrieval",
     "candidate_rows_preview",
+    "resolve_split_query_source",
     "retrieval_diagnostics",
     "write_retrieval_manifest",
 ]
