@@ -484,6 +484,10 @@ def audit_task(
         validation_gain = {
             int(key): float(value) for key, value in read_json(gain_path).items()
         }
+    elif args.calibrate:
+        raise V9RunError(
+            "{} is missing although formal calibration is enabled".format(gain_path)
+        )
     candidate_decisions = audit_candidates(
         pool,
         statistics,
