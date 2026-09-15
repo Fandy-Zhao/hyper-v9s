@@ -402,6 +402,11 @@ class V9ComposeTrainer(ComposeTrainer):
                 "and the "
                 "routing bias: {}".format(unexpected[:10])
             )
+        # §33, at startup: the check above covers the model, this covers the key
+        # pool as well and states what will actually train before a step is
+        # taken.  It runs before the optimizer so an illegal trainable stops the
+        # task in its first minute rather than at its end.
+        self.trainable_parameter_groups_report()
         training = self.v9_training_config()
         self.optimizer = torch.optim.AdamW(
             [
@@ -1306,6 +1311,33 @@ class V9ComposeTrainer(ComposeTrainer):
                 )
         return groups, illegal
 
+    def trainable_parameter_groups_report(self) -> Dict[str, List[str]]:
+        """§33's grouped census, printed where the run can still be stopped.
+
+        The same classification is written to JSON at the end of the task, but a
+        fatal misconfiguration is worth catching in the first minute rather than
+        after an epoch that trained something no part of the method permits.
+        """
+        groups, illegal = self.trainable_parameter_groups()
+        if illegal:
+            raise AssertionError(
+                "illegal trainable parameters (spec §33): {}".format(illegal[:10])
+            )
+        if not _distributed() or torch.distributed.get_rank() == 0:
+            print("Trainable Parameter Groups (spec §33):")
+            for key, label in self._TRAINABLE_GROUP_LABELS:
+                members = groups[key]
+                print(
+                    "  {label:<38} {count:>5} tensors  {numel:>12,} params".format(
+                        label=label,
+                        count=len(members),
+                        numel=sum(numel for _, numel in members),
+                    )
+                )
+            print("  {label:<38} {count:>5} entries".format(
+                label="illegal trainables", count=0))
+        return {key: [name for name, _ in members] for key, members in groups.items()}
+
     def trainable_parameter_audit(self, print_census: bool = True) -> Dict[str, Any]:
         """Full parameter census (spec §28), printed once per task."""
         rows: List[Dict[str, Any]] = []
@@ -1340,11 +1372,7 @@ class V9ComposeTrainer(ComposeTrainer):
         # form of that check -- it also catches a historical expert's LoRA and a
         # retained key of an earlier task, which the flat name test cannot
         # distinguish from a current candidate.
-        groups, illegal = self.trainable_parameter_groups()
-        if illegal:
-            raise AssertionError(
-                "illegal trainable parameters (spec §33): {}".format(illegal[:10])
-            )
+        grouped = self.trainable_parameter_groups_report()
         candidate_keys = self._candidate_key_ids()
         trainable_keys = self.v9_key_pool.trainable_key_ids()
         #: Historical experts' *current-task* keys: independent, absolute, and
@@ -1364,9 +1392,7 @@ class V9ComposeTrainer(ComposeTrainer):
             "trainable_key_ids": list(trainable_keys),
             "candidate_key_ids": candidate_keys,
             "historical_task_key_ids": task_keys,
-            "trainable_parameter_groups": {
-                key: [name for name, _ in members] for key, members in groups.items()
-            },
+            "trainable_parameter_groups": grouped,
         }
         if print_census and (not _distributed() or torch.distributed.get_rank() == 0):
             for row in rows:
@@ -1378,25 +1404,6 @@ class V9ComposeTrainer(ComposeTrainer):
                     )
                 )
             print("V9 parameter census: {}".format(totals))
-            # §33: the audit above proves nothing is trainable that should not
-            # be; this prints what *is*, grouped by the role the method gives it,
-            # so the claim is legible in the log rather than only in a JSON file
-            # nobody reads until something has already gone wrong.
-            print("Trainable Parameter Groups (spec §33):")
-            for key, label in self._TRAINABLE_GROUP_LABELS:
-                members = groups[key]
-                print(
-                    "  {label:<38} {count:>5} tensors  {numel:>12,} params".format(
-                        label=label,
-                        count=len(members),
-                        numel=sum(numel for _, numel in members),
-                    )
-                )
-            print(
-                "  {label:<38} {count:>5} entries".format(
-                    label="illegal trainables", count=len(illegal)
-                )
-            )
         return payload
 
     # ------------------------------------------------------------------
