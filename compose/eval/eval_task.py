@@ -449,7 +449,7 @@ def main() -> None:
                     )
                 else:
                     bundle.expert_pool.manager.set_default_selection(
-                        manifest_ids, [1.0, 1.0]
+                        manifest_ids, [1.0] * len(manifest_ids)
                     )
                 selection_meta = {
                     "expert_ids": manifest_ids,
