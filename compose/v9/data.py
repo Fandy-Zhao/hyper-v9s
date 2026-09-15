@@ -69,6 +69,7 @@ class V9QuerySource:
     manifest_sha256: str
     task_index: int
     split: str
+    runtime_cache_root: str
 
     def contract_record(self) -> Dict[str, object]:
         return {
@@ -80,16 +81,19 @@ class V9QuerySource:
             "tensor_path": self.tensor_path,
             "query_value_hash": self.value_hash,
             "sample_count": len(self.sample_ids),
+            "runtime_cache_root": self.runtime_cache_root,
         }
 
 
 def resolve_split_query_source(
     query_cache_manifest: str, *, task_index: int, split: str,
     expected_ids: Optional[Sequence[str]] = None,
+    query_cache_root: Optional[str] = None,
 ) -> V9QuerySource:
     """Resolve a manifest-bound V7 split without JSON or live-encoder fallback."""
     manifest = V7CacheManifest.locate(query_cache_manifest)
-    directory = manifest.split_dir(task_index, split)
+    runtime_root = Path(query_cache_root).expanduser() if query_cache_root else Path(manifest.cache_root)
+    directory = runtime_root / "task{}".format(int(task_index)) / str(split)
     queries, rows, value_hash, _metadata = load_split_cache_for_training(
         directory,
         expected_contract_hash=manifest.split_contract_hash(task_index, split),
@@ -110,6 +114,7 @@ def resolve_split_query_source(
         value_hash=value_hash, manifest_path=manifest.path,
         manifest_sha256=sha256_file(manifest.path),
         task_index=int(task_index), split=str(split),
+        runtime_cache_root=str(runtime_root.resolve()),
     )
 
 

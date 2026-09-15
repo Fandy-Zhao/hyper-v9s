@@ -161,7 +161,8 @@ def declared_sample_ids(path: str) -> Tuple[str, ...]:
 def manifest_query_source(args, task_index: int, split: str, data_path: str) -> V9QuerySource:
     try:
         return resolve_split_query_source(args.query_cache_manifest, task_index=task_index,
-            split=split, expected_ids=declared_sample_ids(data_path))
+            split=split, expected_ids=declared_sample_ids(data_path),
+            query_cache_root=args.query_cache_root)
     except (FileNotFoundError, ValueError, RuntimeError) as error:
         raise V9RunError("cannot consume precomputed V7 query cache for task{}.{}: {}".format(
             task_index, split, error)) from error
@@ -173,6 +174,10 @@ def resolve_training_query_source(args, config, root, env, task_index):
         source = manifest_query_source(args, task_index, "train", args.train_file)
         print("[v9s] using V7 precomputed query tensor: {}".format(source.tensor_path), flush=True)
         return source
+    if not args.allow_live_query_build:
+        raise V9RunError(
+            "formal V9-S requires --query-cache-manifest; live query building needs --allow-live-query-build"
+        )
     ensure_query_cache(args, config, root, env)
     return None
 
@@ -293,6 +298,41 @@ def prepare_task_pool(
         "num_task_keys": len(pool.task_key_ids(task_index)),
     }
     return pool, candidate_ids, audit
+
+
+def load_trained_task_pool(
+    training_dir: Path,
+    initial_pool: V9KeyPool,
+    task_index: int,
+    candidate_ids: Sequence[int],
+) -> V9KeyPool:
+    """Load the only pool state that is eligible for task-end audit."""
+    state_path = Path(training_dir) / "v9_key_pool.pt"
+    if not state_path.is_file():
+        raise V9RunError(
+            "{} is missing; training did not persist its trained V9 key pool".format(
+                state_path
+            )
+        )
+    state = torch.load(state_path, map_location="cpu", weights_only=False)
+    trained = V9KeyPool.from_state(state, current_task=None)
+    trained.validate()
+    if trained.query_dim != initial_pool.query_dim:
+        raise V9RunError("trained key pool changed query_dim")
+    if trained.expert_ids() != initial_pool.expert_ids():
+        raise V9RunError("trained key pool changed expert ids before audit")
+    if trained.historical_ids != initial_pool.historical_ids:
+        raise V9RunError("trained key pool changed historical ids before audit")
+    if sorted(trained.current_ids) != sorted(int(value) for value in candidate_ids):
+        raise V9RunError("trained key pool lost or added a candidate before audit")
+    if trained.key_ids() != initial_pool.key_ids():
+        raise V9RunError("trained key pool changed key identities before audit")
+    if trained.historical_checksums() != initial_pool.historical_checksums():
+        raise V9RunError("training mutated a frozen historical key")
+    for expert_id in candidate_ids:
+        if trained.expert_record(int(expert_id)).get("lifecycle") != LIFECYCLE_CANDIDATE:
+            raise V9RunError("candidate lifecycle changed before task-end audit")
+    return trained
 
 
 # ----------------------------------------------------------------------
@@ -504,6 +544,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--query-encoder", default=None)
     parser.add_argument("--query-cache-manifest", default=None,
         help="V7 query_cache_manifest.json or directory; uses validated queries.pt only.")
+    parser.add_argument("--query-cache-root", default=None,
+        help="Physical cache root; provenance remains bound to --query-cache-manifest.")
+    parser.add_argument("--allow-live-query-build", action="store_true",
+        help="Debug only: explicitly permit legacy live query construction without a manifest.")
     parser.add_argument("--query-batch-size", type=int, default=16)
     parser.add_argument("--previous-checkpoint", default=None)
     parser.add_argument("--training-world-size", type=int, default=1)
@@ -681,12 +725,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         return
 
     # ---- 5. audit ----
+    trained_pool = load_trained_task_pool(
+        training_dir, pool, task_index, candidate_ids
+    )
     audit = audit_task(
-        args, config, root, task_index, pool, candidate_ids, training_dir
+        args, config, root, task_index, trained_pool, candidate_ids, training_dir
     )
     committed_state = state_dir / "key_pool_task{}.pt".format(task_index)
-    pool.validate()
-    torch.save(pool.export_state(), committed_state)
+    trained_pool.validate()
+    torch.save(trained_pool.export_state(), committed_state)
     audit["committed_state"] = str(committed_state)
     write_json(root / "data" / "audit_task{}.json".format(task_index), audit)
     print(
