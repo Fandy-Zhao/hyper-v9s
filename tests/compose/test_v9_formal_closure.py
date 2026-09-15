@@ -34,7 +34,7 @@ from compose.experiments.v9_chain import (
     performance_report,
 )
 from compose.v9.closure import go_no_go, task_completion
-from compose.v9.data_wait import DataWaitError, measure, verdict
+from compose.v9.data_wait import DataWaitError, discover, measure, report, verdict
 from compose.v9.formal_eval import (
     TASK_NAMES,
     V9FormalEvaluationError,
@@ -543,6 +543,36 @@ def test_measure_prefers_the_profiler_rows_over_the_trainer_rows():
 def test_measure_refuses_to_decide_without_a_measurement():
     with pytest.raises(DataWaitError):
         measure([{"training_step_sec": 1.0}])
+
+
+def test_discover_finds_the_profiler_file_a_real_run_writes(tmp_path):
+    """The profiler names its file ``task{N}_profile_steps.jsonl``.
+
+    A ``profile_steps*`` glob matches nothing there, so the verdict silently
+    fell back to the trainer rows -- the source the module documents as the
+    less informative one, and on this run the one that disagreed.
+    """
+    metrics = tmp_path / "task0" / "metrics"
+    metrics.mkdir(parents=True)
+    (metrics / "task0_profile_steps.rank0.jsonl").write_text("{}\n", encoding="utf-8")
+    (metrics / "task0_train_steps.rank0.jsonl").write_text("{}\n", encoding="utf-8")
+    found = {path.name for path in discover(tmp_path)}
+    assert found == {"task0_profile_steps.rank0.jsonl", "task0_train_steps.rank0.jsonl"}
+
+
+def test_the_verdict_uses_the_profiler_when_a_run_has_one(tmp_path):
+    """Both files present, and the profiler is the one that decides."""
+    metrics = tmp_path / "task0" / "metrics"
+    metrics.mkdir(parents=True)
+    (metrics / "task0_profile_steps.rank0.jsonl").write_text(
+        json.dumps({"data_wait_time": 0.4, "window_wall_time": 10.0}) + "\n", encoding="utf-8")
+    (metrics / "task0_train_steps.rank0.jsonl").write_text(
+        json.dumps({"inter_step_wait_sec": 0.001, "training_step_sec": 10.0}) + "\n",
+        encoding="utf-8")
+    payload = report(tmp_path)
+    assert payload["source"] == "profiler"
+    assert payload["fraction"] == pytest.approx(0.04)
+    assert payload["dataloader_change_warranted"] is True
 
 
 # ----------------------------------------------------------------------

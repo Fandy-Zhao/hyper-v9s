@@ -153,9 +153,16 @@ def verdict(fraction: float, threshold: float = DEFAULT_THRESHOLD) -> Dict[str, 
 
 
 def discover(root: Path) -> List[Path]:
-    """Every profiler and trainer step log under a run root."""
+    """Every profiler and trainer step log under a run root.
+
+    The profiler's file is written as ``task{N}_profile_steps.jsonl``, so the
+    pattern has to match the name anywhere rather than at the start: a
+    ``profile_steps*`` glob silently finds nothing on a real run root and drops
+    the verdict back to the trainer rows, which is the source the module
+    documents as *less* informative.
+    """
     root = Path(root)
-    paths = sorted(root.glob("**/profile_steps*.jsonl"))
+    paths = sorted(root.glob("**/*profile_steps*.jsonl"))
     paths += sorted(root.glob("**/metrics/task*_train_steps*.jsonl"))
     return paths
 
