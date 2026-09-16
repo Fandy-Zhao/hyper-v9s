@@ -256,6 +256,76 @@ cmd_sanity() {
   log "sanity COMPLETE-OR-REPORTED; evidence in $SANITY_ROOT"
 }
 
+# The launch manifest: what this run is, recorded where the run can be read
+# against it later.  The GPU name is read from the driver rather than from this
+# file's name, because the file's name is wrong -- the host is four RTX 4080
+# 32GB, not four 4090 -- and a run that recorded its hardware from a filename
+# would carry that mistake into the paper.
+write_launch_manifest() {
+  local gpu_name
+  gpu_name=$(nvidia-smi --id="$(printf '%s' "$GPUS" | cut -d, -f1)" \
+    --query-gpu=name --format=csv,noheader | sed 's/[[:space:]]*$//')
+  ACTUAL_GPU_NAME="$gpu_name" GIT_SHA="$GIT_SHA" RUN_ROOT="$RUN_ROOT" \
+  TMUX_SESSION="$TMUX_SESSION" REPO="$REPO" PY="$PY" CONFIG="$CONFIG" \
+  WORLD_SIZE="$WORLD_SIZE" PER_DEVICE_BATCH="$PER_DEVICE_BATCH" \
+  GRAD_ACCUM="$GRAD_ACCUM" QUERY_CACHE_MANIFEST="$QUERY_CACHE_MANIFEST" \
+  QUERY_CACHE_ROOT="$QUERY_CACHE_ROOT" GPUS="$GPUS" \
+  "$PY" - <<'PY'
+import hashlib, json, os, subprocess, sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+def sha256(path):
+    path = Path(path)
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
+env = os.environ
+run_root = Path(env["RUN_ROOT"])
+payload = {
+    "created_at": datetime.now(timezone.utc).isoformat(),
+    "git_sha": env["GIT_SHA"],
+    "git_branch": subprocess.run(
+        ["git", "-C", env["REPO"], "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=True).stdout.strip(),
+    "git_dirty": bool(subprocess.run(
+        ["git", "-C", env["REPO"], "status", "--porcelain"],
+        capture_output=True, text=True, check=True).stdout.strip()),
+    "repo": env["REPO"],
+    "run_root": str(run_root),
+    "tmux_session": env["TMUX_SESSION"],
+    "python": env["PY"],
+    "hardware": {
+        "actual_gpu_name": env["ACTUAL_GPU_NAME"],
+        "gpu_count": 4,
+        "visible_devices": env["GPUS"],
+        "memory_total_mib": 32760,
+        "note": "four GeForce RTX 4080 32GB; the launcher's filename says 4090 and is known to be wrong",
+    },
+    "contract": {
+        "world_size": int(env["WORLD_SIZE"]),
+        "per_device_batch": int(env["PER_DEVICE_BATCH"]),
+        "grad_accum": int(env["GRAD_ACCUM"]),
+        "global_batch": int(env["WORLD_SIZE"]) * int(env["PER_DEVICE_BATCH"]) * int(env["GRAD_ACCUM"]),
+        "query_source": "precomputed",
+        "query_encoder_calls": 0,
+        "num_train_epochs": 1,
+    },
+    "config": {"path": env["CONFIG"], "sha256": sha256(env["CONFIG"])},
+    "query_cache": {
+        "manifest": env["QUERY_CACHE_MANIFEST"],
+        "manifest_sha256": sha256(env["QUERY_CACHE_MANIFEST"]),
+        "root": env["QUERY_CACHE_ROOT"],
+    },
+    "tasks": ["ImageNet-R", "ArxivQA", "VizWiz", "IconQA", "CLEVR", "Flickr30k"],
+}
+(run_root / "launch_manifest.json").write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+print("[v9s-formal] launch manifest -> {}".format(run_root / "launch_manifest.json"))
+print("[v9s-formal] actual_gpu_name={}".format(env["ACTUAL_GPU_NAME"]))
+PY
+  [ -f "$RUN_ROOT/launch_manifest.json" ] || fail "the launch manifest was not written"
+}
+
 cmd_start() {
   cmd_check
   # Spec §25: the sanity run is cleaned before the formal one starts.  Its
@@ -270,6 +340,7 @@ cmd_start() {
   fi
   mkdir -p "$RUN_ROOT"
   printf '%s\n' "$GIT_SHA" > "$RUN_ROOT/formal_git_sha.txt"
+  write_launch_manifest
 
   mapfile -t ARGS < <(chain_arguments "$RUN_ROOT" \
     --from-task 0 --to-task 5 --profile-training)
