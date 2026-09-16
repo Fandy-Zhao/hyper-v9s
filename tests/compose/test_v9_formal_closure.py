@@ -31,6 +31,7 @@ from compose.experiments.v9_chain import (
     V9ChainError,
     _clear_markers,
     _git_dirty,
+    full_data_contract,
     performance_report,
 )
 from compose.v9.closure import go_no_go, task_completion
@@ -189,6 +190,88 @@ def test_a_missing_artefact_names_itself(tmp_path):
     assert "calibration" in result["failed"]
     detail = next(row for row in result["requirements"] if row["name"] == "calibration")
     assert "missing" in detail["detail"]
+
+
+# ----------------------------------------------------------------------
+# the per-task tail contract: read where the task ends, not where the next one
+# begins, so a lost tail window stops the chain instead of being handed on
+# ----------------------------------------------------------------------
+class _ChainArgs:
+    def __init__(self, run_root: Path, sanity: bool = False) -> None:
+        self.run_root = str(run_root)
+        self.sanity = sanity
+
+
+def test_the_tail_contract_accepts_a_task_that_covered_its_split(tmp_path):
+    root = _complete_task(tmp_path / "task0")
+    contract = full_data_contract(_ChainArgs(tmp_path), 0)
+    assert contract["ok"], contract["failed"]
+    assert contract["expected_optimizer_steps"] == 5
+    assert contract["actual_optimizer_steps"] == 5
+    assert contract["forward_unique_coverage"] == 1.0
+    assert contract["optimizer_unique_coverage"] == 1.0
+
+
+def test_the_tail_contract_refuses_the_pre_fix_number(tmp_path):
+    """The old run's exact shape: the step count the floor division produced."""
+    root = _complete_task(tmp_path / "task0")
+    coverage_path = root / "training" / "task0" / "v9_full_data_coverage.json"
+    coverage = json.loads(coverage_path.read_text())
+    coverage["optimizer_steps"] = 1241
+    coverage["expected_optimizer_steps"] = 1241
+    coverage["num_train_samples"] = 39720
+    coverage["declared_unique_samples"] = 39720
+    _write(coverage_path, coverage)
+    contract = full_data_contract(_ChainArgs(tmp_path), 0)
+    assert not contract["ok"]
+    assert any("1242" in failure for failure in contract["failed"]), contract["failed"]
+
+
+def test_the_tail_contract_refuses_a_window_that_never_closed(tmp_path):
+    root = _complete_task(tmp_path / "task0")
+    coverage_path = root / "training" / "task0" / "v9_full_data_coverage.json"
+    coverage = json.loads(coverage_path.read_text())
+    coverage["optimizer_coverage"] = 144 / 160
+    coverage["unclosed_window_sample_count"] = 16
+    _write(coverage_path, coverage)
+    contract = full_data_contract(_ChainArgs(tmp_path), 0)
+    assert not contract["ok"]
+    assert any("unclosed_window" in failure for failure in contract["failed"])
+    assert any("optimizer_unique_coverage" in failure for failure in contract["failed"])
+
+
+def test_the_tail_contract_reads_either_name_for_the_split(tmp_path):
+    """The artefact names the split twice; a reader must accept both shapes."""
+    root = _complete_task(tmp_path / "task0")
+    coverage_path = root / "training" / "task0" / "v9_full_data_coverage.json"
+    coverage = json.loads(coverage_path.read_text())
+    # The newer artefact carries both names and the padding record.
+    coverage["declared_unique_samples"] = 160
+    coverage["padded_epoch_samples"] = 160
+    coverage["padding_duplicate_count"] = 0
+    _write(coverage_path, coverage)
+    contract = full_data_contract(_ChainArgs(tmp_path), 0)
+    assert contract["ok"], contract["failed"]
+    assert contract["declared_unique_samples"] == 160
+    assert contract["padded_epoch_samples"] == 160
+    assert contract["padding_duplicate_count"] == 0
+
+    # The older one carries only ``num_train_samples`` and no padding record.
+    del coverage["declared_unique_samples"]
+    del coverage["padded_epoch_samples"]
+    del coverage["padding_duplicate_count"]
+    _write(coverage_path, coverage)
+    older = full_data_contract(_ChainArgs(tmp_path), 0)
+    assert older["ok"], older["failed"]
+    assert older["declared_unique_samples"] == 160
+
+
+def test_a_missing_coverage_artefact_is_not_a_pass(tmp_path):
+    root = _complete_task(tmp_path / "task0")
+    (root / "training" / "task0" / "v9_full_data_coverage.json").unlink()
+    contract = full_data_contract(_ChainArgs(tmp_path), 0)
+    assert not contract["ok"]
+    assert "no coverage artefact" in contract["failed"][0]
 
 
 # ----------------------------------------------------------------------

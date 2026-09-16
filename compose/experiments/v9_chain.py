@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -63,6 +64,10 @@ def _write_json(path: Path, payload: Any) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temporary.replace(path)
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def _marker(root: Path, name: str) -> None:
@@ -311,6 +316,62 @@ def run_training(args, command: List[str], task: int, env: Dict[str, str]) -> Di
     }
 
 
+def full_data_contract(args, task: int) -> Dict[str, Any]:
+    """The tail predicate, asserted where the task ends rather than where the next begins.
+
+    ``task_completion`` already reads these numbers, but it is consulted when the
+    *next* task starts -- so without this the chain would train task t+1 for
+    hours and only then discover that task t dropped its last accumulation
+    window.  The step count is recomputed from the artefact's own declared split
+    and global batch, so agreement here means agreement with the contract and not
+    with the run's arithmetic: both HF and the old V9 scheduler used the same
+    floor division, and comparing them to each other is exactly the check that
+    would have missed this.
+    """
+    training = Path(args.run_root) / "task{}".format(task) / "training" / "task{}".format(task)
+    path = training / "v9_full_data_coverage.json"
+    blank = {
+        "declared_unique_samples": 0, "padded_epoch_samples": 0,
+        "padding_duplicate_count": 0, "expected_optimizer_steps": 0,
+        "actual_optimizer_steps": 0, "forward_unique_coverage": 0.0,
+        "optimizer_unique_coverage": 0.0, "ok": False,
+    }
+    if not path.is_file():
+        blank["failed"] = ["no coverage artefact at {}".format(path)]
+        return blank
+    coverage = _read_json(path)
+    declared = int(coverage.get("declared_unique_samples", 0) or coverage.get("num_train_samples", 0))
+    global_batch = int(coverage.get("global_batch", 0))
+    actual = int(coverage.get("optimizer_steps", 0))
+    forward = float(coverage.get("train_sample_coverage", 0.0))
+    optimizer = float(coverage.get("optimizer_coverage", 0.0))
+    required = int(math.ceil(declared / global_batch)) if declared and global_batch else 0
+    failed = []
+    if required < 1:
+        failed.append("declared {} / global batch {} does not define a step".format(declared, global_batch))
+    if actual != required:
+        failed.append("actual_optimizer_steps {} != ceil({} / {}) = {}".format(actual, declared, global_batch, required))
+    if int(coverage.get("expected_optimizer_steps", 0)) != required:
+        failed.append("artefact expected_optimizer_steps {} != {}".format(coverage.get("expected_optimizer_steps"), required))
+    if forward < 1.0:
+        failed.append("forward_unique_coverage {:.6f}".format(forward))
+    if optimizer < 1.0:
+        failed.append("optimizer_unique_coverage {:.6f}".format(optimizer))
+    if int(coverage.get("unclosed_window_sample_count", 0)) != 0:
+        failed.append("unclosed_window_sample_count {}".format(coverage.get("unclosed_window_sample_count")))
+    return {
+        "declared_unique_samples": declared,
+        "padded_epoch_samples": int(coverage.get("padded_epoch_samples", 0)),
+        "padding_duplicate_count": int(coverage.get("padding_duplicate_count", 0)),
+        "expected_optimizer_steps": required,
+        "actual_optimizer_steps": actual,
+        "forward_unique_coverage": forward,
+        "optimizer_unique_coverage": optimizer,
+        "ok": not failed,
+        "failed": failed,
+    }
+
+
 def handoff_checks(args, task: int) -> Dict[str, Any]:
     """Everything Task{t+1} will rely on, asserted before it is started.
 
@@ -465,6 +526,18 @@ def run_task(args, task: int, per_device_batch: int, grad_accum: int) -> Dict[st
                 task, sorted(k for k, v in handoff.items() if v is False and k != "all_ok")
             )
         )
+    # The full-data tail contract, checked here so a task that dropped its last
+    # accumulation window stops the chain instead of being handed to the next
+    # one.  A sanity run caps its step count and cannot meet it, so it is asked
+    # only to record the numbers -- the same reason its completion gate relaxes
+    # the coverage requirement.
+    contract = full_data_contract(args, task)
+    if not args.sanity and not contract["ok"]:
+        raise V9ChainError(
+            "task {} trained but did not cover its declared split: {}".format(
+                task, contract["failed"]
+            )
+        )
     evaluation = evaluate_task(args, task) if evaluate else {
         "skipped": "task {} is above --eval-through {}".format(task, args.eval_through)
     }
@@ -487,6 +560,7 @@ def run_task(args, task: int, per_device_batch: int, grad_accum: int) -> Dict[st
         "world_size": args.world_size,
         "global_batch": args.world_size * per_device_batch * grad_accum,
         "sanity": bool(args.sanity), "max_steps": int(args.max_steps),
+        "full_data_contract": contract,
         "handoff": handoff, "evaluation": evaluation, "performance": performance,
     })
     return {
