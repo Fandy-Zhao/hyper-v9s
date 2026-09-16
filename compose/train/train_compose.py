@@ -313,6 +313,15 @@ def _v9_total_steps(trainer) -> int:
     discretisation stage -- the one deployment actually depends on -- lands in
     the wrong place.  This mirrors HF's own ``max_steps`` derivation rather than
     approximating it.
+
+    Mirroring HF is not sufficient on its own.  HF's derivation is
+    ``len(loader) // accumulation``, a floor division that silently discards a
+    trailing partial accumulation window -- so an HF-matching total can be
+    *consistently* one step short of what the declared split requires, and the
+    last discretisation step is dropped without anything disagreeing.  When the
+    trainer can state the contract (V9 knows its split, its world size and its
+    accumulation), the total is taken from that instead and the dataloader is
+    required to agree with it.
     """
     import math
 
@@ -323,7 +332,26 @@ def _v9_total_steps(trainer) -> int:
     accumulation = max(int(args.gradient_accumulation_steps), 1)
     per_epoch = max(len(loader) // accumulation, 1)
     epochs = float(args.num_train_epochs)
-    return max(int(math.ceil(epochs * per_epoch)), 1)
+    mirrored = max(int(math.ceil(epochs * per_epoch)), 1)
+
+    plan_fn = getattr(trainer, "v9_epoch_plan", None)
+    if plan_fn is None or int(epochs) != 1:
+        return mirrored
+    # One epoch: the contract total is the padded epoch's global-batch count.
+    plan = plan_fn(len(loader))
+    if mirrored != plan.expected_optimizer_steps:
+        raise RuntimeError(
+            "the dataloader implies {} optimizer steps but covering {} declared "
+            "samples in global batches of {} requires {}; the two must agree or "
+            "the stage schedule is defined over a different run than the one "
+            "executed".format(
+                mirrored,
+                plan.declared_unique_samples,
+                plan.global_batch,
+                plan.expected_optimizer_steps,
+            )
+        )
+    return plan.expected_optimizer_steps
 
 
 def _run_v9_calibration(

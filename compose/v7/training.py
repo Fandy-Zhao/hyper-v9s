@@ -23,7 +23,24 @@ def full_data_coverage_audit(
     optimizer_steps: int,
     observed_sample_count: int,
     require_full: bool,
+    optimizer_sample_ids: Optional[Iterable[str]] = None,
+    unclosed_window_sample_ids: Optional[Iterable[str]] = None,
 ) -> Dict[str, object]:
+    """Full-data coverage, on both sides of the optimizer step.
+
+    ``unique_sample_ids`` is what the model *saw*: every sample that entered a
+    forward pass.  ``optimizer_sample_ids`` is what the optimizer *applied*:
+    every sample whose loss was inside an accumulation window that closed with
+    an ``optimizer.step()``.  The second is a strict subset of the first, and
+    the gap between them is exactly the failure that a forward-only audit cannot
+    see -- a trailing micro-batch is forwarded, backwarded, and dropped when the
+    epoch ends before its window closes.  Its samples are counted as covered by
+    the first number and were never supervised by the second.
+
+    The two optional arguments default to ``None`` so existing callers keep the
+    forward-side contract they were written against; V9 passes both, and the
+    formal predicate then requires ``optimizer_coverage == 1.0`` as well.
+    """
     sample_count = int(num_train_samples)
     unique_count = len(set(str(value) for value in unique_sample_ids))
     coverage = unique_count / sample_count if sample_count else 0.0
@@ -41,6 +58,30 @@ def full_data_coverage_audit(
         raise RuntimeError(
             "formal V7 training did not cover the full declared split: {}".format(result)
         )
+    if optimizer_sample_ids is not None:
+        optimizer_count = len(set(str(value) for value in optimizer_sample_ids))
+        optimizer_coverage = optimizer_count / sample_count if sample_count else 0.0
+        result.update(
+            {
+                "unique_optimizer_applied_sample_ids": optimizer_count,
+                "optimizer_coverage": float(optimizer_coverage),
+            }
+        )
+        if unclosed_window_sample_ids is not None:
+            unclosed = sorted({str(value) for value in unclosed_window_sample_ids})
+            result["unclosed_window_sample_count"] = len(unclosed)
+            result["unclosed_window_sample_ids"] = unclosed[:50]
+        if require_full and optimizer_count != sample_count:
+            raise RuntimeError(
+                "formal training did not apply every declared sample to an "
+                "optimizer step: {} of {} reached a closed accumulation window; "
+                "the tail of the epoch was forwarded but never stepped (first "
+                "unclosed ids: {})".format(
+                    optimizer_count,
+                    sample_count,
+                    (result.get("unclosed_window_sample_ids") or [])[:10],
+                )
+            )
     return result
 
 

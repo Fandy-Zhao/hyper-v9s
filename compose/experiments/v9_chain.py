@@ -426,8 +426,11 @@ def run_task(args, task: int, per_device_batch: int, grad_accum: int) -> Dict[st
                     task, outcome["returncode"], outcome["log"]
                 )
             )
-        # Spec §31: one fallback, recorded, from a clean task state.  A second
-        # failure is reported rather than tuned around.
+        # One fallback, recorded, from a clean task state.  The fallback is the
+        # last attempt: micro 4 / accum 2 OOMs -> restart this task clean at
+        # micro 2 / accum 4 (global batch still 32) -> if *that* also runs out
+        # of memory the chain stops.  It is not "if micro 4 fails again" --
+        # micro 4 is gone by then -- so no third size and no continued tuning.
         fallback_batch = max(1, per_device_batch // 2)
         fallback_accum = max(1, (args.world_size * per_device_batch * grad_accum)
                              // (args.world_size * fallback_batch))
@@ -444,9 +447,13 @@ def run_task(args, task: int, per_device_batch: int, grad_accum: int) -> Dict[st
         outcome = run_training(args, command, task, env)
         if outcome["returncode"] != 0:
             raise V9ChainError(
-                "task {} failed again at the OOM fallback (micro-batch {}); "
-                "reported rather than tuned further; see {}".format(
-                    task, fallback_batch, outcome["log"]
+                "task {} out of memory at micro-batch {} with accumulation {} "
+                "(global batch {}); that was the one permitted fallback, so the "
+                "chain stops here rather than trying a third size -- see {}. "
+                "Reported, not tuned around.".format(
+                    task, fallback_batch, fallback_accum,
+                    args.world_size * fallback_batch * fallback_accum,
+                    outcome["log"],
                 )
             )
         per_device_batch, grad_accum = fallback_batch, fallback_accum

@@ -60,7 +60,19 @@ def _complete_task(root: Path, task: int = 0, evaluation_root: Path | None = Non
     _write(training / "v9_task_statistics.json",
            {"micro_steps": 10, "observed_sample_count": 160})
     (training / "compose_experts.bin").write_bytes(b"\x00" * 16)
-    _write(training / "v9_full_data_coverage.json", {"train_sample_coverage": 1.0})
+    _write(training / "v9_full_data_coverage.json", {
+        "train_sample_coverage": 1.0,
+        # The optimizer-side half of the coverage claim.  A fixture that only
+        # carried ``train_sample_coverage`` would be describing a run from
+        # before the tail-batch fix, and the predicate is right to refuse it.
+        "optimizer_coverage": 1.0,
+        "unique_optimizer_applied_sample_ids": 160,
+        "unclosed_window_sample_count": 0,
+        "optimizer_steps": 5,
+        "num_train_samples": 160,
+        "global_batch": 32,
+        "expected_optimizer_steps": 5,
+    })
     _write(training / "v9_freeze_audit.json", {"llm": True, "vision": True, "historical_lora": True})
     _write(training / "v9_answer_key_isolation.json", {"answer_reaches_key": False})
     _write(training / "v9_distributed_audit.json", {"ranks": 4})

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -123,6 +124,67 @@ def task_completion(
                         "train_sample_coverage={:.6f}".format(ratio),
                     )
                 )
+                # The tail predicate.  ``train_sample_coverage`` counts forwards,
+                # and a micro-batch whose accumulation window never closed was
+                # forwarded -- so a run can report 1.0 there while a handful of
+                # declared samples never reached an optimizer step.  The two
+                # requirements below are the ones that close that gap, and the
+                # step count is recomputed from the recorded split size rather
+                # than read back from the file, so agreement here is agreement
+                # with the contract and not with the run's own arithmetic.
+                declared = int(coverage.get("num_train_samples", 0))
+                global_batch = int(coverage.get("global_batch", 0)) or None
+                applied = coverage.get("unique_optimizer_applied_sample_ids")
+                opt_ratio = coverage.get("optimizer_coverage")
+                unclosed = int(coverage.get("unclosed_window_sample_count", 0))
+                observed_steps = int(coverage.get("optimizer_steps", 0))
+                if opt_ratio is None or applied is None:
+                    requirements.append(
+                        _requirement(
+                            "optimizer_coverage",
+                            False,
+                            "the coverage artefact predates the optimizer-side "
+                            "audit: it records forwards but not optimizer-applied "
+                            "samples, so an unclosed tail window would be "
+                            "invisible here",
+                        )
+                    )
+                else:
+                    ok = float(opt_ratio) >= 1.0 and unclosed == 0
+                    requirements.append(
+                        _requirement(
+                            "optimizer_coverage",
+                            ok,
+                            "optimizer_coverage={:.6f} applied={} unclosed_window_samples={}".format(
+                                float(opt_ratio), applied, unclosed
+                            ),
+                        )
+                    )
+                expected = coverage.get("expected_optimizer_steps")
+                if global_batch and declared:
+                    required = int(math.ceil(declared / global_batch))
+                    if expected is not None and int(expected) != required:
+                        requirements.append(
+                            _requirement(
+                                "optimizer_steps",
+                                False,
+                                "artefact records expected_optimizer_steps={} but "
+                                "ceil({} / {}) = {}".format(
+                                    expected, declared, global_batch, required
+                                ),
+                            )
+                        )
+                    else:
+                        requirements.append(
+                            _requirement(
+                                "optimizer_steps",
+                                observed_steps == required,
+                                "actual_optimizer_steps={} expected={} "
+                                "(ceil({} / {}))".format(
+                                    observed_steps, required, declared, global_batch
+                                ),
+                            )
+                        )
             except (OSError, ValueError, TypeError) as error:
                 requirements.append(
                     _requirement("full_coverage", False, "unreadable: {}".format(error))

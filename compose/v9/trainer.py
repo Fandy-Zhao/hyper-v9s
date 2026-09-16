@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
+from transformers.trainer_utils import has_length
 
 from compose.adapters.types import ComposeSelection
 from compose.lora.rms import runtime_kappa_calibration
@@ -68,6 +69,13 @@ from .contribution import (
     pair_rerank_report,
 )
 from .keys import V9KeyPool
+from .epoch import (
+    EpochPlan,
+    GlobalBatchPaddedSampler,
+    global_batch,
+    plan_epoch,
+    verify_epoch_plan,
+)
 from .losses import compose_total_loss
 from .retrieval import is_wide_step
 from .router import PAD_EXPERT_ID, V9RouteOutput, V9Router
@@ -203,6 +211,24 @@ class V9ComposeTrainer(ComposeTrainer):
         self.v9_unsynced_optimizer_steps = 0
         self.v9_observed_sample_count = 0
         self.v9_unique_sample_ids = set()
+        #: Sample ids whose loss reached an ``optimizer.step()``, which is a
+        #: different set from the one above.  ``v9_unique_sample_ids`` records
+        #: what was *forwarded*; a micro-batch that closes no gradient window is
+        #: forwarded and then dropped, so reporting that set as coverage claims
+        #: a guarantee about supervision that the optimizer never delivered.
+        #: ``_v9_window_sample_ids`` is the open window: it accumulates until a
+        #: boundary flushes it, and anything still in it when training ends is
+        #: precisely the violation this pair exists to detect.
+        self.v9_optimizer_sample_ids = set()
+        self._v9_window_sample_ids: List[str] = []
+        #: Offered-expert width, the bounded-compute invariant.  The pool grows
+        #: every task; the recall width must not follow it.
+        self.v9_offered_experts_sum = 0.0
+        self.v9_offered_experts_count = 0
+        self.v9_offered_experts_max = 0
+        self.v9_historical_offered_max = 0
+        self.v9_nonzero_gate_experts_sum = 0.0
+        self._v9_optimizer_step_spans: List[float] = []
         self.v9_stage_steps: Dict[str, int] = {}
         self.v9_extra_forwards = 0
         #: Main-backbone forwards, counted where they actually happen.  §41 (D)
@@ -283,6 +309,62 @@ class V9ComposeTrainer(ComposeTrainer):
         self.v9_total_steps = max(int(total_steps), 1)
         self.v9_scheduler = V9StageScheduler(
             self.v9_config.schedule, self.v9_config.routing, self.v9_total_steps
+        )
+
+    # ------------------------------------------------------------------
+    # full-data epoch contract
+    # ------------------------------------------------------------------
+    def _get_train_sampler(self):
+        """A deterministic epoch padded to a whole number of global batches.
+
+        Without this the epoch's micro-batch count per rank can be odd, and
+        transformers 4.33.3 cannot close the accumulation window that the
+        trailing micro-batch opens: it computes
+        ``num_update_steps_per_epoch = len(loader) // accumulation`` and its
+        partial-window escape hatch requires the whole epoch to be shorter than
+        one window.  The samples in that window are forwarded, counted by the
+        coverage audit, and never optimized.  See ``compose.v9.epoch``.
+        """
+        sampler = super()._get_train_sampler()
+        dataset = getattr(self, "train_dataset", None)
+        if dataset is None or not has_length(dataset):
+            return sampler
+        args = self.args
+        return GlobalBatchPaddedSampler(
+            len(dataset),
+            world_size=int(getattr(args, "world_size", 1)),
+            per_device_batch=int(self._train_batch_size),
+            grad_accum=max(int(args.gradient_accumulation_steps), 1),
+            seed=int(getattr(args, "seed", 42) or 42),
+        )
+
+    def v9_epoch_plan(self, per_rank_dataloader_length: Optional[int] = None) -> EpochPlan:
+        """The epoch the contract requires, checked against the one built.
+
+        Called from the entry point before the first step, so a sampler that
+        disagrees with the contract stops the task in its first minute rather
+        than at its end -- and the same arithmetic is recomputed by the
+        completion predicate from the recorded split size, which is what makes
+        the check a statement about the contract instead of about a number one
+        side copied from the other.
+        """
+        args = self.args
+        plan = plan_epoch(
+            len(self.train_dataset),
+            world_size=int(getattr(args, "world_size", 1)),
+            per_device_batch=int(self._train_batch_size),
+            grad_accum=max(int(args.gradient_accumulation_steps), 1),
+        )
+        verify_epoch_plan(plan, per_rank_dataloader_length=per_rank_dataloader_length)
+        return plan
+
+    def _v9_global_batch(self) -> int:
+        """The effective batch one optimizer step averages over."""
+        args = self.args
+        return global_batch(
+            int(getattr(args, "world_size", 1)),
+            int(self._train_batch_size),
+            max(int(args.gradient_accumulation_steps), 1),
         )
 
     def _assert_answer_loss_isolated_from_keys(
@@ -527,6 +609,7 @@ class V9ComposeTrainer(ComposeTrainer):
         sample_ids = tuple(str(value) for value in inputs.get("sample_ids", ()))
         self._v9_last_sample_ids = sample_ids
         self.v9_unique_sample_ids.update(sample_ids)
+        self._v9_window_sample_ids.extend(sample_ids)
         self.v9_observed_sample_count += len(sample_ids)
         self.v9_micro_steps += 1
 
@@ -604,6 +687,13 @@ class V9ComposeTrainer(ComposeTrainer):
             self.v9_wide_model_forwards += traversals
 
         boundary = self._at_sync_boundary()
+        if boundary:
+            # This micro-batch's window is about to be averaged and applied, so
+            # every sample in it is supervised by an optimizer step.  Only here
+            # -- the samples were *forwarded* a moment earlier, but forwarding
+            # is not the guarantee the formal pipeline claims.
+            self.v9_optimizer_sample_ids.update(self._v9_window_sample_ids)
+            self._v9_window_sample_ids = []
         if boundary or not self._v9_audited_first_step:
             with self.profiler.timed("audit_time"):
                 assert_historical_lora_frozen(
@@ -685,6 +775,56 @@ class V9ComposeTrainer(ComposeTrainer):
                 0, ids, (gates > 0.5).to(gates.dtype)
             )
             accumulators["support"].index_add_(0, ids, gates)
+        self._accumulate_offered_experts(route)
+
+    def _accumulate_offered_experts(self, route: V9RouteOutput) -> None:
+        """Bound the compute width, and say so in the metrics.
+
+        The pool grows every task while the recall width does not, so the
+        offered set must stay ``min(Top-C, historical pool) + M`` however large
+        the pool gets.  That is a claim about cost, and the honest way to hold
+        it is to check it on the live row rather than to reason about the
+        router: a recall that quietly stopped bounding itself would show up as a
+        step time that climbed with the pool, which is exactly the kind of drift
+        an ETA absorbs without anyone noticing.
+        """
+        with torch.no_grad():
+            mask = route.slot_mask
+            candidates = len(self.v9_router.candidate_ids)
+            historical_width = max(int(mask.shape[1]) - candidates, 0)
+            offered = mask.sum(dim=1).to(torch.float32)
+            historical = mask[:, :historical_width].sum(dim=1).to(torch.float32)
+            nonzero = (route.forward_gates.detach() * mask).gt(0).sum(dim=1).to(torch.float32)
+            self.v9_offered_experts_sum += float(offered.sum())
+            self.v9_offered_experts_count += int(offered.numel())
+            self.v9_offered_experts_max = max(
+                self.v9_offered_experts_max, int(offered.max().item()) if offered.numel() else 0
+            )
+            self.v9_historical_offered_max = max(
+                self.v9_historical_offered_max,
+                int(historical.max().item()) if historical.numel() else 0,
+            )
+            self.v9_nonzero_gate_experts_sum += float(nonzero.sum())
+        active_history = int(self.v9_config.active_historical_slots(bool(route.wide)))
+        limit_history = min(active_history, historical_width)
+        limit_total = limit_history + candidates
+        if self.v9_historical_offered_max > limit_history or (
+            self.v9_offered_experts_max > limit_total
+        ):
+            raise V9TrainerError(
+                "retrieval bounded-compute contract violated: a row offered {} "
+                "historical experts and {} in total, but this step is allowed at "
+                "most {} historical (Top-C={}{}, historical pool={}) and {} total. "
+                "Wide recall widens the LoRA branch set, never the pool.".format(
+                    self.v9_historical_offered_max,
+                    self.v9_offered_experts_max,
+                    limit_history,
+                    active_history,
+                    ", wide" if route.wide else "",
+                    historical_width,
+                    limit_total,
+                )
+            )
 
     def _accumulate_contribution_statistics(
         self, route: V9RouteOutput, contribution: V9Contribution
@@ -859,6 +999,7 @@ class V9ComposeTrainer(ComposeTrainer):
             "keys_per_expert": keys_per_expert,
             "trainable_key_max_cosine": self._trainable_key_redundancy(),
             "peak_memory_bytes": self._peak_memory_bytes(),
+            "allocator": self._allocator_snapshot(),
             "backbone_forwards": int(self.v9_backbone_forwards),
             # §41 (D) is a claim about the *micro-step*, not about the sample:
             # every offered expert rides on the one forward, so this is 1.0 and
@@ -891,17 +1032,45 @@ class V9ComposeTrainer(ComposeTrainer):
                 self.v9_wide_model_forwards / max(self.v9_wide_micro_steps, 1)
             ),
             "extra_forwards": int(self.v9_extra_forwards),
+            # Bounded compute: the pool grows every task and these must not.
+            "pool_size": len(self.v9_order),
+            "mean_offered_experts": (
+                self.v9_offered_experts_sum / max(self.v9_offered_experts_count, 1)
+            ),
+            "max_offered_experts": int(self.v9_offered_experts_max),
+            "max_historical_offered_experts": int(self.v9_historical_offered_max),
+            "mean_nonzero_gate_experts": (
+                self.v9_nonzero_gate_experts_sum / max(self.v9_offered_experts_count, 1)
+            ),
             "per_expert": self._usage_snapshot(),
         }
         if self._v9_step_timing is not None:
             payload.update(self._v9_step_timing)
-            # Throughput of the micro-step just finished, this rank alone.  The
-            # world size multiplies it into the run's real rate, which is why the
-            # local batch size travels beside it rather than being folded in.
+            # Two rates, named for their scopes.  The micro-step rate is this
+            # rank's own batch over the body time; the optimizer-step rate is
+            # the whole run's global batch over the wall time of one complete
+            # optimizer step, accumulation and allreduce included.  Reporting
+            # one under the other's name is how an ETA ends up wrong by the
+            # world size or the accumulation factor -- the two differ by exactly
+            # `global_batch / local_batch_size`, which is 8 here.
             elapsed = float(self._v9_step_timing.get("training_step_sec") or 0.0)
-            payload["samples_per_second"] = (
+            payload["rank_micro_samples_per_sec"] = (
                 float(self._v9_step_timing.get("local_batch_size", 0)) / elapsed
                 if elapsed > 0.0
+                else 0.0
+            )
+            payload["microstep_sec"] = elapsed
+            self._v9_optimizer_step_spans.append(
+                elapsed + float(self._v9_step_timing.get("inter_step_wait_sec") or 0.0)
+            )
+            self._v9_optimizer_step_spans = self._v9_optimizer_step_spans[-64:]
+            optimizer_span = sum(self._v9_optimizer_step_spans)
+            payload["optimizer_step_sec"] = optimizer_span / len(
+                self._v9_optimizer_step_spans
+            )
+            payload["global_samples_per_sec"] = (
+                self._v9_global_batch() / payload["optimizer_step_sec"]
+                if payload["optimizer_step_sec"] > 0.0
                 else 0.0
             )
         with self.profiler.timed("metrics_time"):
@@ -957,6 +1126,36 @@ class V9ComposeTrainer(ComposeTrainer):
         if not torch.cuda.is_available():
             return 0
         return int(torch.cuda.max_memory_allocated())
+
+    @staticmethod
+    def _allocator_snapshot() -> Dict[str, int]:
+        """Allocator state on this rank, read at the logging boundary only.
+
+        ``reserved`` exceeding ``allocated`` by a wide margin is the signature
+        of fragmentation rather than of a genuinely larger working set, and the
+        distinction decides whether a later task needs the §31 microbatch
+        fallback or merely a ``empty_cache``.  ``num_alloc_retries`` and
+        ``num_ooms`` are the allocator's own record that it has already been
+        scraping the ceiling, which is more informative than the ratio.
+
+        Read inside the metrics write, which happens once per optimizer step and
+        never per micro-step: ``memory_stats`` walks a host-side counter table
+        and has no business on the critical path.
+        """
+        if not torch.cuda.is_available():
+            return {}
+        stats = torch.cuda.memory_stats()
+        return {
+            "allocated_bytes": int(torch.cuda.memory_allocated()),
+            "reserved_bytes": int(torch.cuda.memory_reserved()),
+            "max_allocated_bytes": int(stats.get("allocated_bytes.all.peak", 0)),
+            "max_reserved_bytes": int(stats.get("reserved_bytes.all.peak", 0)),
+            "inactive_split_bytes": int(
+                stats.get("inactive_split_bytes.all.current", 0)
+            ),
+            "num_alloc_retries": int(stats.get("num_alloc_retries", 0)),
+            "num_ooms": int(stats.get("num_ooms", 0)),
+        }
 
     # ------------------------------------------------------------------
     # task-end aggregation (spec §23)
@@ -1180,10 +1379,19 @@ class V9ComposeTrainer(ComposeTrainer):
         V9 must consume the full task data: a schedule that quietly drops
         samples would change what the answer supervises without changing any
         visible hyperparameter.
+
+        Two coverages are reported because they are two different claims.
+        ``train_sample_coverage`` counts what was *forwarded*; the samples in an
+        accumulation window that never closed were forwarded too, so that number
+        alone cannot distinguish a complete epoch from one that dropped its
+        tail.  ``optimizer_coverage`` counts what reached an ``optimizer.step()``,
+        and it is the one the formal contract is about.
         """
         local = {
             "rank": torch.distributed.get_rank() if _distributed() else 0,
             "unique_sample_ids": sorted(self.v9_unique_sample_ids),
+            "optimizer_sample_ids": sorted(self.v9_optimizer_sample_ids),
+            "unclosed_window_sample_ids": sorted(self._v9_window_sample_ids),
             "observed_rows": int(self.v9_observed_sample_count),
             "micro_steps": int(self.v9_micro_steps),
         }
@@ -1194,6 +1402,12 @@ class V9ComposeTrainer(ComposeTrainer):
         unique_ids = sorted(
             {value for row in gathered for value in row["unique_sample_ids"]}
         )
+        optimizer_ids = sorted(
+            {value for row in gathered for value in row["optimizer_sample_ids"]}
+        )
+        unclosed = sorted(
+            {value for row in gathered for value in row["unclosed_window_sample_ids"]}
+        )
         observed = sum(int(row["observed_rows"]) for row in gathered)
         audit = full_data_coverage_audit(
             num_train_samples=int(num_train_samples),
@@ -1202,7 +1416,10 @@ class V9ComposeTrainer(ComposeTrainer):
             optimizer_steps=int(self.state.global_step),
             observed_sample_count=observed,
             require_full=bool(self.v9_require_full_coverage),
+            optimizer_sample_ids=optimizer_ids,
+            unclosed_window_sample_ids=unclosed,
         )
+        plan = self.v9_epoch_plan() if has_length(self.train_dataset) else None
         audit.update(
             {
                 "world_size": len(gathered),
@@ -1215,6 +1432,9 @@ class V9ComposeTrainer(ComposeTrainer):
                 "distributed_padding_count": max(0, observed - int(num_train_samples)),
             }
         )
+        if plan is not None:
+            audit.update(plan.as_dict())
+            audit["padding_duplicate_count"] = plan.padding_duplicate_count
         return audit
 
     #: §33's entire legal trainable set, in the order the report prints it.
