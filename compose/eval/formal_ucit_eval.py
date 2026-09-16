@@ -296,11 +296,28 @@ def _mirror_to_hyper_layout(root: Path, task_id: int, metrics: List[Dict[str, An
 
 
 def _update_matrix(root: Path, task_id: int, metrics: List[Dict[str, Any]]) -> None:
+    """Merge this invocation's cells into row ``task_id``.
+
+    Merging rather than replacing is what lets a row be filled in more than one
+    pass: the per-task pass writes the diagonal cell and the final sweep adds
+    the cross-task cells beside it.  A measurement that is re-taken overwrites
+    its own cell, so the row is still last-write-wins per cell, and a cell
+    already scored is never silently dropped by a later, narrower invocation.
+
+    The cell keys are strings on both sides of the merge.  JSON has no integer
+    keys, so a row read back from the file arrives keyed by string; adding
+    integer keys beside those would leave one dict holding both, and the
+    ``sort_keys`` sort below would raise rather than write a row that has been
+    through two passes.  Every reader of the file looks cells up by string --
+    ``formal_ucit_summary._matrix_rows`` among them -- so that is the spelling
+    the row is kept in.
+    """
     matrix_path = root / "evaluation" / "continual_matrix.json"
     matrix = {"schema_version": 1, "rows": {}}
     if matrix_path.is_file():
         matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
-    row = {int(metric["task_id"]): metric for metric in metrics}
+    row = {str(cell): metric for cell, metric in (matrix["rows"].get(str(task_id)) or {}).items()}
+    row.update({str(int(metric["task_id"])): metric for metric in metrics})
     matrix["rows"][str(task_id)] = row
     matrix["final_row_task"] = task_id
     matrix_path.parent.mkdir(parents=True, exist_ok=True)

@@ -58,6 +58,7 @@ from compose.v9.data import (
     V9QuerySource, build_task_retrieval, resolve_split_query_source,
     write_retrieval_manifest,
 )
+from compose.v9.heartbeat import beat
 from compose.v9.keys import V9KeyPool, initialize_candidate_keys
 from compose.v9.retrieval import HistoricalTopC, retrieval_diagnostics
 
@@ -768,6 +769,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         return
 
     # ---- 5. audit ----
+    # The audit and the commit write no step metrics, so from the outside they
+    # are invisible: a watchdog watching only the metrics file would call a
+    # healthy task-end audit a stall.  The beat is what tells it otherwise.
+    # ``--root`` is the *task* directory (``<run_root>/taskN``), which is the
+    # layout the chain passes, so the run root is one level up -- the same
+    # convention the chain uses for every path it writes.
+    beat(root.parent, "task_end_audit", task_index)
     trained_pool = load_trained_task_pool(
         training_dir, pool, task_index, candidate_ids
     )

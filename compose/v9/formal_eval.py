@@ -4,6 +4,13 @@ Row ``A[t][0..t]`` is produced with the task-``t`` committed key pool: the same
 pool serves every cell of the row, which is what makes the row a measurement of
 one model rather than of ``t+1`` different ones.
 
+A row may be built in more than one pass: ``--tasks`` narrows the work to the
+cells asked for and the matrix merges rather than replaces, so the per-task pass
+can write the diagonal cell ``A[t][t]`` beside the training that produced it and
+a later sweep can add the cross-task cells beside it.  Both passes make the same
+measurement, with the same pool and the same fixed queries; what differs is
+only when the GPU time is spent.
+
 Three properties are load-bearing and each is enforced rather than assumed:
 
 **Record order.**  ``llava.eval.eval_caption`` maps the *i*-th answer line to
@@ -25,7 +32,7 @@ every cell input and prints the work plan without loading a model.
 formal test files and the run's query manifest; no cell path is hand-written.
 """
 from __future__ import annotations
-import argparse, json, os, subprocess
+import argparse, fcntl, json, os, subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -114,9 +121,27 @@ def build_cells(
 
 
 def plan_cells(root, stage, cells, key_state):
-    expected=list(range(int(stage)+1))
+    """Where each requested cell's artefacts live.
+
+    A cell ``A[stage][task]`` may only test against a task the stage has already
+    been trained on, so every requested task must lie in ``0..stage``.  What is
+    *not* required is that all of them are requested at once: the per-task pass
+    asks for the diagonal cell alone and the final sweep asks for whichever
+    cross-task cells are still missing, and both are the same measurement made
+    at different times.
+    """
+    allowed=set(range(int(stage)+1))
     actual=[int(cell["task_index"]) for cell in cells]
-    if actual != expected: raise V9FormalEvaluationError(f"stage {stage} requires cells {expected}, got {actual}")
+    if not actual:
+        raise V9FormalEvaluationError(f"stage {stage} was given no cells to evaluate")
+    if len(set(actual)) != len(actual):
+        raise V9FormalEvaluationError(f"stage {stage} repeats a cell: {actual}")
+    outside=sorted(set(actual) - allowed)
+    if outside:
+        raise V9FormalEvaluationError(
+            f"stage {stage} has not been trained on tasks {outside}; it may only "
+            f"be evaluated on {sorted(allowed)}"
+        )
     plan=[]
     for cell in cells:
         task=int(cell["task_index"]); selection=root/"evaluation"/"selections"/f"t{stage}"/f"task{task}"/"selections.json"
@@ -248,8 +273,31 @@ def generate_answers(a, item, gpus: Sequence[str], records) -> Dict[str, Any]:
     return merged
 
 
+def cell_lock(root: Path, stage: int, task: int):
+    """An ``flock`` on ``locks/eval_tX_taskY.lock``, held while a cell is built.
+
+    Two passes can legitimately touch one cell -- the per-task pass writes the
+    diagonal, the sweep adds the cross-task cells -- and a cell that was scored
+    in between is skipped rather than repeated.  The lock covers the window the
+    file test cannot: two workers that both look before either writes would
+    otherwise generate the same 3000 answers twice and race on the merge.
+    """
+    directory = Path(root) / "locks"
+    directory.mkdir(parents=True, exist_ok=True)
+    handle = (directory / "eval_t{}_task{}.lock".format(int(stage), int(task))).open("a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        raise V9FormalEvaluationError(
+            "another worker is building cell A[{}][{}] right now; it must not be "
+            "generated twice".format(int(stage), int(task))
+        )
+    return handle
+
+
 def evaluate_row(a, root: Path, stage: int, cells, gpus: Sequence[str]) -> Dict[str, Any]:
-    """Produce every cell of a row, skipping the ones already scored."""
+    """Produce every requested cell of a row, skipping the ones already scored."""
     from compose.eval.formal_ucit_eval import _mirror_to_hyper_layout, _score_answers, _update_matrix
 
     plan = plan_cells(root, stage, cells, a.key_state)
@@ -261,25 +309,42 @@ def evaluate_row(a, root: Path, stage: int, cells, gpus: Sequence[str]) -> Dict[
         if metric_path.is_file():
             metrics.append(json.loads(metric_path.read_text(encoding="utf-8")))
             continue
-        write_selection(item)
-        records = json.loads(Path(item["question_file"]).read_text(encoding="utf-8"))
-        if not isinstance(records, list) or not records:
-            raise V9FormalEvaluationError("empty or non-list test file {}".format(item["question_file"]))
-        generation = generate_answers(a, item, gpus, records)
-        metric = _score_answers(root, stage, task, Path(item["answers"]),
-                                annotation_file=item.get("annotation_file"))
-        metric["generation"] = generation
-        metric_path.parent.mkdir(parents=True, exist_ok=True)
-        metric_path.write_text(json.dumps(metric, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        metrics.append(metric)
-        produced.append({"task_index": task, "value": metric["value"], "generation": generation})
+        handle = cell_lock(root, stage, task)
+        try:
+            if metric_path.is_file():
+                metrics.append(json.loads(metric_path.read_text(encoding="utf-8")))
+                continue
+            write_selection(item)
+            records = json.loads(Path(item["question_file"]).read_text(encoding="utf-8"))
+            if not isinstance(records, list) or not records:
+                raise V9FormalEvaluationError("empty or non-list test file {}".format(item["question_file"]))
+            generation = generate_answers(a, item, gpus, records)
+            metric = _score_answers(root, stage, task, Path(item["answers"]),
+                                    annotation_file=item.get("annotation_file"))
+            metric["generation"] = generation
+            metric_path.parent.mkdir(parents=True, exist_ok=True)
+            metric_path.write_text(json.dumps(metric, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            metrics.append(metric)
+            produced.append({"task_index": task, "value": metric["value"], "generation": generation})
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
     metrics.sort(key=lambda value: int(value["task_id"]))
     _update_matrix(root, stage, metrics)
     _mirror_to_hyper_layout(root, stage, metrics)
     marker = root / "evaluation" / "t{}".format(stage) / "row_complete.json"
     marker.parent.mkdir(parents=True, exist_ok=True)
+    # What the stage directory now holds, which after an incremental fill is not
+    # the same as what this invocation produced: writing only ``metrics`` here
+    # would make a sweep that added one cross-task cell look like it had
+    # replaced the row.
+    written = sorted(
+        int(path.parent.name[4:])
+        for path in (root / "evaluation" / "scores" / "t{}".format(stage)).glob("task*/metric.json")
+        if path.parent.name.startswith("task")
+    )
     marker.write_text(json.dumps({
-        "stage": int(stage), "cells": [int(m["task_id"]) for m in metrics],
+        "stage": int(stage), "cells": written,
         "values": {str(int(m["task_id"])): m["value"] for m in metrics},
         "produced_now": produced,
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -299,6 +364,10 @@ def main():
     p.add_argument("--query-cache-manifest")
     p.add_argument("--query-cache-root")
     p.add_argument("--legacy-query-cache-root")
+    p.add_argument("--tasks",default=None,
+                   help="comma-separated evaluated-task indices to build cells for; "
+                        "defaults to 0..stage.  Lets the per-task pass ask for its "
+                        "diagonal cell and the final sweep for the cells still missing")
     p.add_argument("--gpus",default="0",
                    help="comma-separated GPU ids for sharded generation, e.g. 0,1,2,3")
     p.add_argument("--python",default="python"); p.add_argument("--checkpoint-dir"); p.add_argument("--model-path"); p.add_argument("--projector-path"); p.add_argument("--vision-tower"); p.add_argument("--image-folder"); p.add_argument("--device",default="cuda:0")
@@ -306,13 +375,15 @@ def main():
     if a.build_cells:
         if not a.instructions_root:
             raise V9FormalEvaluationError("--build-cells needs --instructions-root")
-        # A row is ``A[stage][0..stage]`` and nothing else: ``plan_cells``
-        # insists the file hold exactly ``range(stage+1)``, so the builder has
-        # to stop at the stage.  Emitting all six tasks here would make every
-        # row below the last one fail its own integrity check at evaluation
-        # time, hours into the chain.
+        # A cell ``A[stage][task]`` with ``task > stage`` is not a measurement
+        # that exists -- the stage has not been trained on that task -- so the
+        # builder stops at the stage unless the caller names a narrower set.
+        # Emitting all six tasks here would make every row below the last one
+        # fail its own integrity check at evaluation time, hours into the chain.
+        wanted = (sorted(int(item) for item in a.tasks.split(",") if item.strip())
+                  if a.tasks else list(range(int(a.stage) + 1)))
         cells = build_cells(a.instructions_root, a.query_cache_manifest, a.query_cache_root,
-                            a.legacy_query_cache_root, tasks=range(int(a.stage) + 1))
+                            a.legacy_query_cache_root, tasks=wanted)
         target = Path(a.cells_json); target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(cells, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps({"cells": len(cells), "written": str(target)}, indent=2))

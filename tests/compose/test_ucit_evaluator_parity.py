@@ -28,6 +28,7 @@ from compose.eval.formal_ucit_eval import (  # noqa: E402
     TEST_FILES,
     VAL_COCO_FILES,
     _score_answers,
+    _update_matrix,
 )
 from compose.eval.formal_ucit_summary import (  # noqa: E402
     wrapper_metrics,
@@ -148,6 +149,49 @@ def _write_mirror(root, rows, datasets, metrics):
             (d / "hyper-task{}".format(t + 1)).mkdir(parents=True, exist_ok=True)
             text = "{}: {:.2f}%\n".format(metrics[j], value)
             (d / "hyper-task{}".format(t + 1) / "Result.text").write_text(text)
+
+
+def _metric(stage, cell, value):
+    return {"task_id": cell, "value": value, "metric": "Accuracy", "dataset": "D",
+            "scorer": "s", "stage": stage}
+
+
+def test_a_row_is_filled_in_more_than_one_pass(tmp_path):
+    """``_update_matrix`` merges; a later, narrower pass must not drop cells.
+
+    A row is written twice on the per-task schedule -- the diagonal beside its
+    own training, the cross-task cells in the sweep at the end -- so a writer
+    that replaced the row would erase the first pass's cells the moment the
+    second one ran, and the matrix would come out with fewer cells than the run
+    actually measured.
+    """
+    _update_matrix(tmp_path, 2, [_metric(2, 2, 70.0)])
+    _update_matrix(tmp_path, 2, [_metric(2, 0, 50.0), _metric(2, 1, 60.0)])
+    matrix = json.loads((tmp_path / "evaluation" / "continual_matrix.json").read_text())
+
+    assert sorted(matrix["rows"]["2"]) == ["0", "1", "2"]
+    assert matrix["rows"]["2"]["2"]["value"] == 70.0
+    assert matrix["rows"]["2"]["0"]["value"] == 50.0
+
+
+def test_a_re_measured_cell_replaces_only_itself(tmp_path):
+    """Merging is per cell, so a measurement re-taken still wins for its cell."""
+    _update_matrix(tmp_path, 1, [_metric(1, 0, 10.0), _metric(1, 1, 20.0)])
+    _update_matrix(tmp_path, 1, [_metric(1, 0, 11.0)])
+    matrix = json.loads((tmp_path / "evaluation" / "continual_matrix.json").read_text())
+
+    assert matrix["rows"]["1"]["0"]["value"] == 11.0
+    assert matrix["rows"]["1"]["1"]["value"] == 20.0
+    assert len(matrix["rows"]["1"]) == 2
+
+
+def test_two_rows_do_not_displace_each_other(tmp_path):
+    _update_matrix(tmp_path, 0, [_metric(0, 0, 1.0)])
+    _update_matrix(tmp_path, 1, [_metric(1, 0, 2.0), _metric(1, 1, 3.0)])
+    matrix = json.loads((tmp_path / "evaluation" / "continual_matrix.json").read_text())
+
+    assert sorted(matrix["rows"]) == ["0", "1"]
+    assert matrix["final_row_task"] == 1
 
 
 @ROOT

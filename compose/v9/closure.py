@@ -33,7 +33,7 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 #: Task order of the formal UCIT sequence (compose indices 0..5).
 TASK_NAMES = ("ImageNet-R", "ArxivQA", "VizWiz", "IconQA", "CLEVR", "Flickr30k")
@@ -62,6 +62,7 @@ def task_completion(
     require_full_coverage: bool = True,
     require_eval: bool = True,
     eval_root: Optional[Path] = None,
+    eval_cells: Optional[Sequence[int]] = None,
 ) -> Dict[str, Any]:
     """Every stage of task ``task_index``, checked by reading its artefact.
 
@@ -70,6 +71,14 @@ def task_completion(
     shared evaluation root: the query cache names its file without a task
     component, so training has to be per-task, while the matrix has to
     accumulate across tasks to be a matrix at all.
+
+    ``eval_cells`` names which cells of the task's row must be scored.  It
+    defaults to the whole row ``A[t][0..t]``, which is what the *final* gate
+    wants.  The per-task gate passes ``[task_index]`` instead -- the diagonal
+    cell alone -- because that is the cell that has to exist before task ``t``
+    is finished with itself.  Deferring the cross-task cells to one sweep at
+    the end must not make the row they belong to look unfinished, or the chain
+    would refuse to advance on a task that is in fact done.
     """
     root = Path(root)
     evaluation_root = Path(eval_root) if eval_root is not None else root
@@ -307,7 +316,9 @@ def task_completion(
     # ---- 6. the task's own evaluation row A[t][0..t] ----------------------
     if require_eval:
         matrix_path = evaluation_root / "evaluation" / "continual_matrix.json"
-        expected = list(range(task + 1))
+        expected = sorted(
+            int(cell) for cell in (eval_cells if eval_cells is not None else range(task + 1))
+        )
         if not matrix_path.is_file():
             requirements.append(_missing("eval_row", matrix_path))
         else:
@@ -324,7 +335,7 @@ def task_completion(
                     _requirement(
                         "eval_row",
                         present == expected and scored == expected,
-                        "expected cells {}, present {}, scored {}".format(
+                        "required cells {}, present {}, scored {}".format(
                             expected, present, scored
                         ),
                     )

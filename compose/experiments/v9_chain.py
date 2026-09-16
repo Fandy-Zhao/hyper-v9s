@@ -9,21 +9,33 @@ down, and enforced.
 
 The order per task is fixed by the spec and is not configurable:
 
-    train -> in-process audits -> task-end commit -> write the row
+    train -> in-process audits -> task-end commit -> A[t][t]
           -> verify the handoff Task{t+1} will load -> next task
 
+The evaluation that admits the next task is the task's *own* test set -- the
+diagonal cell ``A[t][t]``, measured with the pool that task just committed.
+The other cells of the row are cross-task measurements (the model after task
+``t`` on an earlier task's test set) and no later task depends on any of them,
+so building them here would spend the next task's training time on numbers that
+can be taken just as well once the last task is trained.  They are filled by
+:func:`final_sweep` at the end, which never regenerates a cell that already
+exists.
+
 What it refuses to do is as important as what it does.  It will not advance on
-a task whose row is incomplete, it will not resume across a batch-shape change
-(that would re-enter an optimizer state built for different gradients), and it
-will not print "sequence complete" unless every gate in
-:mod:`compose.v9.closure` passes for every task.  A failure leaves a
-``FORMAL_FAILED`` marker and a ``failure_report.json`` and exits non-zero
-rather than looking finished.
+a task whose training, commit or diagonal cell is missing, it will not resume
+across a batch-shape change (that would re-enter an optimizer state built for
+different gradients), it will not start a second training against a task that
+already has one running, and it will not print "sequence complete" unless every
+gate in :mod:`compose.v9.closure` passes for every task over the full 21-cell
+matrix.  A failure leaves a ``FORMAL_FAILED`` marker and a
+``failure_report.json`` and exits non-zero rather than looking finished.
 """
 
 from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
 import json
 import math
 import os
@@ -35,10 +47,17 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from compose.v9.closure import TASK_NAMES, go_no_go, task_completion
+from compose.v9.heartbeat import beat
 
 MARKER_RUNNING = "FORMAL_RUNNING"
 MARKER_COMPLETE = "FORMAL_COMPLETE"
 MARKER_FAILED = "FORMAL_FAILED"
+
+#: Launches of one task's training before the chain stops trying: the first
+#: attempt plus two retries, which is what the recovery policy permits.  The OOM
+#: fallback changes the batch shape and is a separate, once-only decision, so it
+#: does not spend this budget.
+MAX_TRAINING_ATTEMPTS = 3
 
 #: Substrings that mean the process died because the batch did not fit.  The
 #: fallback below is only ever taken for one of these: any other non-zero exit
@@ -68,6 +87,63 @@ def _write_json(path: Path, payload: Any) -> None:
 
 def _read_json(path: Path) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _sha256(path: Path) -> Optional[str]:
+    """The file's digest, or ``None`` when there is no file to digest.
+
+    ``None`` rather than a digest of nothing: a cell measured against a pool
+    that no longer exists must not read as a cell measured against a pool that
+    matches.
+    """
+    target = Path(path)
+    if not target.is_file():
+        return None
+    digest = hashlib.sha256()
+    with target.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class task_lock:
+    """``RUN_ROOT/locks/taskN.lock``, held while one task is being run.
+
+    An ``flock`` rather than a PID file, because a PID file cannot distinguish
+    "the holder is running" from "the holder was killed and the file was not
+    cleaned up" -- and the cost of that mistake here is a second training run
+    writing into the same directory as the first.  The kernel drops an flock
+    when the holder dies, so the question the lock answers is the question that
+    matters.  It is *advisory*: it stops a second copy of this chain, it does
+    not stop a process that never asks.
+    """
+
+    def __init__(self, run_root: Path, task: int) -> None:
+        self.task = int(task)
+        self.path = Path(run_root) / "locks" / "task{}.lock".format(self.task)
+        self.handle = None
+
+    def __enter__(self) -> "task_lock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = self.path.open("a+")
+        try:
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self.handle.close()
+            self.handle = None
+            raise V9ChainError(
+                "another process holds {}; two supervisors must not run the "
+                "same task at once".format(self.path)
+            )
+        return self
+
+    def __exit__(self, *exception: Any) -> None:
+        if self.handle is not None:
+            try:
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                self.handle.close()
+                self.handle = None
 
 
 def _marker(root: Path, name: str) -> None:
@@ -399,15 +475,26 @@ def handoff_checks(args, task: int) -> Dict[str, Any]:
     return checks
 
 
-def evaluate_task(args, task: int) -> Dict[str, Any]:
-    """Write row ``A[task][0..task]`` with the task's committed pool."""
+def evaluate_task(args, stage: int, cells: Sequence[int]) -> Dict[str, Any]:
+    """Measure stage ``stage`` on the test sets named by ``cells``.
+
+    ``stage`` is the model state -- the checkpoint and the pool committed at the
+    end of that task -- and ``cells`` are the tasks whose test sets it is
+    measured on.  ``A[stage][stage]`` is the task's own test set; every smaller
+    index is a cross-task cell.  Both are produced by this one function, with
+    the same committed pool and the same fixed queries, so a cross-task cell
+    measured in the sweep is the same measurement it would have been had it
+    been taken beside the diagonal.
+    """
+    cells = sorted(int(cell) for cell in cells)
     eval_root = Path(args.run_root) / "evaluation_matrix"
-    task_root = Path(args.run_root) / "task{}".format(task)
-    cells_path = eval_root / "cells_t{}.json".format(task)
-    key_state = task_root / "state" / "key_pool_task{}.pt".format(task)
+    task_root = Path(args.run_root) / "task{}".format(stage)
+    cells_path = eval_root / "cells_t{}_{}.json".format(stage, "_".join(str(c) for c in cells))
+    key_state = task_root / "state" / "key_pool_task{}.pt".format(stage)
     build = [
         args.python, "-m", "compose.v9.formal_eval",
-        "--build-cells", "--root", str(eval_root), "--stage", str(task),
+        "--build-cells", "--root", str(eval_root), "--stage", str(stage),
+        "--tasks", ",".join(str(cell) for cell in cells),
         "--key-state", str(key_state), "--cells-json", str(cells_path),
         "--instructions-root", args.instructions_root,
     ]
@@ -421,27 +508,42 @@ def evaluate_task(args, task: int) -> Dict[str, Any]:
 
     run = [
         args.python, "-m", "compose.v9.formal_eval",
-        "--root", str(eval_root), "--stage", str(task),
+        "--root", str(eval_root), "--stage", str(stage),
         "--cells-json", str(cells_path), "--key-state", str(key_state),
-        "--checkpoint-dir", str(task_root / "training" / "task{}".format(task)),
+        "--checkpoint-dir", str(task_root / "training" / "task{}".format(stage)),
         "--model-path", args.model_path, "--projector-path", args.projector_path,
         "--vision-tower", args.vision_tower, "--image-folder", args.image_folder,
         "--gpus", args.eval_gpus, "--python", args.python,
     ]
-    log_path = Path(args.run_root) / "logs" / "task{}_eval.log".format(task)
+    log_path = Path(args.run_root) / "logs" / "task{}_eval.log".format(stage)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as log:
-        log.write("\n===== {} eval task {} =====\n{}\n".format(_now(), task, " ".join(run)))
+        log.write("\n===== {} eval stage {} cells {} =====\n{}\n".format(
+            _now(), stage, cells, " ".join(run)))
         log.flush()
         completed = subprocess.run(run, cwd=args.repo, stdout=log, stderr=subprocess.STDOUT)
     if completed.returncode != 0:
         raise V9ChainError(
-            "evaluation of row {} failed (exit {}); see {}".format(
-                task, completed.returncode, log_path
+            "evaluation of A[{}][{}] failed (exit {}); see {}".format(
+                stage, cells, completed.returncode, log_path
             )
         )
     matrix = eval_root / "evaluation" / "continual_matrix.json"
-    return {"matrix": str(matrix), "log": str(log_path)}
+    return {"matrix": str(matrix), "log": str(log_path), "stage": int(stage), "cells": cells}
+
+
+def matrix_cells(args, stage: int) -> Dict[int, Dict[str, Any]]:
+    """The scored cells of row ``stage``, as the matrix currently holds them."""
+    matrix_path = Path(args.run_root) / "evaluation_matrix" / "evaluation" / "continual_matrix.json"
+    if not matrix_path.is_file():
+        return {}
+    matrix = _read_json(matrix_path)
+    row = (matrix.get("rows") or {}).get(str(int(stage)), {})
+    return {
+        int(cell): metric
+        for cell, metric in row.items()
+        if isinstance(metric, dict) and metric.get("value") is not None
+    }
 
 
 def clean_task_state(args, task: int) -> None:
@@ -458,116 +560,481 @@ def clean_task_state(args, task: int) -> None:
             shutil.rmtree(target)
 
 
+def training_in_flight(args, task: int) -> List[int]:
+    """PIDs already training this task, so a second copy is never started.
+
+    A supervisor that is restarted mid-task -- because it died, or because it
+    was replaced -- must attach to the training that is already running rather
+    than begin another one against the same output directory.  Two trainers
+    writing one checkpoint directory corrupt it in a way no later gate can
+    detect, so the question is asked *before* a command is built, and it is
+    asked of the process table rather than of a file the dead supervisor left
+    behind.
+    """
+    training_dir = str(Path(args.run_root) / "task{}".format(task) / "training" / "task{}".format(task))
+    pids: List[int] = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            command = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+        except OSError:
+            continue
+        if training_dir in command and ("torch.distributed.run" in command or "train_compose" in command):
+            pids.append(int(entry.name))
+    return sorted(pids)
+
+
+def _recorded_batch(task_root: Path) -> Dict[str, Any]:
+    """The batch a task actually ran at, from its own commit record."""
+    path = task_root / "data" / "task_complete.json"
+    if not path.is_file():
+        return {}
+    try:
+        payload = _read_json(path)
+    except (OSError, ValueError):
+        return {}
+    return {
+        key: payload[key]
+        for key in ("per_device_batch", "grad_accum")
+        if isinstance(payload.get(key), int)
+    }
+
+
+def self_eval_record(args, task: int, metric: Dict[str, Any]) -> Dict[str, Any]:
+    """What ``A[t][t]`` was measured from, in a form a later pass can re-check.
+
+    The score on its own is not evidence: a number in the matrix cannot say
+    which pool produced it, so a diagonal cell whose pool was later replaced
+    would look exactly like one whose pool was not.  The hashes here are what
+    lets the sweep *reuse* the cell instead of regenerating it -- reuse is only
+    safe if the artefact it was measured from is still the artefact on disk.
+    """
+    task_root = Path(args.run_root) / "task{}".format(task)
+    training = task_root / "training" / "task{}".format(task)
+    selection = (Path(args.run_root) / "evaluation_matrix" / "evaluation"
+                 / "selections" / "t{}".format(task) / "task{}".format(task) / "selections.json")
+    if not selection.is_file():
+        raise V9ChainError(
+            "A[{}][{}] is scored but {} does not exist, so the query geometry it "
+            "was measured with cannot be established; a cell whose provenance is "
+            "unknown must not be reused as a formal number".format(task, task, selection)
+        )
+    manifest = _read_json(selection)
+    query_source = manifest.get("query_source") or {}
+    answer_file = metric.get("prediction_file")
+    return {
+        "task_index": int(task),
+        "metric": metric.get("metric"),
+        "score": metric.get("value"),
+        "checkpoint": str(training),
+        "committed_key_state": str(task_root / "state" / "key_pool_task{}.pt".format(task)),
+        "committed_key_state_sha256": _sha256(task_root / "state" / "key_pool_task{}.pt".format(task)),
+        "expert_pool_file": str(training / "compose_experts.bin"),
+        "expert_pool_hash": _sha256(training / "compose_experts.bin"),
+        "query_hash": query_source.get("query_value_hash"),
+        "query_source": query_source,
+        "answer_file": answer_file,
+        "answer_file_sha256": _sha256(answer_file) if answer_file else None,
+        "result_text_sha256": metric.get("result_text_sha256"),
+        "scorer": metric.get("scorer"),
+        "dataset": metric.get("dataset"),
+        # The formal inference contract, recorded per cell rather than asserted
+        # once for the run: these are the claims that make the number a
+        # committed-pool measurement instead of a leak.
+        "top_k": manifest.get("top_k"),
+        "cardinality_scale": "none",
+        "answer_features_used": manifest.get("answer_features_used"),
+        "task_id_used": manifest.get("task_id_used"),
+        "training_retrieval_cache_used": manifest.get("training_retrieval_cache_used"),
+        "query_encoder_calls": manifest.get("query_encoder_calls"),
+        "timestamp": _now(),
+    }
+
+
+def self_eval_intact(args, task: int, record: Dict[str, Any]) -> Dict[str, Any]:
+    """Does the recorded cell still describe the artefacts on disk?"""
+    task_root = Path(args.run_root) / "task{}".format(task)
+    training = task_root / "training" / "task{}".format(task)
+    checks = {
+        "expert_pool": record.get("expert_pool_hash") == _sha256(training / "compose_experts.bin"),
+        "committed_key_state": record.get("committed_key_state_sha256")
+        == _sha256(task_root / "state" / "key_pool_task{}.pt".format(task)),
+    }
+    return {"ok": all(checks.values()), "checks": checks}
+
+
+def self_eval(args, task: int) -> Dict[str, Any]:
+    """``A[t][t]`` -- the one cell the next task is allowed to wait for."""
+    task_root = Path(args.run_root) / "task{}".format(task)
+    record_path = task_root / "evaluation" / "self_eval.json"
+    scored = matrix_cells(args, task)
+    cell = scored.get(int(task))
+    if cell is not None and record_path.is_file() and not args.force:
+        record = _read_json(record_path)
+        intact = self_eval_intact(args, task, record)
+        if intact["ok"]:
+            return {"task": task, "action": "diagonal-already-scored", "record": record}
+        raise V9ChainError(
+            "A[{}][{}] was measured from a pool that is no longer the committed "
+            "one ({}); the cell cannot be reused and must not be silently "
+            "regenerated either, because whatever replaced the pool is a "
+            "correctness problem of its own".format(task, task, intact["checks"])
+        )
+    if cell is not None and not args.force:
+        # A cell that exists without its provenance record -- the per-task pass
+        # that produced it predates this record.  Do not regenerate it: the
+        # answers cost GPU hours and the cell is already in the matrix.  Write
+        # down what it was measured from instead.
+        record = self_eval_record(args, task, cell)
+        _write_json(record_path, record)
+        return {"task": task, "action": "diagonal-recorded-from-existing", "record": record}
+
+    beat(args.run_root, "self_eval", task)
+    outcome = evaluate_task(args, task, [task])
+    cell = matrix_cells(args, task).get(int(task))
+    if cell is None:
+        raise V9ChainError(
+            "A[{}][{}] is missing after evaluation; task {} cannot be handed "
+            "off without its own-test-set number".format(task, task, task)
+        )
+    record = self_eval_record(args, task, cell)
+    _write_json(record_path, record)
+    return {"task": task, "action": "self-eval-produced", "record": record, "evaluation": outcome}
+
+
+def train_phase(args, task: int, require_diagonal: bool) -> Dict[str, Any]:
+    """The gate that admits task ``task + 1``.
+
+    It is ``task_completion`` with the row narrowed to this task's own cell, and
+    it is written to disk as its own artefact so that "task t is finished" is
+    answerable without re-deriving it from six requirements across three
+    directories.  The cross-task cells are deliberately not part of it: they
+    are deferred to the sweep, and a gate that waited for them would be back to
+    holding the next task's training behind the whole row.
+    """
+    task_root = Path(args.run_root) / "task{}".format(task)
+    completion = task_completion(
+        task_root, task,
+        require_full_coverage=not args.sanity,
+        require_eval=require_diagonal,
+        eval_root=Path(args.run_root) / "evaluation_matrix",
+        eval_cells=[task] if require_diagonal else None,
+    )
+    if not completion["complete"]:
+        raise V9ChainError(
+            "task {} is not ready to hand off: {}".format(task, completion["failed"])
+        )
+    payload = {
+        "task": task,
+        "task_name": TASK_NAMES[task],
+        "timestamp": _now(),
+        "completion": completion,
+        "diagonal_required": bool(require_diagonal),
+        "git_sha": _git_sha(Path(args.repo)),
+    }
+    if require_diagonal:
+        record_path = task_root / "evaluation" / "self_eval.json"
+        if not record_path.is_file():
+            raise V9ChainError(
+                "task {} has no {}: the diagonal cell exists but nothing records "
+                "what it was measured from".format(task, record_path)
+            )
+        record = _read_json(record_path)
+        intact = self_eval_intact(args, task, record)
+        if not intact["ok"]:
+            raise V9ChainError(
+                "task {}'s self-evaluation no longer matches its committed "
+                "artefacts: {}".format(task, intact["checks"])
+            )
+        payload["self_eval"] = record
+    _write_json(task_root / "data" / "train_phase_complete.json", payload)
+    return payload
+
+
+def final_sweep(args) -> Dict[str, Any]:
+    """Fill the cross-task cells, once, after the last task has trained.
+
+    A cell that is already scored is never regenerated.  For the diagonal that
+    is not merely an optimisation -- it is the point of the scheduling change:
+    ``A[t][t]`` was measured beside the training that produced it, and a sweep
+    that re-measured it would be spending GPU hours to re-derive a number the
+    run already has, with the extra risk that the two disagree.
+    """
+    reused: List[Dict[str, Any]] = []
+    filled: List[Dict[str, Any]] = []
+    for stage in range(int(args.from_task), int(args.to_task) + 1):
+        task_root = Path(args.run_root) / "task{}".format(stage)
+        if not (task_root / "state" / "key_pool_task{}.pt".format(stage)).is_file():
+            raise V9ChainError(
+                "the sweep reached stage {} but the task has not committed a "
+                "pool; the sweep may only run after every task has finished".format(stage)
+            )
+        scored = matrix_cells(args, stage)
+        record_path = task_root / "evaluation" / "self_eval.json"
+        if int(stage) in scored:
+            if not record_path.is_file():
+                raise V9ChainError(
+                    "A[{}][{}] is in the matrix but {} is missing, so the cell "
+                    "cannot be certified as reused".format(stage, stage, record_path)
+                )
+            record = _read_json(record_path)
+            intact = self_eval_intact(args, stage, record)
+            if not intact["ok"]:
+                raise V9ChainError(
+                    "refusing to build row {} on top of a diagonal cell measured "
+                    "from artefacts that have since changed: {}".format(stage, intact["checks"])
+                )
+            reused.append({"stage": stage, "cell": int(stage), "score": record.get("score")})
+        missing = [cell for cell in range(int(stage) + 1) if cell not in scored]
+        if not missing:
+            continue
+        beat(args.run_root, "final_sweep", stage, cells=missing)
+        outcome = evaluate_task(args, stage, missing)
+        after = matrix_cells(args, stage)
+        still = [cell for cell in missing if cell not in after]
+        if still:
+            raise V9ChainError(
+                "the sweep asked for A[{}][{}] and they are still missing after a "
+                "successful evaluation run".format(stage, still)
+            )
+        filled.append({"stage": stage, "cells": missing, "log": outcome["log"]})
+    return {"reused_diagonal": reused, "filled": filled}
+
+
+def _attempts_path(task_root: Path) -> Path:
+    # Deliberately outside ``data/``: the OOM fallback wipes that directory to
+    # restart the task from a clean state, and an attempt counter that the
+    # recovery itself erases cannot bound anything.
+    return task_root / "attempts.json"
+
+
+def _record_attempt(task_root: Path, reason: str) -> int:
+    path = _attempts_path(task_root)
+    history: List[Dict[str, Any]] = []
+    if path.is_file():
+        try:
+            history = list(_read_json(path).get("attempts") or [])
+        except (OSError, ValueError, AttributeError):
+            history = []
+    history.append({"attempt": len(history) + 1, "reason": reason, "timestamp": _now()})
+    _write_json(path, {"attempts": history, "count": len(history)})
+    return len(history)
+
+
+def await_training(args, task: int, poll_seconds: float = 30.0) -> Dict[str, Any]:
+    """Wait for a training of ``task`` that another supervisor started.
+
+    Returns when the task's artefacts are complete or when the training is gone.
+    A supervisor replaced mid-task must not begin a second training against the
+    same output directory -- two trainers sharing a checkpoint directory corrupt
+    it in a way no later gate can detect -- so it waits instead.  The wait ends
+    early if the processes disappear, because at that point there is nothing to
+    attach to and the caller has to decide what the death means.
+    """
+    started = time.time()
+    while True:
+        completion = task_completion(
+            Path(args.run_root) / "task{}".format(task), task,
+            require_full_coverage=not args.sanity, require_eval=False,
+            eval_root=Path(args.run_root) / "evaluation_matrix",
+        )
+        if completion["complete"]:
+            return {"task": task, "waited": round(time.time() - started, 1), "complete": True}
+        pids = training_in_flight(args, task)
+        if not pids:
+            _record_attempt(Path(args.run_root) / "task{}".format(task), "died-while-attached")
+            return {"task": task, "waited": round(time.time() - started, 1), "complete": False}
+        beat(args.run_root, "attached", task, pids=pids)
+        time.sleep(poll_seconds)
+
+
+def other_supervisors(args) -> List[int]:
+    """Other ``v9_chain`` processes driving this same run root."""
+    root = str(Path(args.run_root))
+    pids: List[int] = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            command = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+        except OSError:
+            continue
+        if "compose.experiments.v9_chain" in command and root in command:
+            pids.append(int(entry.name))
+    return sorted(pids)
+
+
 def run_task(args, task: int, per_device_batch: int, grad_accum: int) -> Dict[str, Any]:
     task_root = Path(args.run_root) / "task{}".format(task)
     task_root.mkdir(parents=True, exist_ok=True)
     full_coverage = not args.sanity
-    evaluate = task <= int(args.eval_through)
-    completion = task_completion(
-        task_root, task, require_full_coverage=full_coverage, require_eval=evaluate,
-        eval_root=Path(args.run_root) / "evaluation_matrix",
-    )
-    if completion["complete"] and not args.force:
-        return {"task": task, "action": "skipped", "completion": completion}
+    eval_root = Path(args.run_root) / "evaluation_matrix"
+    with task_lock(Path(args.run_root), task):
+        already = task_completion(
+            task_root, task, require_full_coverage=full_coverage, require_eval=False,
+            eval_root=eval_root,
+        )
+        if already["complete"] and not args.force:
+            recorded = _recorded_batch(task_root)
+            return {
+                "task": task, "action": "training-already-complete", "completion": already,
+                "per_device_batch": recorded.get("per_device_batch", per_device_batch),
+                "grad_accum": recorded.get("grad_accum", grad_accum),
+            }
+        waiting = training_in_flight(args, task)
+        if waiting and not args.force:
+            print(
+                "[v9s] task {} is already being trained by pids {}; attaching to it "
+                "rather than starting a second training".format(task, waiting),
+                flush=True,
+            )
+            beat(args.run_root, "attached", task, pids=waiting)
+            await_training(args, task)
+            handoff = handoff_checks(args, task)
+            contract = full_data_contract(args, task)
+            if not handoff["all_ok"]:
+                raise V9ChainError(
+                    "task {} finished under another supervisor but its handoff "
+                    "artefacts are incomplete: {}".format(
+                        task, sorted(k for k, v in handoff.items() if v is False and k != "all_ok")
+                    )
+                )
+            if not args.sanity and not contract["ok"]:
+                raise V9ChainError(
+                    "task {} finished under another supervisor but did not cover "
+                    "its declared split: {}".format(task, contract["failed"])
+                )
+            _write_json(task_root / "data" / "task_complete.json", {
+                "task": task, "task_name": TASK_NAMES[task], "timestamp": _now(),
+                "per_device_batch": per_device_batch, "grad_accum": grad_accum,
+                "world_size": args.world_size,
+                "global_batch": args.world_size * per_device_batch * grad_accum,
+                "sanity": bool(args.sanity), "max_steps": int(args.max_steps),
+                "supervised_by": "attached", "attached_pids": waiting,
+                "full_data_contract": contract, "handoff": handoff,
+            })
+            return {
+                "task": task, "action": "trained-under-previous-supervisor",
+                "handoff": handoff, "full_data_contract": contract,
+                "per_device_batch": per_device_batch, "grad_accum": grad_accum,
+            }
 
-    resume = (task_root / "training" / "task{}".format(task)).is_dir() and any(
-        (task_root / "training" / "task{}".format(task)).glob("checkpoint-*")
-    )
-    command = training_command(args, task, per_device_batch, grad_accum, resume,
-                               args.profile_training, full_coverage)
-    env = dict(os.environ)
-    env.setdefault("TOKENIZERS_PARALLELISM", "false")
-    env["CUDA_VISIBLE_DEVICES"] = args.gpus
-    outcome = run_training(args, command, task, env)
-
-    if outcome["returncode"] != 0:
-        if not outcome["oom"]:
+        attempts = _record_attempt(task_root, "launch")
+        if attempts > MAX_TRAINING_ATTEMPTS:
             raise V9ChainError(
-                "task {} training failed (exit {}); see {}".format(
-                    task, outcome["returncode"], outcome["log"]
+                "task {} has been launched {} times and has not produced a "
+                "handoff; the permitted retries are exhausted, so this is a "
+                "failure to diagnose rather than one to retry".format(task, attempts)
+            )
+        env = dict(os.environ)
+        env.setdefault("TOKENIZERS_PARALLELISM", "false")
+        env["CUDA_VISIBLE_DEVICES"] = args.gpus
+        training_dir = task_root / "training" / "task{}".format(task)
+        oom_fallback_used = False
+        while True:
+            # A crash resumes from the checkpoint the task already wrote; the
+            # batch shape, the data order and the query geometry are all
+            # unchanged, which is what makes the resume the same training rather
+            # than a second one.  The count is bounded, and each launch is
+            # recorded before it happens, so a crash loop cannot outrun it.
+            resume = training_dir.is_dir() and any(training_dir.glob("checkpoint-*"))
+            command = training_command(args, task, per_device_batch, grad_accum, resume,
+                                       args.profile_training, full_coverage)
+            beat(args.run_root, "training", task, attempt=attempts, resume=bool(resume))
+            outcome = run_training(args, command, task, env)
+            if outcome["returncode"] == 0:
+                break
+            if outcome["oom"]:
+                if oom_fallback_used:
+                    raise V9ChainError(
+                        "task {} ran out of memory again at micro-batch {} with "
+                        "accumulation {} (global batch {}); that was the one "
+                        "permitted fallback, so the chain stops here rather than "
+                        "trying a third size -- see {}. Reported, not tuned "
+                        "around.".format(
+                            task, per_device_batch, grad_accum,
+                            args.world_size * per_device_batch * grad_accum,
+                            outcome["log"],
+                        )
+                    )
+                # One fallback, recorded, from a clean task state.  The fallback
+                # is the last attempt: micro 4 / accum 2 OOMs -> restart this
+                # task clean at micro 2 / accum 4 (global batch still 32) -> if
+                # *that* also runs out of memory the chain stops.  It is not "if
+                # micro 4 fails again" -- micro 4 is gone by then -- so no third
+                # size and no continued tuning.
+                fallback_batch = max(1, per_device_batch // 2)
+                fallback_accum = max(1, (args.world_size * per_device_batch * grad_accum)
+                                     // (args.world_size * fallback_batch))
+                _write_json(Path(args.run_root) / "data" / "oom_fallback_task{}.json".format(task), {
+                    "task": task, "timestamp": _now(),
+                    "status": "OOM_INVALIDATED",
+                    "from": {"per_device_batch": per_device_batch, "grad_accum": grad_accum},
+                    "to": {"per_device_batch": fallback_batch, "grad_accum": fallback_accum},
+                    "reason": "CUDA out of memory",
+                    "global_batch_preserved": args.world_size * fallback_batch * fallback_accum,
+                    "note": "the task restarts from a clean state; the interrupted "
+                            "attempt's optimizer state was built for a different "
+                            "micro-batch and is not resumed onto",
+                })
+                clean_task_state(args, task)
+                _record_attempt(task_root, "oom-fallback")
+                per_device_batch, grad_accum = fallback_batch, fallback_accum
+                oom_fallback_used = True
+                continue
+            if attempts >= MAX_TRAINING_ATTEMPTS:
+                raise V9ChainError(
+                    "task {} training crashed {} times (last exit {}); the "
+                    "permitted retries are exhausted -- see {}".format(
+                        task, attempts, outcome["returncode"], outcome["log"]
+                    )
+                )
+            attempts = _record_attempt(task_root, "retry-after-crash")
+            print(
+                "[v9s] task {} exited {}; retrying from the latest checkpoint "
+                "(launch {} of {})".format(task, outcome["returncode"], attempts,
+                                           MAX_TRAINING_ATTEMPTS),
+                flush=True,
+            )
+
+        handoff = handoff_checks(args, task)
+        if not handoff["all_ok"]:
+            raise V9ChainError(
+                "task {} trained but the handoff artefacts are incomplete: {}".format(
+                    task, sorted(k for k, v in handoff.items() if v is False and k != "all_ok")
                 )
             )
-        # One fallback, recorded, from a clean task state.  The fallback is the
-        # last attempt: micro 4 / accum 2 OOMs -> restart this task clean at
-        # micro 2 / accum 4 (global batch still 32) -> if *that* also runs out
-        # of memory the chain stops.  It is not "if micro 4 fails again" --
-        # micro 4 is gone by then -- so no third size and no continued tuning.
-        fallback_batch = max(1, per_device_batch // 2)
-        fallback_accum = max(1, (args.world_size * per_device_batch * grad_accum)
-                             // (args.world_size * fallback_batch))
-        _write_json(Path(args.run_root) / "data" / "oom_fallback_task{}.json".format(task), {
-            "task": task, "timestamp": _now(),
-            "from": {"per_device_batch": per_device_batch, "grad_accum": grad_accum},
-            "to": {"per_device_batch": fallback_batch, "grad_accum": fallback_accum},
-            "reason": "CUDA out of memory on the first attempt",
-            "global_batch_preserved": args.world_size * fallback_batch * fallback_accum,
+        # The full-data tail contract, checked here so a task that dropped its last
+        # accumulation window stops the chain instead of being handed to the next
+        # one.  A sanity run caps its step count and cannot meet it, so it is asked
+        # only to record the numbers -- the same reason its completion gate relaxes
+        # the coverage requirement.
+        contract = full_data_contract(args, task)
+        if not args.sanity and not contract["ok"]:
+            raise V9ChainError(
+                "task {} trained but did not cover its declared split: {}".format(
+                    task, contract["failed"]
+                )
+            )
+        performance = performance_report(task_root)
+        if performance.get("warning"):
+            _write_json(task_root / "data" / "performance_warning.json", performance)
+        _write_json(task_root / "data" / "task_complete.json", {
+            "task": task, "task_name": TASK_NAMES[task], "timestamp": _now(),
+            "per_device_batch": per_device_batch, "grad_accum": grad_accum,
+            "world_size": args.world_size,
+            "global_batch": args.world_size * per_device_batch * grad_accum,
+            "sanity": bool(args.sanity), "max_steps": int(args.max_steps),
+            "supervised_by": "launched", "attempts": attempts,
+            "full_data_contract": contract,
+            "handoff": handoff, "performance": performance,
         })
-        clean_task_state(args, task)
-        command = training_command(args, task, fallback_batch, fallback_accum, False,
-                                   args.profile_training, full_coverage)
-        outcome = run_training(args, command, task, env)
-        if outcome["returncode"] != 0:
-            raise V9ChainError(
-                "task {} out of memory at micro-batch {} with accumulation {} "
-                "(global batch {}); that was the one permitted fallback, so the "
-                "chain stops here rather than trying a third size -- see {}. "
-                "Reported, not tuned around.".format(
-                    task, fallback_batch, fallback_accum,
-                    args.world_size * fallback_batch * fallback_accum,
-                    outcome["log"],
-                )
-            )
-        per_device_batch, grad_accum = fallback_batch, fallback_accum
-
-    handoff = handoff_checks(args, task)
-    if not handoff["all_ok"]:
-        raise V9ChainError(
-            "task {} trained but the handoff artefacts are incomplete: {}".format(
-                task, sorted(k for k, v in handoff.items() if v is False and k != "all_ok")
-            )
-        )
-    # The full-data tail contract, checked here so a task that dropped its last
-    # accumulation window stops the chain instead of being handed to the next
-    # one.  A sanity run caps its step count and cannot meet it, so it is asked
-    # only to record the numbers -- the same reason its completion gate relaxes
-    # the coverage requirement.
-    contract = full_data_contract(args, task)
-    if not args.sanity and not contract["ok"]:
-        raise V9ChainError(
-            "task {} trained but did not cover its declared split: {}".format(
-                task, contract["failed"]
-            )
-        )
-    evaluation = evaluate_task(args, task) if evaluate else {
-        "skipped": "task {} is above --eval-through {}".format(task, args.eval_through)
-    }
-    completion = task_completion(
-        task_root, task, require_full_coverage=full_coverage, require_eval=evaluate,
-        eval_root=Path(args.run_root) / "evaluation_matrix",
-    )
-    if not completion["complete"]:
-        raise V9ChainError(
-            "task {} is still incomplete after training and evaluation: {}".format(
-                task, completion["failed"]
-            )
-        )
-    performance = performance_report(task_root)
-    if performance.get("warning"):
-        _write_json(task_root / "data" / "performance_warning.json", performance)
-    _write_json(task_root / "data" / "task_complete.json", {
-        "task": task, "task_name": TASK_NAMES[task], "timestamp": _now(),
-        "per_device_batch": per_device_batch, "grad_accum": grad_accum,
-        "world_size": args.world_size,
-        "global_batch": args.world_size * per_device_batch * grad_accum,
-        "sanity": bool(args.sanity), "max_steps": int(args.max_steps),
-        "full_data_contract": contract,
-        "handoff": handoff, "evaluation": evaluation, "performance": performance,
-    })
-    return {
-        "task": task, "action": "trained", "outcome": outcome, "handoff": handoff,
-        "evaluation": evaluation, "performance": performance,
-        "per_device_batch": per_device_batch, "grad_accum": grad_accum,
-    }
+        return {
+            "task": task, "action": "trained", "outcome": outcome, "handoff": handoff,
+            "full_data_contract": contract, "performance": performance,
+            "per_device_batch": per_device_batch, "grad_accum": grad_accum,
+        }
 
 
 # ----------------------------------------------------------------------
@@ -601,6 +1068,25 @@ def final_verification(args, results: Sequence[Dict[str, Any]]) -> Dict[str, Any
         per_task[str(task)] = completion
         if not completion["complete"]:
             blocked.append("task{}: {}".format(task, completion["failed"]))
+        # The diagonal cell of every row is reused, not regenerated, by the
+        # sweep -- so the record of what it was measured from has to still
+        # describe the artefacts on disk, or the run is reporting a number
+        # against a pool it no longer has.
+        record_path = task_root / "evaluation" / "self_eval.json"
+        if not record_path.is_file():
+            blocked.append("task{}: no self-evaluation record at {}".format(task, record_path))
+        else:
+            try:
+                intact = self_eval_intact(args, task, _read_json(record_path))
+            except (OSError, ValueError) as error:
+                blocked.append("task{}: unreadable self-evaluation record: {}".format(task, error))
+            else:
+                per_task[str(task)]["self_eval_intact"] = intact
+                if not intact["ok"]:
+                    blocked.append(
+                        "task{}: self-evaluation no longer matches its committed "
+                        "artefacts: {}".format(task, intact["checks"])
+                    )
     matrix_path = eval_root / "evaluation" / "continual_matrix.json"
     cells = 0
     if matrix_path.is_file():
@@ -665,6 +1151,8 @@ def write_summary(args, verification: Dict[str, Any]) -> None:
         "- query source: {}".format(args.query_cache_manifest or "precomputed"),
         "- query encoder calls: 0",
         "- max optimizer steps per task: {}".format(args.max_steps or "uncapped"),
+        "- per task: training -> commit -> `A[t][t]`; cross-task cells filled by "
+        "one sweep after the last task",
         "- lower-triangular cells: {}/{}".format(verification["cells"], verification["expected_cells"]),
         "",
         "## tasks",
@@ -719,6 +1207,20 @@ def chain(args) -> int:
         if gate["decision"] != "GO":
             raise V9ChainError("GO/NO-GO gate is NO-GO: {}".format(gate["blocked_by"]))
 
+        rivals = other_supervisors(args)
+        if rivals and not args.takeover:
+            raise V9ChainError(
+                "another v9_chain (pids {}) is driving this run root; two "
+                "supervisors cannot share a run -- pass --takeover only after "
+                "the other one has actually stopped".format(rivals)
+            )
+        if rivals:
+            print(
+                "[v9s] taking over from supervisor pids {}; the task lock and the "
+                "attach check decide what may safely be continued".format(rivals),
+                file=sys.stderr,
+            )
+
         per_device_batch = args.per_device_batch
         grad_accum = args.grad_accum
         for task in range(args.from_task, args.to_task + 1):
@@ -729,10 +1231,27 @@ def chain(args) -> int:
             # need at least as much -- must not silently retry the larger one.
             per_device_batch = result.get("per_device_batch", per_device_batch)
             grad_accum = result.get("grad_accum", grad_accum)
+            # The task's own test set, measured with the pool it just committed.
+            # Only after this exists is the task finished with itself and the
+            # next one allowed to start.
+            if task <= int(args.eval_through):
+                stage = "task{}_self_eval".format(task)
+                result["self_eval"] = self_eval(args, task)
+            stage = "task{}_handoff".format(task)
+            result["train_phase"] = train_phase(
+                args, task, require_diagonal=task <= int(args.eval_through)
+            )
             results.append(result)
 
+        stage = "final_sweep"
+        sweep = final_sweep(args) if not args.sanity else {
+            "skipped": "a sanity run does not fill the cross-task cells; its "
+                       "evaluation is restricted on purpose"
+        }
+        _write_json(run_root / "data" / "final_sweep.json", sweep)
         stage = "final_verification"
         verification = final_verification(args, results)
+        verification["sweep"] = sweep
         write_summary(args, verification)
         if not verification["complete"]:
             if args.sanity:
@@ -808,6 +1327,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--profile-training", action="store_true")
     parser.add_argument("--force", action="store_true",
                         help="re-run a task even if its completion gate already passes")
+    parser.add_argument("--takeover", action="store_true",
+                        help="start even though another v9_chain is recorded against this "
+                             "run root; use only once that supervisor has actually stopped")
     parser.add_argument("--require-clean-git", action="store_true", default=True)
     return parser.parse_args(argv)
 

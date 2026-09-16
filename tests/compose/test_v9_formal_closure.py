@@ -464,7 +464,7 @@ def test_a_frozen_parameter_is_not_reported_at_all():
 
 
 # ----------------------------------------------------------------------
-# a row holds its own cells and no others
+# a pass holds the cells it asked for, and only cells the stage has seen
 # ----------------------------------------------------------------------
 def _fake_instructions(root: Path) -> None:
     for name in TASK_NAMES:
@@ -476,8 +476,8 @@ def _fake_instructions(root: Path) -> None:
 def test_build_cells_emits_the_row_the_stage_asked_for(tmp_path, monkeypatch):
     """``A[t][0:t]`` is the row; a builder that emits all six is wrong for t<5.
 
-    The chain builds a row's cells immediately before evaluating it, and
-    ``plan_cells`` requires the file to hold exactly ``range(stage+1)``.  Emitting
+    The chain builds a row's cells immediately before evaluating it, and a row
+    may only be measured on the tasks the stage has been trained on.  Emitting
     every task here made the first row of every run fail its own check, which is
     a failure that would otherwise surface hours into a formal chain.
     """
@@ -509,22 +509,35 @@ def test_the_last_row_still_holds_every_cell(tmp_path):
 
 
 def test_a_full_cell_file_is_rejected_as_a_row(tmp_path):
-    """The guard that caught this is kept: extra cells are not a row."""
+    """The guard that caught this is kept: extra cells are not this row.
+
+    A cell that names a task the stage has not been trained on cannot be
+    measured -- there is no state to measure it with -- so the file a row is
+    built from may not reach past the stage.
+    """
     instructions = tmp_path / "instructions"
     _fake_instructions(instructions)
     all_cells = build_cells(instructions, "manifest.json", "root")
-    with pytest.raises(V9FormalEvaluationError, match="requires cells"):
+    with pytest.raises(V9FormalEvaluationError, match="has not been trained on tasks"):
         plan_cells(tmp_path, 0, all_cells, tmp_path / "keys.pt")
 
 
-def test_a_missing_cell_is_not_papered_over(tmp_path):
-    """Rows are checked for content, so a gap cannot pass as a shorter row."""
+def test_a_pass_plans_the_cells_it_asked_for_and_no_others(tmp_path):
+    """A subset is now a legal pass -- and the gap it leaves stays a gap.
+
+    The row is built in more than one pass: the diagonal beside its own
+    training, the cross-task cells in a sweep at the end.  What must not happen
+    is a pass *inventing* the cells it was not asked for, because that would
+    fill a gap with a measurement nobody ordered and the matrix would stop
+    saying which run measured what.
+    """
     instructions = tmp_path / "instructions"
     _fake_instructions(instructions)
-    cells = [cell for cell in build_cells(instructions, "manifest.json", "root")
+    cells = [cell for cell in build_cells(instructions, "manifest.json", "root", tasks=range(4))
              if cell["task_index"] != 1]
-    with pytest.raises(V9FormalEvaluationError, match="requires cells"):
-        plan_cells(tmp_path, 2, cells, tmp_path / "keys.pt")
+    plan = plan_cells(tmp_path, 3, cells, tmp_path / "keys.pt")
+    assert [item["task_index"] for item in plan] == [0, 2, 3]
+    assert all(item["key_state"] == str(tmp_path / "keys.pt") for item in plan)
 
 
 # ----------------------------------------------------------------------
